@@ -1,0 +1,223 @@
+{
+  "whip": {
+    "name": "Bone Whip",
+    "sprite": "fx_slash",
+    "behavior": "arc",
+    "description": "Slashes in the direction you last moved. Hits everything it sweeps.",
+    "weight": 100,
+    "base": {
+      "damage": 12,
+      "cooldown": 1.35,
+      "count": 1,
+      "pierce": -1,
+      "area": 1,
+      "duration": 0.24,
+      "knockback": 55,
+      "reach": 34
+    },
+    "levels": [
+      { "damage": 6, "note": "+6 damage" },
+      { "count": 1, "note": "Also slashes behind you" },
+      { "damage": 6, "area": 0.15, "note": "+6 damage, +15% area" },
+      { "cooldown": -0.15, "note": "-0.15s cooldown" },
+      { "damage": 8, "note": "+8 damage" },
+      { "count": 1, "area": 0.15, "note": "+1 slash, +15% area" },
+      { "damage": 10, "knockback": 25, "note": "+10 damage, +25 knockback" }
+    ]
+  },
+
+  "wand": {
+    "name": "Hex Wand",
+    "sprite": "proj_bolt",
+    "behavior": "homing",
+    "description": "Fires a bolt that curves toward the nearest enemy.",
+    "weight": 100,
+    "base": {
+      "damage": 11,
+      "cooldown": 1.1,
+      "count": 1,
+      "pierce": 1,
+      "area": 1,
+      "speed": 130,
+      "lifetime": 2.6,
+      "knockback": 18,
+      "turnRate": 5.5
+    },
+    "levels": [
+      { "count": 1, "note": "+1 bolt" },
+      { "damage": 5, "note": "+5 damage" },
+      { "cooldown": -0.12, "note": "-0.12s cooldown" },
+      { "count": 1, "note": "+1 bolt" },
+      { "damage": 6, "pierce": 1, "note": "+6 damage, +1 pierce" },
+      { "cooldown": -0.12, "turnRate": 1.5, "note": "-0.12s cooldown, sharper tracking" },
+      { "count": 1, "damage": 8, "note": "+1 bolt, +8 damage" }
+    ]
+  },
+
+  "knife": {
+    "name": "Throwing Knives",
+    "sprite": "proj_knife",
+    "behavior": "straight",
+    "description": "Fast knives thrown the way you face. Cheap, relentless, pierces.",
+    "weight": 100,
+    "base": {
+      "damage": 8,
+      "cooldown": 0.85,
+      "count": 1,
+      "pierce": 1,
+      "area": 1,
+      "speed": 195,
+      "lifetime": 1.5,
+      "knockback": 10,
+      "spread": 0.12
+    },
+    "levels": [
+      { "count": 1, "note": "+1 knife" },
+      { "damage": 4, "note": "+4 damage" },
+      { "count": 1, "pierce": 1, "note": "+1 knife, +1 pierce" },
+      { "cooldown": -0.1, "note": "-0.1s cooldown" },
+      { "damage": 5, "note": "+5 damage" },
+      { "count": 1, "pierce": 1, "note": "+1 knife, +1 pierce" },
+      { "damage": 6, "speed": 40, "note": "+6 damage, faster knives" }
+    ]
+  },
+
+  "garlic": {
+    "name": "Warding Circle",
+    "sprite": "aura_garlic",
+    "behavior": "aura",
+    "description": "A ring of consecrated ground. Damages and pushes back anything inside.",
+    "weight": 90,
+    "base": {
+      "damage": 6,
+      "cooldown": 0,
+      "count": 1,
+      "pierce": -1,
+      "area": 1,
+      "radius": 40,
+      "interval": 0.5,
+      "knockback": 14
+    },
+    "levels": [
+      { "area": 0.2, "note": "+20% radius" },
+      { "damage": 3, "note": "+3 damage" },
+      { "interval": -0.07, "note": "Ticks faster" },
+      { "area": 0.2, "note": "+20% radius" },
+      { "damage": 4, "knockback": 8, "note": "+4 damage, +8 knockback" },
+      { "interval": -0.07, "note": "Ticks faster" },
+      { "damage": 5, "area": 0.2, "note": "+5 damage, +20% radius" }
+    ]
+  },
+
+  "tome": {
+    "name": "Bound Tomes",
+    "sprite": "orb_tome",
+    "behavior": "orbit",
+    "description": "Tomes orbit you, grinding through anything they touch.",
+    "weight": 90,
+    "base": {
+      "damage": 10,
+      "cooldown": 3.2,
+      "count": 2,
+      "pierce": -1,
+      "area": 1,
+      "duration": 3.5,
+      "radius": 42,
+      "orbitSpeed": 2.3,
+      "interval": 0.4,
+      "knockback": 12
+    },
+    "levels": [
+      { "count": 1, "note": "+1 tome" },
+      { "damage": 5, "note": "+5 damage" },
+      { "duration": 0.7, "note": "+0.7s duration" },
+      { "count": 1, "note": "+1 tome" },
+      { "damage": 6, "radius": 8, "note": "+6 damage, wider orbit" },
+      { "cooldown": -0.5, "orbitSpeed": 0.4, "note": "-0.5s cooldown, spins faster" },
+      { "count": 1, "damage": 7, "note": "+1 tome, +7 damage" }
+    ]
+  },
+
+  "brazier": {
+    "name": "Ember Flask",
+    "sprite": "hazard_fire",
+    "behavior": "drop",
+    "description": "Hurls flasks that leave burning ground where they land.",
+    "weight": 85,
+    "base": {
+      "damage": 16,
+      "cooldown": 3.2,
+      "count": 1,
+      "pierce": -1,
+      "area": 1,
+      "duration": 2.6,
+      "radius": 22,
+      "interval": 0.4,
+      "spawnRadius": 80,
+      "knockback": 0
+    },
+    "levels": [
+      { "count": 1, "note": "+1 flask" },
+      { "damage": 6, "note": "+6 damage" },
+      { "duration": 0.8, "note": "+0.8s burn duration" },
+      { "count": 1, "note": "+1 flask" },
+      { "damage": 8, "area": 0.2, "note": "+8 damage, +20% area" },
+      { "cooldown": -0.5, "note": "-0.5s cooldown" },
+      { "count": 1, "damage": 10, "note": "+1 flask, +10 damage" }
+    ]
+  },
+
+  "nova": {
+    "name": "Starfall",
+    "sprite": "fx_star",
+    "behavior": "nova",
+    "description": "Bursts a ring of stars outward in every direction.",
+    "weight": 80,
+    "base": {
+      "damage": 15,
+      "cooldown": 4.6,
+      "count": 8,
+      "pierce": 2,
+      "area": 1,
+      "speed": 115,
+      "lifetime": 1.7,
+      "knockback": 22
+    },
+    "levels": [
+      { "count": 3, "note": "+3 stars" },
+      { "damage": 6, "note": "+6 damage" },
+      { "cooldown": -0.5, "note": "-0.5s cooldown" },
+      { "count": 3, "pierce": 1, "note": "+3 stars, +1 pierce" },
+      { "damage": 8, "note": "+8 damage" },
+      { "count": 4, "note": "+4 stars" },
+      { "damage": 10, "cooldown": -0.6, "note": "+10 damage, -0.6s cooldown" }
+    ]
+  },
+
+  "storm": {
+    "name": "Stormcall",
+    "sprite": "fx_bolt_strike",
+    "behavior": "lightning",
+    "description": "Strikes enemies on screen from above. Ignores everything in the way.",
+    "weight": 75,
+    "base": {
+      "damage": 34,
+      "cooldown": 3.0,
+      "count": 1,
+      "pierce": -1,
+      "area": 1,
+      "radius": 18,
+      "duration": 0.22,
+      "knockback": 30
+    },
+    "levels": [
+      { "count": 1, "note": "+1 strike" },
+      { "damage": 12, "note": "+12 damage" },
+      { "cooldown": -0.35, "note": "-0.35s cooldown" },
+      { "count": 1, "area": 0.2, "note": "+1 strike, +20% blast radius" },
+      { "damage": 16, "note": "+16 damage" },
+      { "count": 2, "note": "+2 strikes" },
+      { "damage": 22, "cooldown": -0.4, "note": "+22 damage, -0.4s cooldown" }
+    ]
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "whetstone": {
+    "name": "Whetstone",
+    "description": "+10% damage per level.",
+    "maxLevel": 5,
+    "weight": 100,
+    "perLevel": { "might": 0.1 }
+  },
+  "ironplate": {
+    "name": "Iron Plate",
+    "description": "+1 armour per level. Flat reduction on every hit.",
+    "maxLevel": 5,
+    "weight": 95,
+    "perLevel": { "armor": 1 }
+  },
+  "vitalember": {
+    "name": "Vital Ember",
+    "description": "+15% max health per level.",
+    "maxLevel": 5,
+    "weight": 100,
+    "perLevel": { "maxHpMul": 0.15 }
+  },
+  "bloodroot": {
+    "name": "Bloodroot",
+    "description": "Regenerate +0.25 health per second per level.",
+    "maxLevel": 5,
+    "weight": 85,
+    "perLevel": { "recovery": 0.25 }
+  },
+  "swiftboots": {
+    "name": "Swift Boots",
+    "description": "+8% movement speed per level.",
+    "maxLevel": 5,
+    "weight": 95,
+    "perLevel": { "moveSpeedMul": 0.08 }
+  },
+  "widelens": {
+    "name": "Wide Lens",
+    "description": "+12% weapon area per level.",
+    "maxLevel": 5,
+    "weight": 90,
+    "perLevel": { "area": 0.12 }
+  },
+  "tensioncord": {
+    "name": "Tension Cord",
+    "description": "+12% projectile speed per level.",
+    "maxLevel": 5,
+    "weight": 80,
+    "perLevel": { "projectileSpeed": 0.12 }
+  },
+  "longcandle": {
+    "name": "Long Candle",
+    "description": "+12% effect duration per level.",
+    "maxLevel": 5,
+    "weight": 80,
+    "perLevel": { "duration": 0.12 }
+  },
+  "twinsigil": {
+    "name": "Twin Sigil",
+    "description": "+1 projectile on every weapon. Rare and powerful.",
+    "maxLevel": 2,
+    "weight": 30,
+    "perLevel": { "amount": 1 }
+  },
+  "quickglyph": {
+    "name": "Quick Glyph",
+    "description": "-7% weapon cooldown per level.",
+    "maxLevel": 5,
+    "weight": 90,
+    "perLevel": { "cooldown": -0.07 }
+  },
+  "lodestone": {
+    "name": "Lodestone",
+    "description": "+30% pickup range per level.",
+    "maxLevel": 5,
+    "weight": 75,
+    "perLevel": { "magnetMul": 0.3 }
+  },
+  "scholarscrown": {
+    "name": "Scholar's Crown",
+    "description": "+10% experience gained per level.",
+    "maxLevel": 5,
+    "weight": 70,
+    "perLevel": { "growth": 0.1 }
+  },
+  "luckycoin": {
+    "name": "Lucky Coin",
+    "description": "+10% luck per level. Improves crits and drop rates.",
+    "maxLevel": 5,
+    "weight": 70,
+    "perLevel": { "luck": 0.1, "critChance": 0.015 }
+  },
+  "misersmask": {
+    "name": "Miser's Mask",
+    "description": "+15% gold found per level.",
+    "maxLevel": 5,
+    "weight": 55,
+    "perLevel": { "greed": 0.15 }
+  }
+}

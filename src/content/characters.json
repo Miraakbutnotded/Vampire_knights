@@ -1,0 +1,109 @@
+{
+  "wanderer": {
+    "name": "The Wanderer",
+    "sprite": "player",
+    "description": "Balanced start. Nothing exceptional, nothing missing.",
+    "startingWeapon": "whip",
+    "radius": 5,
+    "stats": {
+      "maxHp": 100,
+      "recovery": 0,
+      "armor": 0,
+      "moveSpeed": 64,
+      "might": 1,
+      "area": 1,
+      "projectileSpeed": 1,
+      "duration": 1,
+      "amount": 0,
+      "cooldown": 1,
+      "magnet": 30,
+      "growth": 1,
+      "greed": 1,
+      "luck": 1,
+      "critChance": 0.05,
+      "critMult": 2,
+      "revives": 0
+    }
+  },
+
+  "acolyte": {
+    "name": "The Acolyte",
+    "sprite": "player",
+    "description": "Frail but quick to learn. +30% experience, -20% max health.",
+    "startingWeapon": "wand",
+    "radius": 5,
+    "stats": {
+      "maxHp": 80,
+      "recovery": 0,
+      "armor": 0,
+      "moveSpeed": 66,
+      "might": 1,
+      "area": 1,
+      "projectileSpeed": 1,
+      "duration": 1,
+      "amount": 0,
+      "cooldown": 0.95,
+      "magnet": 34,
+      "growth": 1.3,
+      "greed": 1,
+      "luck": 1.1,
+      "critChance": 0.08,
+      "critMult": 2,
+      "revives": 0
+    }
+  },
+
+  "warden_knight": {
+    "name": "The Sworn",
+    "sprite": "player",
+    "description": "Slow and armoured. Survives openings that kill others.",
+    "startingWeapon": "garlic",
+    "radius": 6,
+    "stats": {
+      "maxHp": 140,
+      "recovery": 0.3,
+      "armor": 2,
+      "moveSpeed": 56,
+      "might": 1.1,
+      "area": 1,
+      "projectileSpeed": 1,
+      "duration": 1,
+      "amount": 0,
+      "cooldown": 1.05,
+      "magnet": 26,
+      "growth": 0.9,
+      "greed": 1,
+      "luck": 0.9,
+      "critChance": 0.04,
+      "critMult": 2,
+      "revives": 1
+    }
+  },
+
+  "outrider": {
+    "name": "The Outrider",
+    "sprite": "player",
+    "description": "Built to kite. Fast, wide pickup range, throws knives.",
+    "startingWeapon": "knife",
+    "radius": 5,
+    "stats": {
+      "maxHp": 90,
+      "recovery": 0,
+      "armor": 0,
+      "moveSpeed": 74,
+      "might": 1,
+      "area": 0.95,
+      "projectileSpeed": 1.15,
+      "duration": 1,
+      "amount": 1,
+      "cooldown": 1,
+      "magnet": 40,
+      "growth": 1,
+      "greed": 1.1,
+      "luck": 1,
+      "critChance": 0.06,
+      "critMult": 2.2,
+      "revives": 0
+    }
+  }
+}

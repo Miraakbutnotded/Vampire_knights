@@ -1,0 +1,36 @@
+{
+  "name": "The Sunken Crypt",
+  "tileSize": 16,
+  "ground": { "mode": "scatter" },
+  "bounds": { "left": -640, "top": -480, "right": 640, "bottom": 480 },
+  "spawnPoint": [0, 0],
+  "waves": "default",
+  "voidColor": "#0a0a10",
+  "tileset": [
+    { "src": "tiles/stone.png", "weight": 24, "placeholder": { "color": "#2a2a33", "detail": 0.55 } },
+    { "src": "tiles/stone_b.png", "weight": 12, "placeholder": { "color": "#31313c", "detail": 0.75 } },
+    { "src": "tiles/stone_cracked.png", "weight": 5, "placeholder": { "color": "#24242c", "detail": 1 } },
+    { "src": "tiles/moss.png", "weight": 4, "placeholder": { "color": "#26332a", "detail": 0.8 } }
+  ],
+  "decor": [
+    { "sprite": "grave", "density": 0.05 },
+    { "sprite": "rock", "density": 0.04 },
+    { "sprite": "puddle", "density": 0.05, "flat": true }
+  ],
+  "props": [
+    { "sprite": "grave", "x": -180, "y": -140, "solid": 7 },
+    { "sprite": "grave", "x": -140, "y": -140, "solid": 7 },
+    { "sprite": "grave", "x": -100, "y": -140, "solid": 7 },
+    { "sprite": "grave", "x": 100, "y": -140, "solid": 7 },
+    { "sprite": "grave", "x": 140, "y": -140, "solid": 7 },
+    { "sprite": "grave", "x": 180, "y": -140, "solid": 7 },
+    { "sprite": "rock", "x": -260, "y": 160, "solid": 9 },
+    { "sprite": "rock", "x": -210, "y": 200, "solid": 9 },
+    { "sprite": "rock", "x": 260, "y": 160, "solid": 9 },
+    { "sprite": "rock", "x": 210, "y": 200, "solid": 9 },
+    { "sprite": "tree", "x": -420, "y": -300, "solid": 10 },
+    { "sprite": "tree", "x": 420, "y": -300, "solid": 10 },
+    { "sprite": "tree", "x": -420, "y": 320, "solid": 10 },
+    { "sprite": "tree", "x": 420, "y": 320, "solid": 10 }
+  ]
+}

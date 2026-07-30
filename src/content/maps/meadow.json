@@ -1,0 +1,23 @@
+{
+  "name": "Moonlit Meadow",
+  "tileSize": 16,
+  "ground": { "mode": "scatter" },
+  "bounds": null,
+  "spawnPoint": [0, 0],
+  "waves": "default",
+  "voidColor": "#141c14",
+  "tileset": [
+    { "src": "tiles/grass.png", "weight": 26, "placeholder": { "color": "#27351f", "detail": 0.5 } },
+    { "src": "tiles/grass_b.png", "weight": 14, "placeholder": { "color": "#2c3b23", "detail": 0.7 } },
+    { "src": "tiles/grass_c.png", "weight": 6, "placeholder": { "color": "#223019", "detail": 0.9 } },
+    { "src": "tiles/dirt.png", "weight": 3, "placeholder": { "color": "#3a3022", "detail": 0.8 } }
+  ],
+  "decor": [
+    { "sprite": "tree", "density": 0.055 },
+    { "sprite": "bush", "density": 0.05 },
+    { "sprite": "rock", "density": 0.035 },
+    { "sprite": "flower", "density": 0.09, "flat": true },
+    { "sprite": "puddle", "density": 0.02, "flat": true }
+  ],
+  "props": []
+}

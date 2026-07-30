@@ -1,0 +1,511 @@
+/*
+ * The game world is a canvas; everything in here is DOM layered on top.
+ *
+ * Two reasons for that split: text stays crisp at any window size instead of
+ * being nearest-neighbour upscaled with the sprites, and the whole interface is
+ * restyleable from this one file without touching gameplay code.
+ *
+ * `--scale` is written from the renderer each frame and equals how many CSS
+ * pixels one game pixel occupies, so UI sized in `calc(var(--scale) * Npx)`
+ * grows and shrinks in lockstep with the art.
+ */
+
+:root {
+  --scale: 3;
+  --ink: #f4efe4;
+  --ink-dim: #a79f8f;
+  --ink-faint: #6d6759;
+  --panel: rgba(14, 12, 20, 0.92);
+  --panel-solid: #14121a;
+  --edge: #3d3547;
+  --edge-bright: #6b5f7d;
+  --hp: #e8536b;
+  --hp-dark: #4a1220;
+  --xp: #6fc9e8;
+  --xp-dark: #143543;
+  --gold: #ffd23f;
+  --accent: #c9a86a;
+  --danger: #ff6b8a;
+
+  --u: calc(var(--scale) * 1px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #05060a;
+  /* No text selection or long-press menus while playing. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+  color: var(--ink);
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+#game {
+  position: absolute;
+  inset: 0;
+  display: block;
+  image-rendering: pixelated;
+}
+
+/* Sized and offset to exactly cover the letterboxed play area. */
+#ui {
+  position: absolute;
+  left: var(--offset-x, 0px);
+  top: var(--offset-y, 0px);
+  width: var(--play-w, 100%);
+  height: var(--play-h, 100%);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+#ui button,
+#ui .card {
+  pointer-events: auto;
+}
+
+/* ------------------------------------------------------------------ HUD */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.hud.visible {
+  display: block;
+}
+
+/* Experience bar spans the very top edge. */
+.xp-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--u) * 4);
+  background: var(--xp-dark);
+  border-bottom: var(--u) solid #0a0e12;
+}
+
+.xp-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(180deg, #a8e8ff 0%, var(--xp) 55%, #3f9cbd 100%);
+  transition: width 90ms linear;
+}
+
+.hud-row {
+  position: absolute;
+  top: calc(var(--u) * 8);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 4);
+  font-size: calc(var(--u) * 7);
+  line-height: 1;
+  text-shadow: 0 var(--u) 0 rgba(0, 0, 0, 0.75);
+}
+
+.hud-left {
+  left: calc(var(--u) * 5);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--u) * 3);
+}
+
+.hud-center {
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--u) * 2);
+}
+
+.hud-right {
+  right: calc(var(--u) * 5);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(var(--u) * 3);
+}
+
+.hp-track {
+  position: relative;
+  width: calc(var(--u) * 78);
+  height: calc(var(--u) * 8);
+  background: var(--hp-dark);
+  border: var(--u) solid #0a0508;
+}
+
+.hp-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(180deg, #ff8fa3 0%, var(--hp) 55%, #a02338 100%);
+  transition: width 120ms ease-out;
+}
+
+.hp-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--u) * 5);
+  letter-spacing: calc(var(--u) * 0.2);
+}
+
+.timer {
+  font-size: calc(var(--u) * 12);
+  letter-spacing: calc(var(--u) * 0.5);
+  font-weight: 700;
+}
+
+.level-chip {
+  font-size: calc(var(--u) * 6);
+  color: var(--ink-dim);
+  letter-spacing: calc(var(--u) * 0.3);
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 2);
+  font-size: calc(var(--u) * 6);
+  color: var(--ink-dim);
+}
+
+.stat b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.stat.gold b {
+  color: var(--gold);
+}
+
+/* Loadout icon rows, bottom-left. */
+.loadout {
+  position: absolute;
+  left: calc(var(--u) * 5);
+  bottom: calc(var(--u) * 5);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 3);
+}
+
+.slot-row {
+  display: flex;
+  gap: calc(var(--u) * 2);
+}
+
+.slot {
+  position: relative;
+  width: calc(var(--u) * 16);
+  height: calc(var(--u) * 16);
+  background: var(--panel);
+  border: var(--u) solid var(--edge);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slot canvas {
+  image-rendering: pixelated;
+  width: calc(var(--u) * 12);
+  height: calc(var(--u) * 12);
+  object-fit: contain;
+}
+
+.slot .pips {
+  position: absolute;
+  bottom: calc(var(--u) * -0.5);
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: calc(var(--u) * 1);
+}
+
+.slot .pip {
+  width: calc(var(--u) * 1.5);
+  height: calc(var(--u) * 1.5);
+  background: var(--edge-bright);
+}
+
+.slot .pip.on {
+  background: var(--accent);
+}
+
+.slot.maxed {
+  border-color: var(--accent);
+}
+
+/* Passive slots have no art yet, so they show an initial instead. */
+.slot .initial {
+  font-size: calc(var(--u) * 8);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.boss-banner {
+  position: absolute;
+  top: calc(var(--u) * 42);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: calc(var(--u) * 9);
+  letter-spacing: calc(var(--u) * 0.6);
+  color: var(--danger);
+  text-shadow: 0 var(--u) 0 rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  transition: opacity 250ms ease-out;
+}
+
+.boss-banner.show {
+  opacity: 1;
+}
+
+/* --------------------------------------------------------------- Screens */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--u) * 6);
+  background: rgba(6, 5, 10, 0.82);
+  backdrop-filter: blur(calc(var(--u) * 0.8));
+  padding: calc(var(--u) * 8);
+  overflow-y: auto;
+}
+
+.screen.visible {
+  display: flex;
+}
+
+.screen h1 {
+  margin: 0;
+  font-size: calc(var(--u) * 20);
+  letter-spacing: calc(var(--u) * 1);
+  font-weight: 700;
+  text-align: center;
+}
+
+.screen h2 {
+  margin: 0;
+  font-size: calc(var(--u) * 10);
+  letter-spacing: calc(var(--u) * 0.5);
+  font-weight: 700;
+  color: var(--accent);
+  text-align: center;
+}
+
+.screen p {
+  margin: 0;
+  font-size: calc(var(--u) * 6);
+  color: var(--ink-dim);
+  text-align: center;
+  max-width: calc(var(--u) * 200);
+  line-height: 1.6;
+}
+
+.hint {
+  font-size: calc(var(--u) * 5);
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.cards {
+  display: flex;
+  gap: calc(var(--u) * 4);
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.card {
+  position: relative;
+  width: calc(var(--u) * 84);
+  min-height: calc(var(--u) * 62);
+  background: var(--panel-solid);
+  border: var(--u) solid var(--edge);
+  padding: calc(var(--u) * 5);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 3);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition: border-color 110ms, transform 110ms, background 110ms;
+}
+
+.card:hover,
+.card.focused {
+  border-color: var(--accent);
+  background: #1c1826;
+  transform: translateY(calc(var(--u) * -1));
+}
+
+.card:focus-visible {
+  outline: calc(var(--u) * 1) solid var(--xp);
+  outline-offset: calc(var(--u) * 1);
+}
+
+.card .card-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 3);
+}
+
+.card canvas {
+  image-rendering: pixelated;
+  width: calc(var(--u) * 14);
+  height: calc(var(--u) * 14);
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.card .card-title {
+  font-size: calc(var(--u) * 7);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.card .card-tag {
+  font-size: calc(var(--u) * 4.5);
+  color: var(--accent);
+  letter-spacing: calc(var(--u) * 0.3);
+}
+
+.card .card-body {
+  font-size: calc(var(--u) * 5);
+  color: var(--ink-dim);
+  line-height: 1.55;
+  flex: 1;
+}
+
+.card .card-key {
+  position: absolute;
+  top: calc(var(--u) * 2);
+  right: calc(var(--u) * 3);
+  font-size: calc(var(--u) * 5);
+  color: var(--ink-faint);
+}
+
+.card .card-pips {
+  display: flex;
+  gap: calc(var(--u) * 1.5);
+}
+
+.card .card-pips .pip {
+  width: calc(var(--u) * 4);
+  height: calc(var(--u) * 2);
+  background: var(--edge);
+}
+
+.card .card-pips .pip.on {
+  background: var(--accent);
+}
+
+.card.is-new .card-tag {
+  color: var(--xp);
+}
+
+/* Buttons */
+
+.button-row {
+  display: flex;
+  gap: calc(var(--u) * 4);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+button.btn {
+  font: inherit;
+  font-size: calc(var(--u) * 7);
+  padding: calc(var(--u) * 3) calc(var(--u) * 8);
+  background: var(--panel-solid);
+  color: var(--ink);
+  border: var(--u) solid var(--edge);
+  cursor: pointer;
+  letter-spacing: calc(var(--u) * 0.3);
+  transition: border-color 110ms, background 110ms;
+}
+
+button.btn:hover,
+button.btn.focused {
+  border-color: var(--accent);
+  background: #1c1826;
+}
+
+button.btn.primary {
+  border-color: var(--accent);
+  color: var(--gold);
+}
+
+/* Stat summary table on the results screen. */
+.results {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: calc(var(--u) * 2) calc(var(--u) * 8);
+  font-size: calc(var(--u) * 6);
+}
+
+.results dt {
+  color: var(--ink-dim);
+}
+
+.results dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 700;
+}
+
+/* Character / map pickers on the title screen. */
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 3);
+  align-items: center;
+}
+
+.picker-label {
+  font-size: calc(var(--u) * 5);
+  color: var(--ink-faint);
+  letter-spacing: calc(var(--u) * 0.4);
+}
+
+/* Debug overlay */
+
+.debug {
+  position: absolute;
+  right: calc(var(--u) * 5);
+  bottom: calc(var(--u) * 5);
+  font-size: calc(var(--u) * 4.5);
+  color: var(--ink-faint);
+  text-align: right;
+  line-height: 1.5;
+  display: none;
+  white-space: pre;
+}
+
+.debug.visible {
+  display: block;
+}
