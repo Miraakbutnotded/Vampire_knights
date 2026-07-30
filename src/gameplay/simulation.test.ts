@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { EventBus } from '../core/events.ts';
 import type { GameEvents } from '../core/events.ts';
@@ -13,14 +13,24 @@ import type { TileMap } from '../render/tilemap.ts';
 import type { Input } from '../core/input.ts';
 
 import { MAX_QUERY_RESULTS, SpatialHash } from './collision.ts';
-import { CHARACTER_LIST, WEAPON_LIST, enemyDef, waveTable, weaponStatsAtLevel } from './content.ts';
+import {
+  BLOOD_CONFIG,
+  CHARACTER_LIST,
+  WEAPON_LIST,
+  enemyDef,
+  normalizeBlood,
+  waveTable,
+  weaponStatsAtLevel,
+} from './content.ts';
 import { updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
+import { damageEnemy } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
-import { updatePickups } from './pickups.ts';
+import { PickupKind, spawnBloodVial, updatePickups } from './pickups.ts';
 import { Run, xpForLevel } from './run.ts';
 import { Spawner, difficultyAt } from './spawner.ts';
 import { applyOffer, rollOffers } from './upgrades.ts';
-import { updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
+import { effectiveStats, updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
+import { updateBlood } from './blood.ts';
 import type { Ctx } from './context.ts';
 
 /**
@@ -116,6 +126,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345): Harness
     hpScale: 1,
     damageScale: 1,
     speedScale: 1,
+    bloodIntent: null,
   };
   ctx.player = spawnPlayer(ctx, 0, 0);
 
@@ -150,6 +161,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345): Harness
 
         ctx.pickupHash.build(world, world.list(Kind.Pickup));
         updatePickups(ctx, FIXED_DT);
+        updateBlood(ctx, FIXED_DT);
 
         ctx.fx.update(FIXED_DT);
         world.flush();
@@ -394,5 +406,411 @@ describe('difficulty scaling', () => {
       expect(current.damage).toBeGreaterThan(previous.damage);
       previous = current;
     }
+  });
+});
+
+describe('blood economy', () => {
+  it('normalizes blood.json into a typed config with the design defaults', () => {
+    expect(BLOOD_CONFIG.barMax).toBe(100);
+    expect(BLOOD_CONFIG.threshold).toBe(50);
+    expect(BLOOD_CONFIG.intakePerSec).toBe(12);
+    expect(BLOOD_CONFIG.decayPerSec).toBeCloseTo(1.5);
+    expect(BLOOD_CONFIG.decayGrace).toBe(4);
+    expect(BLOOD_CONFIG.healPerBlood).toBeCloseTo(0.005);
+    expect(BLOOD_CONFIG.vialValue).toBe(25);
+    expect(BLOOD_CONFIG.frenzy.baseDuration).toBe(3);
+    expect(BLOOD_CONFIG.frenzy.durationPerBlood).toBeCloseTo(0.06);
+    expect(BLOOD_CONFIG.frenzy.mightMult).toBeCloseTo(1.4);
+    expect(BLOOD_CONFIG.frenzy.cooldownMult).toBeCloseTo(0.75);
+    expect(BLOOD_CONFIG.frenzy.moveSpeedMult).toBeCloseTo(1.15);
+    expect(BLOOD_CONFIG.frenzy.novaDamage).toBe(30);
+    expect(BLOOD_CONFIG.frenzy.novaRadius).toBe(80);
+  });
+
+  it('clamps out-of-range blood.json values and warns instead of throwing', () => {
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
+    try {
+      const cfg = normalizeBlood({
+        barMax: 0,
+        threshold: 999,
+        intakePerSec: -5,
+        decayPerSec: -1,
+        decayGrace: -2,
+        healPerBlood: -0.1,
+        vialValue: -25,
+        frenzy: 'not an object',
+      });
+
+      expect(cfg.barMax).toBe(1); // a zero-width bar would divide by zero in the HUD
+      expect(cfg.threshold).toBe(1); // squeezed into [1, barMax]
+      expect(cfg.intakePerSec).toBe(0);
+      expect(cfg.decayPerSec).toBe(0);
+      expect(cfg.decayGrace).toBe(0);
+      expect(cfg.healPerBlood).toBe(0);
+      expect(cfg.vialValue).toBe(0);
+      // A malformed frenzy block falls back wholesale, and says so.
+      expect(cfg.frenzy.baseDuration).toBe(3);
+      expect(cfg.frenzy.novaRadius).toBe(80);
+      expect(warnings.some((w) => w.includes('frenzy'))).toBe(true);
+      for (const key of [
+        'barMax',
+        'threshold',
+        'intakePerSec',
+        'decayPerSec',
+        'decayGrace',
+        'healPerBlood',
+        'vialValue',
+      ]) {
+        expect(warnings.some((w) => w.includes(`"${key}"`))).toBe(true);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('defaults per-enemy blood by tier and honours explicit values', () => {
+    expect(enemyDef('bat')!.blood).toBe(1);          // normal default
+    expect(enemyDef('swarmling')!.blood).toBe(0.5);  // explicit in enemies.json
+    expect(enemyDef('brute')!.blood).toBe(8);        // elite default
+    expect(enemyDef('warden')!.blood).toBe(8);       // boss default
+  });
+
+  it('folds bloodGain from character defaults and the Bloodthirst passive', () => {
+    const run = new Run(CHARACTER_LIST[0]!.id);
+    expect(run.stats.bloodGain).toBe(1);
+    run.addPassive('bloodthirst');
+    expect(run.stats.bloodGain).toBeCloseTo(1.1);
+  });
+
+  it('caps blood intake inside one window and clamps at the bar max', () => {
+    const run = new Run(CHARACTER_LIST[0]!.id);
+    expect(run.gainBlood(5)).toBe(5);
+    expect(run.blood).toBe(5);
+    expect(run.graceT).toBe(BLOOD_CONFIG.decayGrace);
+
+    // 5 already absorbed this window; only 7 more fit under the 12/sec cap.
+    expect(run.gainBlood(100)).toBe(BLOOD_CONFIG.intakePerSec - 5);
+    expect(run.blood).toBe(BLOOD_CONFIG.intakePerSec);
+    expect(run.gainBlood(1)).toBe(0);
+
+    // A fresh window still clamps at the bar max.
+    run.bloodIntakeWindow = 0;
+    run.blood = run.bloodMax - 2;
+    expect(run.gainBlood(10)).toBe(2);
+    expect(run.blood).toBe(run.bloodMax);
+  });
+
+  it('lets an uncapped gain bypass the intake window but still clamp to the bar', () => {
+    const run = new Run(CHARACTER_LIST[0]!.id);
+    run.bloodIntakeWindow = BLOOD_CONFIG.intakePerSec; // window already exhausted
+    run.graceT = 0;
+
+    // The window neither limits the uncapped grant nor absorbs any of it, so a
+    // capped gain later in the same second still has its full allowance spent.
+    expect(run.gainBlood(25, true)).toBe(25);
+    expect(run.blood).toBe(25);
+    expect(run.bloodIntakeWindow).toBe(BLOOD_CONFIG.intakePerSec);
+    expect(run.graceT).toBe(BLOOD_CONFIG.decayGrace); // uncapped still refreshes grace
+
+    // The bar maximum is the one limit an uncapped gain still respects.
+    run.blood = run.bloodMax - 3;
+    expect(run.gainBlood(25, true)).toBe(3);
+    expect(run.blood).toBe(run.bloodMax);
+    expect(run.gainBlood(25, true)).toBe(0);
+  });
+
+  it('grants blood per enemy def on kill and signals readiness at the threshold', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    let readyFired = false;
+    let gainedEvents = 0;
+    ctx.bus.on('blood:ready', () => {
+      readyFired = true;
+    });
+    ctx.bus.on('blood:gained', () => {
+      gainedEvents++;
+    });
+
+    const bat = enemyDef('bat')!;
+    const swarmling = enemyDef('swarmling')!;
+    const ids = [
+      spawnEnemy(ctx, bat, 60, 0),
+      spawnEnemy(ctx, bat, 70, 0),
+      spawnEnemy(ctx, bat, 80, 0),
+      spawnEnemy(ctx, swarmling, 90, 0),
+      spawnEnemy(ctx, swarmling, 100, 0),
+    ];
+    for (const id of ids) damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+
+    // 3 x 1 + 2 x 0.5 with bloodGain 1, all inside the intake window.
+    expect(ctx.run.blood).toBeCloseTo(4);
+    expect(gainedEvents).toBe(5);
+    expect(readyFired).toBe(false);
+
+    // Crossing the threshold announces readiness exactly once.
+    ctx.run.blood = BLOOD_CONFIG.threshold - 1;
+    const last = spawnEnemy(ctx, bat, 110, 0);
+    damageEnemy(ctx, last, 1e9, 0, 0, 0, false);
+    expect(ctx.run.blood).toBeCloseTo(BLOOD_CONFIG.threshold);
+    expect(readyFired).toBe(true);
+  });
+
+  it('discards blood above the per-second intake cap', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const bat = enemyDef('bat')!;
+    for (let i = 0; i < 100; i++) {
+      const id = spawnEnemy(ctx, bat, 300 + (i % 10) * 8, 300 + Math.floor(i / 10) * 8);
+      damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    }
+    // 100 blood offered inside one window; everything past the cap is gone.
+    expect(ctx.run.blood).toBe(BLOOD_CONFIG.intakePerSec);
+  });
+
+  it('drops a Blood Vial from elites that collects past the intake cap', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0; // weapon kills would add blood of their own
+
+    // Collection: the vial is a burst reward, so it skips the anti-farm window
+    // entirely — the whole value lands even with the window already spent.
+    ctx.run.bloodIntakeWindow = BLOOD_CONFIG.intakePerSec;
+    spawnBloodVial(ctx, 0, 0);
+    harness.run(FIXED_DT * 2);
+    expect(ctx.run.blood).toBe(BLOOD_CONFIG.vialValue);
+    expect(ctx.run.graceT).toBe(BLOOD_CONFIG.decayGrace);
+
+    // Drop: an elite kill leaves a vial pickup behind, worth the configured value.
+    const brute = enemyDef('brute')!;
+    const id = spawnEnemy(ctx, brute, 300, 0);
+    damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    const vial = world
+      .list(Kind.Pickup)
+      .find((p) => world.defIndex[p] === PickupKind.BloodVial && world.x[p]! > 200);
+    expect(vial).toBeDefined();
+    expect(world.value[vial!]).toBe(BLOOD_CONFIG.vialValue);
+  });
+
+  it('feast consumes all banked blood and heals per blood spent', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    const feasts: Array<{ spent: number; healed: number }> = [];
+    ctx.bus.on('blood:feast', (p) => {
+      feasts.push(p);
+    });
+
+    world.hp[ctx.player] = 10;
+    ctx.run.blood = 100;
+    ctx.bloodIntent = 'heal';
+    harness.run(FIXED_DT);
+
+    // 100 blood x 0.005 x 100 maxHp = 50 hp healed.
+    expect(world.hp[ctx.player]).toBeCloseTo(60);
+    expect(ctx.run.blood).toBe(0);
+    expect(ctx.bloodIntent).toBeNull();
+    expect(feasts).toHaveLength(1);
+    expect(feasts[0]!.spent).toBe(100);
+    expect(feasts[0]!.healed).toBeCloseTo(50);
+  });
+
+  it('reports the healing a feast actually applied, not the amount requested', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    const feasts: Array<{ spent: number; healed: number }> = [];
+    ctx.bus.on('blood:feast', (p) => {
+      feasts.push(p);
+    });
+
+    const maxHp = ctx.run.stats.maxHp;
+    world.hp[ctx.player] = maxHp - 5; // room for 5 of the 50 hp a full bar buys
+    ctx.run.blood = 100;
+    ctx.bloodIntent = 'heal';
+    harness.run(FIXED_DT);
+
+    const requested = 100 * BLOOD_CONFIG.healPerBlood * maxHp;
+    expect(world.hp[ctx.player]).toBeCloseTo(maxHp);
+    expect(feasts).toHaveLength(1);
+    expect(feasts[0]!.spent).toBe(100);
+    // The payload is the delta that reached the player, so overheal never
+    // inflates the number the HUD shows.
+    expect(feasts[0]!.healed).toBeCloseTo(5);
+    expect(feasts[0]!.healed).toBeLessThan(requested);
+  });
+
+  it('ignores and clears blood intent below the spend threshold', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    world.hp[ctx.player] = 40;
+    ctx.run.blood = 30;
+    ctx.bloodIntent = 'heal';
+    harness.run(FIXED_DT);
+    expect(world.hp[ctx.player]).toBeCloseTo(40);
+    expect(ctx.run.blood).toBe(30);
+    expect(ctx.bloodIntent).toBeNull();
+  });
+
+  it('decays banked blood to just below the threshold after the grace period', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0; // no kills, so nothing refreshes the grace timer
+    world.hp[ctx.player] = 1e9; // stray contact damage must not end the test
+    ctx.run.stats.maxHp = 1e9;
+    ctx.run.blood = 60; // set directly: graceT stays 0, decay starts immediately
+    harness.run(8);
+    // 8s x 1.5/s = 12 wanted; the floor stops it at threshold - 1.
+    expect(ctx.run.blood).toBeCloseTo(BLOOD_CONFIG.threshold - 1);
+  });
+
+  it('holds banked blood through the decay grace after a real gain, then bleeds it down', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0; // only the scripted kills may feed the bar
+    world.hp[ctx.player] = 1e9; // stray contact damage must not end the test
+    ctx.run.stats.maxHp = 1e9;
+
+    // Sit one point under the decay floor, then bank the rest through the real
+    // kill path so gainBlood — not the test — is what arms the grace timer.
+    ctx.run.blood = BLOOD_CONFIG.threshold - 1;
+    const brute = enemyDef('brute')!; // 8 blood each, so two fill the 12/sec window
+    for (const at of [300, 320]) {
+      const id = spawnEnemy(ctx, brute, at, 300);
+      damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    }
+    const banked = ctx.run.blood;
+    expect(banked).toBeCloseTo(BLOOD_CONFIG.threshold - 1 + BLOOD_CONFIG.intakePerSec);
+    expect(ctx.run.graceT).toBe(BLOOD_CONFIG.decayGrace);
+
+    // Inside the 4-second grace, blood is untouched even with no further kills.
+    harness.run(3);
+    expect(ctx.run.blood).toBeCloseTo(banked);
+    expect(ctx.run.graceT).toBeCloseTo(BLOOD_CONFIG.decayGrace - 3, 3);
+
+    // Past the grace it starts bleeding, but not instantly.
+    harness.run(2);
+    expect(ctx.run.graceT).toBe(0);
+    expect(ctx.run.blood).toBeLessThan(banked);
+    expect(ctx.run.blood).toBeGreaterThan(BLOOD_CONFIG.threshold - 1);
+
+    // And it settles on the ready-minus-one floor rather than draining away.
+    harness.run(20);
+    expect(ctx.run.blood).toBeCloseTo(BLOOD_CONFIG.threshold - 1);
+  });
+
+  it('reopens the intake window on the next sim-second', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.run.weapons.length = 0; // weapon kills would muddy the exact count
+    const bat = enemyDef('bat')!;
+    for (let i = 0; i < 30; i++) {
+      const id = spawnEnemy(ctx, bat, 300 + i * 6, 300);
+      damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    }
+    expect(ctx.run.blood).toBe(BLOOD_CONFIG.intakePerSec);
+
+    harness.run(1.1); // run.time crosses a whole second → window resets
+    const straggler = spawnEnemy(ctx, bat, 300, 300);
+    damageEnemy(ctx, straggler, 1e9, 0, 0, 0, false);
+    expect(ctx.run.blood).toBe(BLOOD_CONFIG.intakePerSec + 1);
+  });
+
+  it('casts a blood nova on frenzy that clears a ring around the player', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    const bat = enemyDef('bat')!;
+
+    // A ring inside the nova radius (80) but outside whip reach, plus one
+    // enemy well outside the nova that must survive.
+    const ring: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const id = spawnEnemy(ctx, bat, Math.cos(a) * 60, Math.sin(a) * 60);
+      world.hp[id] = 1;
+      ring.push(id);
+    }
+    const outside = spawnEnemy(ctx, bat, 200, 0);
+    world.hp[outside] = 1;
+
+    const frenzies: Array<{ spent: number; duration: number }> = [];
+    ctx.bus.on('blood:frenzy', (p) => {
+      frenzies.push(p);
+    });
+
+    ctx.run.blood = 100;
+    ctx.bloodIntent = 'burst';
+    harness.run(FIXED_DT);
+
+    // 3s base + 0.06 x 100 = 9s. updateBlood runs the countdown BEFORE it
+    // consumes the intent, so the value is exact right after the cast tick.
+    expect(ctx.run.frenzyT).toBeCloseTo(9, 5);
+    expect(frenzies).toHaveLength(1);
+    expect(frenzies[0]!.spent).toBe(100);
+    expect(frenzies[0]!.duration).toBeCloseTo(9, 5);
+    for (const id of ring) expect(world.isAlive(id)).toBe(false);
+    expect(world.isAlive(outside)).toBe(true);
+  });
+
+  it('frenzy multiplies weapon stats read-side and reverts on expiry without touching run.stats', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0; // no kills → no level-ups → run.stats must stay put
+    world.hp[ctx.player] = 1e9;
+    ctx.run.stats.maxHp = 1e9;
+
+    // A detached OwnedWeapon: effectiveStats is pure, so this probes the
+    // multiplier without letting a real weapon kill anything.
+    const whip = WEAPON_LIST.find((w) => w.id === 'whip')!;
+    const owned = { def: whip, level: 1, cooldown: 0, activeIds: [], activeTimer: 0, active: false };
+    const calm = effectiveStats(ctx.run, owned);
+    const statsBefore = JSON.stringify(ctx.run.stats);
+
+    ctx.run.blood = 100;
+    ctx.bloodIntent = 'burst';
+    harness.run(FIXED_DT);
+
+    expect(ctx.run.frenzyT).toBeGreaterThan(0);
+    const frenzied = effectiveStats(ctx.run, owned);
+    expect(frenzied.damage).toBeCloseTo(calm.damage * BLOOD_CONFIG.frenzy.mightMult);
+    expect(frenzied.cooldown).toBeCloseTo(calm.cooldown * BLOOD_CONFIG.frenzy.cooldownMult);
+    // The invariant: the buff never wrote through to run.stats.
+    expect(JSON.stringify(ctx.run.stats)).toBe(statsBefore);
+
+    harness.run(9.5); // outlive the 9-second frenzy
+    expect(ctx.run.frenzyT).toBe(0);
+    const after = effectiveStats(ctx.run, owned);
+    expect(after.damage).toBeCloseTo(calm.damage);
+    expect(after.cooldown).toBeCloseTo(calm.cooldown);
+    expect(JSON.stringify(ctx.run.stats)).toBe(statsBefore);
+  });
+
+  it('frenzy speeds the player up read-side', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+    world.hp[ctx.player] = 1e9;
+    ctx.run.stats.maxHp = 1e9;
+
+    ctx.run.blood = 100;
+    ctx.bloodIntent = 'burst';
+    harness.run(FIXED_DT); // consume the intent; frenzy is now active
+
+    const x0 = world.x[ctx.player]!;
+    harness.run(FIXED_DT, stubInput(1, 0));
+    const dx = world.x[ctx.player]! - x0;
+    expect(dx).toBeCloseTo(
+      ctx.run.stats.moveSpeed * BLOOD_CONFIG.frenzy.moveSpeedMult * FIXED_DT,
+      5,
+    );
   });
 });

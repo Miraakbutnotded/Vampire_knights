@@ -39,4 +39,8 @@ export interface GameEvents {
   'gold:gained': { amount: number; total: number };
   'boss:spawned': { name: string };
   'stats:changed': undefined;
+  'blood:gained': { amount: number; blood: number; max: number };
+  'blood:ready': undefined;
+  'blood:feast': { spent: number; healed: number };
+  'blood:frenzy': { spent: number; duration: number };
 }

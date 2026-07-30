@@ -1,6 +1,6 @@
 import { Comp, Kind, Team } from '../ecs/components.ts';
 import { TAU } from '../core/math.ts';
-import { WeaponBehavior, weaponStatsAtLevel } from './content.ts';
+import { BLOOD_CONFIG, WeaponBehavior, weaponStatsAtLevel } from './content.ts';
 import { damageEnemy } from './damage.ts';
 import type { WeaponStats } from './content.ts';
 import type { Ctx } from './context.ts';
@@ -22,10 +22,15 @@ export function effectiveStats(run: Run, weapon: OwnedWeapon): WeaponStats {
   const base = weaponStatsAtLevel(weapon.def, weapon.level);
   const s = run.stats;
   const isAura = weapon.def.behavior === WeaponBehavior.Aura;
+  // Frenzy is a read-side buff keyed off run.frenzyT. run.stats itself is
+  // never touched, preserving the recompute-only-on-loadout-change invariant.
+  const frenzied = run.frenzyT > 0;
+  const frenzyDamage = frenzied ? BLOOD_CONFIG.frenzy.mightMult : 1;
+  const frenzyCooldown = frenzied ? BLOOD_CONFIG.frenzy.cooldownMult : 1;
 
   return {
-    damage: base.damage * s.might,
-    cooldown: Math.max(0.08, base.cooldown * s.cooldown),
+    damage: base.damage * s.might * frenzyDamage,
+    cooldown: Math.max(0.08, base.cooldown * s.cooldown * frenzyCooldown),
     // The +projectile stat is meaningless for a single persistent ring.
     count: Math.max(1, Math.round(base.count + (isAura ? 0 : s.amount))),
     pierce: base.pierce,
@@ -34,8 +39,10 @@ export function effectiveStats(run: Run, weapon: OwnedWeapon): WeaponStats {
     knockback: base.knockback,
     speed: base.speed * s.projectileSpeed,
     lifetime: base.lifetime * s.duration,
-    // Faster ticking is a buff, so cooldown reduction shortens it too.
-    interval: Math.max(0.06, base.interval * s.cooldown),
+    // Faster ticking is a buff, so cooldown reduction shortens it too —
+    // including the Frenzy factor, so aura weapons (interval-driven,
+    // cooldown-exempt in updateWeapons) get the same ×0.75 cadence buff.
+    interval: Math.max(0.06, base.interval * s.cooldown * frenzyCooldown),
     radius: base.radius * base.area * s.area,
     orbitSpeed: base.orbitSpeed,
     spawnRadius: base.spawnRadius,

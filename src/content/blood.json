@@ -1,0 +1,18 @@
+{
+  "barMax": 100,
+  "threshold": 50,
+  "intakePerSec": 12,
+  "decayPerSec": 1.5,
+  "decayGrace": 4,
+  "healPerBlood": 0.005,
+  "vialValue": 25,
+  "frenzy": {
+    "baseDuration": 3,
+    "durationPerBlood": 0.06,
+    "mightMult": 1.4,
+    "cooldownMult": 0.75,
+    "moveSpeedMult": 1.15,
+    "novaDamage": 30,
+    "novaRadius": 80
+  }
+}

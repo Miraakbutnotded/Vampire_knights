@@ -99,6 +99,11 @@
     "anims": { "idle": { "src": "pickups/meat.png", "fps": 6 } },
     "placeholder": { "shape": "blob", "color": "#ff8fa3", "accent": "#6b1f2e", "size": 12, "bob": 1 }
   },
+  "blood_vial": {
+    "origin": [0.5, 0.5],
+    "anims": { "idle": { "src": "pickups/blood_vial.png", "fps": 6 } },
+    "placeholder": { "shape": "gem", "color": "#d94a5e", "accent": "#4a0e16", "size": 10, "bob": 1 }
+  },
   "magnet": {
     "origin": [0.5, 0.5],
     "anims": { "idle": { "src": "pickups/magnet.png", "fps": 8 } },

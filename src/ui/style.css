@@ -509,3 +509,81 @@ button.btn.primary {
 .debug.visible {
   display: block;
 }
+
+/* --- Blood economy cluster, bottom-centre thumb zone -------------------- */
+
+.blood-cluster {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--u) * 5);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--u) * 3);
+}
+
+.blood-orb {
+  position: relative;
+  width: calc(var(--u) * 22);
+  height: calc(var(--u) * 22);
+  border-radius: 50%;
+  overflow: hidden;
+  background: #2a0a10;
+  border: var(--u) solid #0a0508;
+}
+
+.blood-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%;
+  background: linear-gradient(180deg, #d94a5e 0%, #8b1e2d 100%);
+  transition: height 120ms ease-out;
+}
+
+.blood-btn {
+  width: calc(var(--u) * 16);
+  height: calc(var(--u) * 16);
+  border-radius: 50%;
+  border: var(--u) solid var(--edge);
+  background: var(--panel);
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: calc(var(--u) * 4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--u) * 1);
+  padding: 0;
+  touch-action: none;
+}
+
+/* Below the threshold the buttons read as disabled; at/above they pulse. */
+.blood-cluster.ready .blood-btn {
+  color: var(--ink);
+  border-color: #d94a5e;
+  animation: blood-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes blood-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(217, 74, 94, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 calc(var(--u) * 2) rgba(217, 74, 94, 0.35);
+  }
+}
+
+.key-hint {
+  font-size: calc(var(--u) * 3.5);
+  color: var(--ink-dim);
+}
+
+@media (pointer: coarse) {
+  .key-hint {
+    display: none;
+  }
+}

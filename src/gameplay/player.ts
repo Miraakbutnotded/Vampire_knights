@@ -1,5 +1,6 @@
 import { AnimState, Comp, Kind } from '../ecs/components.ts';
 import type { Input } from '../core/input.ts';
+import { BLOOD_CONFIG } from './content.ts';
 import type { Ctx } from './context.ts';
 
 export function spawnPlayer(ctx: Ctx, x: number, y: number): number {
@@ -29,7 +30,9 @@ export function updatePlayer(ctx: Ctx, dt: number, input: Input): void {
   const id = ctx.player;
   if (id < 0 || !world.isAlive(id)) return;
 
-  const speed = run.stats.moveSpeed;
+  // Frenzy movement bonus is read-side, same rule as effectiveStats.
+  const frenzySpeed = run.frenzyT > 0 ? BLOOD_CONFIG.frenzy.moveSpeedMult : 1;
+  const speed = run.stats.moveSpeed * frenzySpeed;
   const vx = input.axisX * speed;
   const vy = input.axisY * speed;
   world.vx[id] = vx;

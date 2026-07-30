@@ -96,5 +96,12 @@
     "maxLevel": 5,
     "weight": 55,
     "perLevel": { "greed": 0.15 }
+  },
+  "bloodthirst": {
+    "name": "Bloodthirst",
+    "description": "+10% blood gained from kills per level.",
+    "maxLevel": 5,
+    "weight": 70,
+    "perLevel": { "bloodGain": 0.1 }
   }
 }

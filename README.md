@@ -106,6 +106,9 @@ player moves at 64.
 Flags: `elite` and `boss` exempt an enemy from off-screen culling and give it a bigger death effect;
 `boss` also shows an arrival banner. `dropsChest: true` drops a chest worth 1–3 upgrades.
 
+`blood` — blood granted on kill (defaults: 1; swarm-tier enemies 0.5; elites and bosses 8). Elites
+and bosses additionally drop a Blood Vial worth `vialValue` from `blood.json`.
+
 ### `weapons.json`
 
 ```jsonc
@@ -162,8 +165,31 @@ level-up card shows, so write it for the player.
 | `recovery` | Health per second. |
 | `growth`, `greed`, `luck` | Experience, gold, and crit/drop rates. |
 | `critChance`, `critMult` | Crit rate and crit damage. |
+| `bloodGain` | Blood gained from kills (`0.1` = +10%). |
 
 Unknown keys are warned about on startup rather than silently ignored.
+
+### `blood.json`
+
+The blood economy: kills fill a bar; at `threshold` you can spend **all** of it on a heal (Feast,
+`Q` or the left HUD button) or a damage burst (Frenzy, `E` or the right HUD button). Effects scale
+per blood spent, so cashing out at a full bar is meaningfully stronger.
+
+```jsonc
+{
+  "barMax": 100, "threshold": 50,
+  "intakePerSec": 12,        // anti-farm cap on kill income; Blood Vials bypass it
+  "decayPerSec": 1.5,        // above the threshold, blood decays…
+  "decayGrace": 4,           // …after this many seconds without a kill
+  "healPerBlood": 0.005,     // Feast: fraction of max HP restored per blood spent
+  "vialValue": 25,           // blood granted by an elite/boss Blood Vial
+  "frenzy": {
+    "baseDuration": 3, "durationPerBlood": 0.06,
+    "mightMult": 1.4, "cooldownMult": 0.75, "moveSpeedMult": 1.15,
+    "novaDamage": 30, "novaRadius": 80     // burst fired the instant Frenzy starts
+  }
+}
+```
 
 ### `waves.json`
 

@@ -8,6 +8,7 @@
     "speed": 54,
     "radius": 4,
     "xp": 1,
+    "blood": 0.5,
     "knockbackResist": 0,
     "coinChance": 0.01,
     "coin": 1

@@ -1,6 +1,6 @@
 import { Kind } from '../ecs/components.ts';
 import { enemyDefByIndex } from './content.ts';
-import { spawnCoin, spawnChest, spawnGem, spawnMagnet, spawnMeat } from './pickups.ts';
+import { grantBlood, spawnBloodVial, spawnCoin, spawnChest, spawnGem, spawnMagnet, spawnMeat } from './pickups.ts';
 import type { Ctx } from './context.ts';
 
 /** Seconds of invulnerability granted after the player is hit. */
@@ -9,7 +9,8 @@ export const PLAYER_IFRAME = 0.45;
 const HIT_FLASH = 0.12;
 
 /** Base drop chances, before the player's luck multiplier. */
-const MEAT_CHANCE = 0.008;
+/** Halved when the blood economy landed: Feast is the reliable sustain now. */
+const MEAT_CHANCE = 0.004;
 const MAGNET_CHANCE = 0.003;
 
 /**
@@ -77,6 +78,7 @@ export function killEnemy(ctx: Ctx, id: number): void {
   const y = world.y[id]!;
 
   run.kills++;
+  grantBlood(ctx, def.blood * run.stats.bloodGain);
   bus.emit('enemy:killed', { x, y, kills: run.kills });
 
   if (def.boss) {
@@ -90,6 +92,9 @@ export function killEnemy(ctx: Ctx, id: number): void {
   } else {
     fx.burst(x, y, 6, 65, '#e8c0b0', 0.35, 1);
   }
+
+  // Elites and bosses additionally leave a Blood Vial behind.
+  if (def.elite || def.boss) spawnBloodVial(ctx, x, y - 2);
 
   spawnGem(ctx, x, y, def.xp);
 

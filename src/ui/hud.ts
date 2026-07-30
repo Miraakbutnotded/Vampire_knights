@@ -1,4 +1,5 @@
 import { formatTime } from '../core/math.ts';
+import { BLOOD_CONFIG } from '../gameplay/content.ts';
 import { MAX_PASSIVE_SLOTS, MAX_WEAPON_SLOTS } from '../gameplay/run.ts';
 import type { Run } from '../gameplay/run.ts';
 import type { SpriteTable } from '../render/sprites.ts';
@@ -38,6 +39,10 @@ export class Hud {
   private weaponRow: HTMLElement;
   private passiveRow: HTMLElement;
   private banner: HTMLElement;
+  private bloodWrap: HTMLElement;
+  private bloodFill: HTMLElement;
+  private bloodIntentCb: ((intent: 'heal' | 'burst') => void) | null = null;
+  private bloodReady = false;
 
   private loadoutSignature = '';
   private bannerTimer = 0;
@@ -48,7 +53,7 @@ export class Hud {
    * changes once a second and the counters change rarely, so guarding these
    * removes most of the HUD's per-frame cost.
    */
-  private cache = { hp: '', xp: -1, time: '', level: '', kills: '', gold: '' };
+  private cache = { hp: '', xp: -1, time: '', level: '', kills: '', gold: '', blood: -1 };
 
   constructor(private sprites: SpriteTable) {
     this.root = el('div', 'hud');
@@ -89,7 +94,34 @@ export class Hud {
 
     this.banner = el('div', 'boss-banner');
 
-    this.root.append(xpTrack, left, center, right, loadout, this.banner);
+    // Bottom-centre thumb zone: the blood orb flanked by Feast / Frenzy taps.
+    this.bloodWrap = el('div', 'blood-cluster');
+    const feastBtn = el('button', 'blood-btn feast');
+    feastBtn.append(el('span', 'blood-btn-label', 'FEAST'), el('span', 'key-hint', 'Q'));
+    const orb = el('div', 'blood-orb');
+    this.bloodFill = el('div', 'blood-fill');
+    orb.appendChild(this.bloodFill);
+    const frenzyBtn = el('button', 'blood-btn frenzy');
+    frenzyBtn.append(el('span', 'blood-btn-label', 'FRENZY'), el('span', 'key-hint', 'E'));
+    this.bloodWrap.append(feastBtn, orb, frenzyBtn);
+
+    const press = (intent: 'heal' | 'burst') => (ev: PointerEvent) => {
+      // Primary button/touch only — right/middle click must not latch an
+      // intent (and preventDefault here would not suppress the context
+      // menu anyway). Not ev.isPrimary: a second simultaneous thumb has
+      // isPrimary=false but button=0, and two-thumb presses must work.
+      if (ev.button !== 0) return;
+      // pointerdown, not click: kills the iOS tap delay/double-fire.
+      // stopPropagation keeps this touch away from the future virtual
+      // joystick that will share the bottom band (design §8 risk 1).
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.bloodIntentCb?.(intent);
+    };
+    feastBtn.addEventListener('pointerdown', press('heal'));
+    frenzyBtn.addEventListener('pointerdown', press('burst'));
+
+    this.root.append(xpTrack, left, center, right, loadout, this.bloodWrap, this.banner);
   }
 
   setVisible(visible: boolean): void {
@@ -100,6 +132,11 @@ export class Hud {
     this.banner.textContent = text;
     this.banner.classList.add('show');
     this.bannerTimer = BANNER_SECONDS;
+  }
+
+  /** Game injects the callback; the HUD never touches gameplay state itself. */
+  bindBloodButtons(cb: (intent: 'heal' | 'burst') => void): void {
+    this.bloodIntentCb = cb;
   }
 
   /** Called once per rendered frame. `hp` is passed in since it lives on the entity. */
@@ -142,6 +179,18 @@ export class Hud {
     if (gold !== this.cache.gold) {
       this.cache.gold = gold;
       this.goldValue.textContent = gold;
+    }
+
+    // Quantised to whole percents, same guard as the hp bar.
+    const bloodPercent = Math.round((run.blood / run.bloodMax) * 100);
+    if (bloodPercent !== this.cache.blood) {
+      this.cache.blood = bloodPercent;
+      this.bloodFill.style.height = `${bloodPercent}%`;
+    }
+    const ready = run.blood >= BLOOD_CONFIG.threshold;
+    if (ready !== this.bloodReady) {
+      this.bloodReady = ready;
+      this.bloodWrap.classList.toggle('ready', ready);
     }
 
     if (this.bannerTimer > 0) {

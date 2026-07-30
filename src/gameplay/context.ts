@@ -54,4 +54,11 @@ export interface Ctx {
   hpScale: number;
   damageScale: number;
   speedScale: number;
+
+  /**
+   * Latched Feast/Frenzy intent from the input layer, consumed (and cleared) by
+   * updateBlood on the next sim tick. Latching survives frames where the fixed
+   * timestep runs the sim zero times, so a press is never lost.
+   */
+  bloodIntent: 'heal' | 'burst' | null;
 }

@@ -4,6 +4,7 @@ import enemiesJson from '../content/enemies.json';
 import weaponsJson from '../content/weapons.json';
 import passivesJson from '../content/passives.json';
 import wavesJson from '../content/waves.json';
+import bloodJson from '../content/blood.json';
 
 /**
  * Turns the hand-authored JSON in src/content into typed defs with every
@@ -28,6 +29,8 @@ export interface EnemyDef {
   speed: number;
   radius: number;
   xp: number;
+  /** Blood granted directly on kill, before the player's bloodGain multiplier. */
+  blood: number;
   /** 0 = knocked back fully, 1 = immovable. */
   knockbackResist: number;
   coinChance: number;
@@ -84,6 +87,7 @@ function normalizeEnemies(): { list: EnemyDef[]; byId: Map<string, EnemyDef> } {
       speed: num('speed', 30),
       radius: num('radius', 5),
       xp: num('xp', 1),
+      blood: num('blood', bool('elite') || bool('boss') ? 8 : 1),
       knockbackResist: Math.min(1, Math.max(0, num('knockbackResist', 0))),
       coinChance: num('coinChance', 0),
       coin: num('coin', 1),
@@ -336,6 +340,7 @@ export interface StatMods {
   luck: number;
   critChance: number;
   critMult: number;
+  bloodGain: number;
 }
 
 const STAT_MOD_KEYS: readonly (keyof StatMods)[] = [
@@ -355,6 +360,7 @@ const STAT_MOD_KEYS: readonly (keyof StatMods)[] = [
   'luck',
   'critChance',
   'critMult',
+  'bloodGain',
 ];
 
 export interface PassiveDef {
@@ -430,6 +436,7 @@ export interface BaseStats {
   luck: number;
   critChance: number;
   critMult: number;
+  bloodGain: number;
   revives: number;
 }
 
@@ -450,6 +457,7 @@ const BASE_STAT_DEFAULTS: BaseStats = {
   luck: 1,
   critChance: 0.05,
   critMult: 2,
+  bloodGain: 1,
   revives: 0,
 };
 
@@ -636,6 +644,111 @@ export function waveTable(id: string): WaveTable {
   warnOnce(`[content] unknown wave table "${id}"; using "${fallback.id}"`);
   return fallback;
 }
+
+// --- blood ----------------------------------------------------------------
+
+export interface FrenzyConfig {
+  baseDuration: number;
+  durationPerBlood: number;
+  mightMult: number;
+  cooldownMult: number;
+  moveSpeedMult: number;
+  novaDamage: number;
+  novaRadius: number;
+}
+
+export interface BloodConfig {
+  barMax: number;
+  threshold: number;
+  intakePerSec: number;
+  decayPerSec: number;
+  decayGrace: number;
+  healPerBlood: number;
+  /** Blood granted by one Blood Vial pickup. */
+  vialValue: number;
+  frenzy: FrenzyConfig;
+}
+
+const BLOOD_DEFAULTS: BloodConfig = {
+  barMax: 100,
+  threshold: 50,
+  intakePerSec: 12,
+  decayPerSec: 1.5,
+  decayGrace: 4,
+  healPerBlood: 0.005,
+  vialValue: 25,
+  frenzy: {
+    baseDuration: 3,
+    durationPerBlood: 0.06,
+    mightMult: 1.4,
+    cooldownMult: 0.75,
+    moveSpeedMult: 1.15,
+    novaDamage: 30,
+    novaRadius: 80,
+  },
+};
+
+/**
+ * Same fail-soft contract as the other content files: a bad value warns and
+ * falls back to the default rather than taking the game down. Values that parse
+ * but would break the economy (a zero-width bar, a threshold off the bar, a
+ * negative rate) are clamped into range with a warning for the same reason.
+ *
+ * Takes the raw record rather than reading the import directly so the fail-soft
+ * paths are reachable from tests; production always passes blood.json.
+ */
+export function normalizeBlood(raw: Record<string, unknown>): BloodConfig {
+  const num = (obj: Record<string, unknown>, key: string, fallback: number): number => {
+    const v = obj[key];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (v !== undefined) {
+      console.warn(`[content] blood.json "${key}" is not a finite number; using ${fallback}`);
+    }
+    return fallback;
+  };
+  const clampTo = (key: string, value: number, min: number, max: number): number => {
+    const clamped = Math.min(Math.max(value, min), max);
+    if (clamped !== value) {
+      console.warn(`[content] blood.json "${key}" ${value} is outside [${min}, ${max}]; using ${clamped}`);
+    }
+    return clamped;
+  };
+
+  const frenzyValue = raw['frenzy'];
+  let frenzyRaw: Record<string, unknown> = {};
+  if (typeof frenzyValue === 'object' && frenzyValue !== null && !Array.isArray(frenzyValue)) {
+    frenzyRaw = frenzyValue as Record<string, unknown>;
+  } else if (frenzyValue !== undefined) {
+    console.warn('[content] blood.json "frenzy" is not an object; using the default frenzy block');
+  }
+
+  const d = BLOOD_DEFAULTS;
+  // A bar of zero width would divide by zero in the HUD, and a threshold off
+  // the end of it would make the spend unreachable — clamp both before use.
+  const barMax = clampTo('barMax', num(raw, 'barMax', d.barMax), 1, Infinity);
+  return {
+    barMax,
+    threshold: clampTo('threshold', num(raw, 'threshold', d.threshold), 1, barMax),
+    intakePerSec: clampTo('intakePerSec', num(raw, 'intakePerSec', d.intakePerSec), 0, Infinity),
+    decayPerSec: clampTo('decayPerSec', num(raw, 'decayPerSec', d.decayPerSec), 0, Infinity),
+    decayGrace: clampTo('decayGrace', num(raw, 'decayGrace', d.decayGrace), 0, Infinity),
+    healPerBlood: clampTo('healPerBlood', num(raw, 'healPerBlood', d.healPerBlood), 0, Infinity),
+    vialValue: clampTo('vialValue', num(raw, 'vialValue', d.vialValue), 0, Infinity),
+    frenzy: {
+      baseDuration: num(frenzyRaw, 'baseDuration', d.frenzy.baseDuration),
+      durationPerBlood: num(frenzyRaw, 'durationPerBlood', d.frenzy.durationPerBlood),
+      mightMult: num(frenzyRaw, 'mightMult', d.frenzy.mightMult),
+      cooldownMult: num(frenzyRaw, 'cooldownMult', d.frenzy.cooldownMult),
+      moveSpeedMult: num(frenzyRaw, 'moveSpeedMult', d.frenzy.moveSpeedMult),
+      novaDamage: num(frenzyRaw, 'novaDamage', d.frenzy.novaDamage),
+      novaRadius: num(frenzyRaw, 'novaRadius', d.frenzy.novaRadius),
+    },
+  };
+}
+
+export const BLOOD_CONFIG: BloodConfig = normalizeBlood(
+  bloodJson as unknown as Record<string, unknown>,
+);
 
 // --- shared ---------------------------------------------------------------
 

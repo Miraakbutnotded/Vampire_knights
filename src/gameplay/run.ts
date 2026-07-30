@@ -1,5 +1,5 @@
 import { clamp } from '../core/math.ts';
-import { characterDef, passiveDef, weaponDef } from './content.ts';
+import { BLOOD_CONFIG, characterDef, passiveDef, weaponDef } from './content.ts';
 import type { BaseStats, CharacterDef, PassiveDef, StatMods, WeaponDef } from './content.ts';
 
 /** Weapons and passives are capped separately, as in the genre standard. */
@@ -67,6 +67,20 @@ export class Run {
 
   /** How many revives are still available this run. */
   revivesLeft: number;
+
+  // --- blood economy ------------------------------------------------------
+  // All timers advance only inside updateBlood on sim dt — never wall clock —
+  // so a run stays reproducible from its seed.
+
+  /** Banked blood, 0..bloodMax. */
+  blood = 0;
+  bloodMax = BLOOD_CONFIG.barMax;
+  /** Blood absorbed during the current sim-second, for the anti-farm cap. */
+  bloodIntakeWindow = 0;
+  /** Seconds of Frenzy remaining. Read-side multipliers key off this. */
+  frenzyT = 0;
+  /** Seconds of decay grace left after the most recent gain. */
+  graceT = 0;
 
   constructor(characterId: string) {
     this.character = characterDef(characterId);
@@ -164,6 +178,7 @@ export class Run {
       luck: 0,
       critChance: 0,
       critMult: 0,
+      bloodGain: 0,
     };
 
     for (const owned of this.passives) {
@@ -192,6 +207,7 @@ export class Run {
       luck: Math.max(0, base.luck + sum.luck),
       critChance: clamp(base.critChance + sum.critChance, 0, 0.95),
       critMult: base.critMult + sum.critMult,
+      bloodGain: Math.max(0, base.bloodGain + sum.bloodGain),
       revives: base.revives,
     };
 
@@ -228,6 +244,26 @@ export class Run {
     const total = Math.max(1, Math.round(amount * this.stats.greed));
     this.gold += total;
     return total;
+  }
+
+  /**
+   * Grants blood, honouring the per-second intake cap and the bar maximum.
+   * Excess above either limit is discarded, not banked — the anti-farm rule.
+   * Returns the blood actually gained.
+   *
+   * `uncapped` is for burst rewards (Blood Vials) that are meant to land whole:
+   * they sidestep the intake window in both directions — neither limited by it
+   * nor consuming any of it, so a vial can't eat the allowance kills need — but
+   * they still clamp to the bar and still refresh the decay grace.
+   */
+  gainBlood(amount: number, uncapped = false): number {
+    const room = uncapped ? Infinity : BLOOD_CONFIG.intakePerSec - this.bloodIntakeWindow;
+    const granted = Math.min(amount, room, this.bloodMax - this.blood);
+    if (granted <= 0) return 0;
+    if (!uncapped) this.bloodIntakeWindow += granted;
+    this.blood += granted;
+    this.graceT = BLOOD_CONFIG.decayGrace;
+    return granted;
   }
 
   /** 0..1 progress toward the next level, for the HUD bar. */

@@ -19,6 +19,7 @@ import { CHARACTER_LIST, waveTable } from './gameplay/content.ts';
 import { updateEnemies, updateEnemyProjectiles } from './gameplay/enemies.ts';
 import { playerAlpha, spawnPlayer, updatePlayer } from './gameplay/player.ts';
 import { updatePickups } from './gameplay/pickups.ts';
+import { updateBlood } from './gameplay/blood.ts';
 import { Run } from './gameplay/run.ts';
 import { Spawner, difficultyAt } from './gameplay/spawner.ts';
 import { applyOffer, rollOffers } from './gameplay/upgrades.ts';
@@ -107,9 +108,13 @@ export class Game implements LoopHooks {
       hpScale: 1,
       damageScale: 1,
       speedScale: 1,
+      bloodIntent: null,
     };
 
     this.wireEvents();
+    this.hud.bindBloodButtons((intent) => {
+      if (this.state === 'playing') this.ctx.bloodIntent = intent;
+    });
     this.openTitle();
   }
 
@@ -170,6 +175,7 @@ export class Game implements LoopHooks {
     this.ctx.hpScale = 1;
     this.ctx.damageScale = 1;
     this.ctx.speedScale = 1;
+    this.ctx.bloodIntent = null;
 
     this.ctx.player = spawnPlayer(this.ctx, map.spawnX, map.spawnY);
     this.camera.bounds = map.bounds;
@@ -181,6 +187,10 @@ export class Game implements LoopHooks {
 
   private openLevelUp(): void {
     this.state = 'levelup';
+    // Drop any intent latched on the way in: updateBlood is frozen while a menu
+    // is up, so it would otherwise fire the instant play resumes — long after
+    // the press, and possibly on a bar the player has since read differently.
+    this.ctx.bloodIntent = null;
     this.screens.showLevelUp(rollOffers(this.ctx), (offer) => {
       applyOffer(this.ctx, offer);
       // More level-ups can be banked than one draft resolves — keep drafting
@@ -195,6 +205,8 @@ export class Game implements LoopHooks {
 
   private openPause(): void {
     this.state = 'paused';
+    // Same reason as the level-up draft: no spend may survive the pause.
+    this.ctx.bloodIntent = null;
     this.screens.showPause(this.run, {
       onResume: () => {
         this.screens.hide();
@@ -240,9 +252,19 @@ export class Game implements LoopHooks {
       return;
     }
 
-    if (this.state === 'playing' && this.input.wasPressed('Escape')) {
+    if (this.state !== 'playing') return;
+
+    if (this.input.wasPressed('Escape')) {
       this.openPause();
+      return;
     }
+
+    // Blood intents latch here — edge-triggered input lives frame-side only
+    // (the sim may run 0..5 times per frame) — and updateBlood consumes the
+    // latch on the next sim tick. Distinct codes from Escape, so wasPressed
+    // consumption order stays safe.
+    if (this.input.wasPressed('KeyQ')) this.ctx.bloodIntent = 'heal';
+    else if (this.input.wasPressed('KeyE')) this.ctx.bloodIntent = 'burst';
   }
 
   update(dt: number): void {
@@ -294,6 +316,7 @@ export class Game implements LoopHooks {
 
     ctx.pickupHash.build(this.world, this.world.list(Kind.Pickup));
     updatePickups(ctx, dt);
+    updateBlood(ctx, dt);
 
     this.fx.update(dt);
 

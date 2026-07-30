@@ -1,5 +1,6 @@
 import { Comp, Kind } from '../ecs/components.ts';
 import { damp } from '../core/math.ts';
+import { BLOOD_CONFIG } from './content.ts';
 import type { Ctx } from './context.ts';
 
 export const PickupKind = {
@@ -8,6 +9,7 @@ export const PickupKind = {
   Meat: 2,
   Magnet: 3,
   Chest: 4,
+  BloodVial: 5,
 } as const;
 export type PickupKind = (typeof PickupKind)[keyof typeof PickupKind];
 
@@ -106,6 +108,11 @@ export function spawnChest(ctx: Ctx, x: number, y: number): number {
   return id;
 }
 
+/** Elite/boss Blood Vial, worth `blood.json` vialValue. Magnet-attracted like gems. */
+export function spawnBloodVial(ctx: Ctx, x: number, y: number): number {
+  return spawnPickup(ctx, PickupKind.BloodVial, 'blood_vial', x, y, BLOOD_CONFIG.vialValue, 7);
+}
+
 /**
  * Moves pickups toward the player when in magnet range and collects the ones
  * that touch. Also handles the "collect everything" magnet item.
@@ -192,6 +199,14 @@ function collect(ctx: Ctx, id: number): void {
       healPlayer(ctx, value);
       break;
     }
+    case PickupKind.BloodVial: {
+      // Uncapped: a vial is a one-off elite reward, so the per-second intake
+      // window must not shave it down to a fraction of its advertised value.
+      const granted = grantBlood(ctx, value, true);
+      if (granted > 0) fx.floatingText(x, y - 6, `+${Math.round(granted)}`, '#d94a5e');
+      fx.burst(x, y, 8, 60, '#d94a5e', 0.3, 1);
+      break;
+    }
     case PickupKind.Magnet: {
       // Pull in every gem on the field by latching them all at once.
       const gems = world.list(Kind.Pickup);
@@ -219,18 +234,40 @@ function collect(ctx: Ctx, id: number): void {
   world.destroy(id);
 }
 
-/** Heals the player, clamped to max health, with feedback. Shared with weapons/events. */
-export function healPlayer(ctx: Ctx, amount: number): void {
+/**
+ * Heals the player, clamped to max health, with feedback. Shared with
+ * weapons/events. Returns the health actually restored — overheal is dropped,
+ * so callers that report the heal (the Feast payload) show the real number
+ * rather than what they asked for. Callers that don't care may ignore it.
+ */
+export function healPlayer(ctx: Ctx, amount: number): number {
   const { world, run, fx, bus } = ctx;
   const player = ctx.player;
-  if (player < 0 || amount <= 0) return;
+  if (player < 0 || amount <= 0) return 0;
 
   const before = world.hp[player]!;
   const healed = Math.min(run.stats.maxHp, before + amount);
   world.hp[player] = healed;
   const delta = healed - before;
-  if (delta <= 0) return;
+  if (delta <= 0) return 0;
 
   fx.floatingText(world.x[player]!, world.y[player]! - 14, `+${Math.round(delta)}`, '#7ef0a0');
   bus.emit('player:healed', { amount: delta, hp: healed, maxHp: run.stats.maxHp });
+  return delta;
+}
+
+/**
+ * Grants blood through the Run's intake and reports it on the bus.
+ * Lives here beside healPlayer so kills and Blood Vial pickups share one path.
+ * `uncapped` forwards to Run.gainBlood: burst rewards skip the per-second
+ * window, everything else pays into it.
+ */
+export function grantBlood(ctx: Ctx, amount: number, uncapped = false): number {
+  const { run, bus } = ctx;
+  const wasReady = run.blood >= BLOOD_CONFIG.threshold;
+  const granted = run.gainBlood(amount, uncapped);
+  if (granted <= 0) return 0;
+  bus.emit('blood:gained', { amount: granted, blood: run.blood, max: run.bloodMax });
+  if (!wasReady && run.blood >= BLOOD_CONFIG.threshold) bus.emit('blood:ready', undefined);
+  return granted;
 }
