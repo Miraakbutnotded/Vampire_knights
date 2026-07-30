@@ -1,8 +1,8 @@
 {
   "wanderer": {
-    "name": "The Wanderer",
+    "name": "Ser Valen, the Bloodsworn",
     "sprite": "player",
-    "description": "Balanced start. Nothing exceptional, nothing missing.",
+    "description": "The oath keeps him standing. A balanced knight with a ring of spectral blades.",
     "startingWeapon": "whip",
     "radius": 5,
     "stats": {
@@ -10,7 +10,7 @@
       "recovery": 0,
       "armor": 0,
       "moveSpeed": 64,
-      "might": 1,
+      "might": 1.1,
       "area": 1,
       "projectileSpeed": 1,
       "duration": 1,
@@ -23,13 +23,22 @@
       "critChance": 0.05,
       "critMult": 2,
       "revives": 0
+    },
+    "ability": {
+      "name": "Crimson Cleave",
+      "description": "A ring of spectral blades erupts outward.",
+      "icon": "ability_cleave",
+      "sprite": "fx_slash",
+      "kind": "nova",
+      "cooldown": 18,
+      "params": { "count": 10, "damage": 40, "speed": 150, "pierce": 3, "knockback": 200, "lifetime": 0.6 }
     }
   },
 
   "acolyte": {
-    "name": "The Acolyte",
+    "name": "Lady Morrigan of the Mist",
     "sprite": "player",
-    "description": "Frail but quick to learn. +30% experience, -20% max health.",
+    "description": "Frail but quick to learn. Calls the night's swarm to hunt for her.",
     "startingWeapon": "wand",
     "radius": 5,
     "stats": {
@@ -50,13 +59,23 @@
       "critChance": 0.08,
       "critMult": 2,
       "revives": 0
+    },
+    "ability": {
+      "name": "Night Swarm",
+      "description": "A dozen hunting bats pour out over a few heartbeats.",
+      "icon": "ability_swarm",
+      "sprite": "bat",
+      "kind": "volley",
+      "cooldown": 20,
+      "duration": 2.4,
+      "params": { "count": 12, "damage": 14, "speed": 160, "turnRate": 7, "pierce": 1, "lifetime": 3 }
     }
   },
 
   "warden_knight": {
-    "name": "The Sworn",
+    "name": "Ser Aldric the Sworn",
     "sprite": "player",
-    "description": "Slow and armoured. Survives openings that kill others.",
+    "description": "Slow and armoured. His vow hardens to iron when it matters.",
     "startingWeapon": "garlic",
     "radius": 6,
     "stats": {
@@ -77,13 +96,23 @@
       "critChance": 0.04,
       "critMult": 2,
       "revives": 1
+    },
+    "ability": {
+      "name": "Sanguine Bulwark",
+      "description": "Blood answers the vow: iron skin and a surge of vigour.",
+      "icon": "ability_bulwark",
+      "kind": "buff",
+      "cooldown": 25,
+      "duration": 5,
+      "params": { "heal": 20 },
+      "mods": { "armor": 10 }
     }
   },
 
   "outrider": {
-    "name": "The Outrider",
+    "name": "Vespera, the Pale Outrider",
     "sprite": "player",
-    "description": "Built to kite. Fast, wide pickup range, throws knives.",
+    "description": "Built to kite. Steps through the mist and leaves it burning behind her.",
     "startingWeapon": "knife",
     "radius": 5,
     "stats": {
@@ -104,6 +133,53 @@
       "critChance": 0.06,
       "critMult": 2.2,
       "revives": 0
+    },
+    "ability": {
+      "name": "Mist Dash",
+      "description": "A step through the veil — untouchable, trailing killing mist.",
+      "icon": "ability_dash",
+      "sprite": "hazard_mist",
+      "kind": "dash",
+      "cooldown": 12,
+      "duration": 0.6,
+      "params": { "distance": 80, "trailCount": 3, "damage": 6, "radius": 18, "interval": 0.5, "lifetime": 2.5 }
+    }
+  },
+
+  "dragos": {
+    "name": "Castellan Dragos",
+    "sprite": "player",
+    "description": "The castle's old master. Ground he claims stays claimed, and blood comes easier to him.",
+    "startingWeapon": "brazier",
+    "radius": 6,
+    "stats": {
+      "maxHp": 120,
+      "recovery": 0,
+      "armor": 1,
+      "moveSpeed": 58,
+      "might": 1,
+      "area": 1.2,
+      "projectileSpeed": 1,
+      "duration": 1.2,
+      "amount": 0,
+      "cooldown": 1,
+      "magnet": 30,
+      "growth": 1,
+      "greed": 1,
+      "luck": 1,
+      "critChance": 0.05,
+      "critMult": 2,
+      "bloodGain": 1.25,
+      "revives": 0
+    },
+    "ability": {
+      "name": "Unhallowed Ground",
+      "description": "Consecrates the earth against the living.",
+      "icon": "ability_zone",
+      "sprite": "hazard_unhallowed",
+      "kind": "zone",
+      "cooldown": 22,
+      "params": { "radius": 55, "damage": 12, "interval": 0.4, "knockback": 120, "lifetime": 6 }
     }
   }
 }

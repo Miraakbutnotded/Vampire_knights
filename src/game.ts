@@ -20,6 +20,7 @@ import { updateEnemies, updateEnemyProjectiles } from './gameplay/enemies.ts';
 import { playerAlpha, spawnPlayer, updatePlayer } from './gameplay/player.ts';
 import { updatePickups } from './gameplay/pickups.ts';
 import { updateBlood } from './gameplay/blood.ts';
+import { updateAbility } from './gameplay/abilities.ts';
 import { Run } from './gameplay/run.ts';
 import { Spawner, difficultyAt } from './gameplay/spawner.ts';
 import { applyOffer, rollOffers } from './gameplay/upgrades.ts';
@@ -109,11 +110,18 @@ export class Game implements LoopHooks {
       damageScale: 1,
       speedScale: 1,
       bloodIntent: null,
+      abilityQueued: false,
     };
 
     this.wireEvents();
     this.hud.bindBloodButtons((intent) => {
       if (this.state === 'playing') this.ctx.bloodIntent = intent;
+    });
+    this.hud.bindAbilityButton(() => {
+      // Through the synthetic-press path, not a direct latch write: touch,
+      // keyboard and gamepad all converge on the one consuming wasPressed
+      // read in beforeFrame.
+      if (this.state === 'playing') this.input.injectPress('Space');
     });
     this.openTitle();
   }
@@ -176,6 +184,7 @@ export class Game implements LoopHooks {
     this.ctx.damageScale = 1;
     this.ctx.speedScale = 1;
     this.ctx.bloodIntent = null;
+    this.ctx.abilityQueued = false;
 
     this.ctx.player = spawnPlayer(this.ctx, map.spawnX, map.spawnY);
     this.camera.bounds = map.bounds;
@@ -191,6 +200,7 @@ export class Game implements LoopHooks {
     // is up, so it would otherwise fire the instant play resumes — long after
     // the press, and possibly on a bar the player has since read differently.
     this.ctx.bloodIntent = null;
+    this.ctx.abilityQueued = false;
     this.screens.showLevelUp(rollOffers(this.ctx), (offer) => {
       applyOffer(this.ctx, offer);
       // More level-ups can be banked than one draft resolves — keep drafting
@@ -207,6 +217,7 @@ export class Game implements LoopHooks {
     this.state = 'paused';
     // Same reason as the level-up draft: no spend may survive the pause.
     this.ctx.bloodIntent = null;
+    this.ctx.abilityQueued = false;
     this.screens.showPause(this.run, {
       onResume: () => {
         this.screens.hide();
@@ -265,6 +276,10 @@ export class Game implements LoopHooks {
     // consumption order stays safe.
     if (this.input.wasPressed('KeyQ')) this.ctx.bloodIntent = 'heal';
     else if (this.input.wasPressed('KeyE')) this.ctx.bloodIntent = 'burst';
+
+    // Ability cast latches exactly like the blood intents: edge input lives
+    // frame-side, updateAbility consumes the latch on the next sim tick.
+    if (this.input.wasPressed('Space')) this.ctx.abilityQueued = true;
   }
 
   update(dt: number): void {
@@ -309,6 +324,7 @@ export class Game implements LoopHooks {
     // Post-movement index, for anything that deals damage.
     ctx.enemyHash.build(this.world, this.world.list(Kind.Enemy));
 
+    updateAbility(ctx, dt);
     updateEnemyProjectiles(ctx, dt);
     updateWeapons(ctx, dt);
     updatePlayerProjectiles(ctx, dt);

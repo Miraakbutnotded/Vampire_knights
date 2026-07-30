@@ -161,6 +161,42 @@
     "placeholder": { "shape": "star", "color": "#fff0b0", "accent": "#8a6a10", "size": 14 }
   },
 
+  "ability_cleave": {
+    "origin": [0.5, 0.5],
+    "anims": { "idle": { "src": "ui/ability_cleave.png", "fps": 1 } },
+    "placeholder": { "shape": "slash", "color": "#d94a5e", "accent": "#4a0d16", "size": 14, "bob": 0 }
+  },
+  "ability_swarm": {
+    "origin": [0.5, 0.5],
+    "anims": { "idle": { "src": "ui/ability_swarm.png", "fps": 1 } },
+    "placeholder": { "shape": "bat", "color": "#6b4a8f", "accent": "#241733", "size": 14, "bob": 0 }
+  },
+  "ability_bulwark": {
+    "origin": [0.5, 0.5],
+    "anims": { "idle": { "src": "ui/ability_bulwark.png", "fps": 1 } },
+    "placeholder": { "shape": "ring", "color": "#d4a15a", "accent": "#4a3013", "size": 14, "bob": 0 }
+  },
+  "ability_dash": {
+    "origin": [0.5, 0.5],
+    "anims": { "idle": { "src": "ui/ability_dash.png", "fps": 1 } },
+    "placeholder": { "shape": "ghost", "color": "#9fd8e8", "accent": "#2f5d6b", "size": 14, "bob": 0 }
+  },
+  "ability_zone": {
+    "origin": [0.5, 0.5],
+    "anims": { "idle": { "src": "ui/ability_zone.png", "fps": 1 } },
+    "placeholder": { "shape": "square", "color": "#7a3fa0", "accent": "#2a1138", "size": 14, "bob": 0 }
+  },
+  "hazard_mist": {
+    "origin": [0.5, 0.6],
+    "anims": { "idle": { "src": "weapons/mist.png", "fps": 8 } },
+    "placeholder": { "shape": "blob", "color": "#b8c8d8", "accent": "#3d4a5c", "size": 36, "bob": 1 }
+  },
+  "hazard_unhallowed": {
+    "origin": [0.5, 0.6],
+    "anims": { "idle": { "src": "weapons/unhallowed.png", "fps": 8 } },
+    "placeholder": { "shape": "ring", "color": "#7a3fa0", "accent": "#2a1138", "size": 48, "bob": 0 }
+  },
+
   "tree": {
     "origin": [0.5, 0.92],
     "anims": { "idle": { "src": "tiles/tree.png", "fps": 3 } },

@@ -43,6 +43,13 @@ export class Hud {
   private bloodFill: HTMLElement;
   private bloodIntentCb: ((intent: 'heal' | 'burst') => void) | null = null;
   private bloodReady = false;
+  private abilityBtn: HTMLButtonElement;
+  private abilityIcon: HTMLElement;
+  private abilityCd: HTMLElement;
+  private abilityCb: (() => void) | null = null;
+  private abilityIconName = '';
+  private abilityActive = false;
+  private abilityHidden = false;
 
   private loadoutSignature = '';
   private bannerTimer = 0;
@@ -53,7 +60,7 @@ export class Hud {
    * changes once a second and the counters change rarely, so guarding these
    * removes most of the HUD's per-frame cost.
    */
-  private cache = { hp: '', xp: -1, time: '', level: '', kills: '', gold: '', blood: -1 };
+  private cache = { hp: '', xp: -1, time: '', level: '', kills: '', gold: '', blood: -1, abilityCd: -1 };
 
   constructor(private sprites: SpriteTable) {
     this.root = el('div', 'hud');
@@ -121,6 +128,22 @@ export class Hud {
     feastBtn.addEventListener('pointerdown', press('heal'));
     frenzyBtn.addEventListener('pointerdown', press('burst'));
 
+    // Ability button rides the same thumb cluster as the blood taps.
+    this.abilityBtn = el('button', 'ability-btn');
+    this.abilityIcon = el('div', 'ability-icon');
+    this.abilityCd = el('div', 'ability-cd');
+    this.abilityBtn.append(this.abilityIcon, this.abilityCd, el('span', 'key-hint', 'SPACE'));
+    this.abilityBtn.addEventListener('pointerdown', (ev: PointerEvent) => {
+      // Same rules as the blood buttons: primary button only, pointerdown not
+      // click (kills the iOS tap delay), stopPropagation away from the future
+      // virtual joystick sharing the bottom band.
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.abilityCb?.();
+    });
+    this.bloodWrap.appendChild(this.abilityBtn);
+
     this.root.append(xpTrack, left, center, right, loadout, this.bloodWrap, this.banner);
   }
 
@@ -137,6 +160,11 @@ export class Hud {
   /** Game injects the callback; the HUD never touches gameplay state itself. */
   bindBloodButtons(cb: (intent: 'heal' | 'burst') => void): void {
     this.bloodIntentCb = cb;
+  }
+
+  /** Game injects the callback; the HUD never touches gameplay or Input itself. */
+  bindAbilityButton(cb: () => void): void {
+    this.abilityCb = cb;
   }
 
   /** Called once per rendered frame. `hp` is passed in since it lives on the entity. */
@@ -191,6 +219,36 @@ export class Hud {
     if (ready !== this.bloodReady) {
       this.bloodReady = ready;
       this.bloodWrap.classList.toggle('ready', ready);
+    }
+
+    // Ability button: poll run.ability, cache-guarded to whole percents like
+    // every other per-frame write in this class.
+    const ability = run.ability;
+    const hidden = ability === null;
+    if (hidden !== this.abilityHidden) {
+      this.abilityHidden = hidden;
+      this.abilityBtn.hidden = hidden;
+    }
+    if (ability) {
+      if (ability.def.icon !== this.abilityIconName) {
+        this.abilityIconName = ability.def.icon;
+        this.abilityBtn.title = `${ability.def.name} — ${ability.def.description}`;
+        this.abilityIcon.replaceChildren(this.sprites.iconCanvas(ability.def.icon, 32));
+      }
+      const cdPercent =
+        ability.def.cooldown > 0
+          ? Math.round((ability.cooldownLeft / ability.def.cooldown) * 100)
+          : 0;
+      if (cdPercent !== this.cache.abilityCd) {
+        this.cache.abilityCd = cdPercent;
+        this.abilityCd.style.setProperty('--cd', `${cdPercent}%`);
+        this.abilityBtn.classList.toggle('ready', cdPercent === 0);
+      }
+      const active = ability.activeLeft > 0;
+      if (active !== this.abilityActive) {
+        this.abilityActive = active;
+        this.abilityBtn.classList.toggle('active', active);
+      }
     }
 
     if (this.bannerTimer > 0) {

@@ -23,6 +23,8 @@ export class Input {
   axisY = 0;
 
   private gamepadIndex: number | null = null;
+  /** Previous frame's west-face-button state, for rising-edge detection. */
+  private padAbilityHeld = false;
   private detach: () => void;
 
   constructor(target: EventTarget = window) {
@@ -72,6 +74,17 @@ export class Input {
     return true;
   }
 
+  /**
+   * Feeds a synthetic key press into the same edge-triggered stream real
+   * keydown events use — the public form of what readGamepad already does
+   * internally. The HUD ability button and gamepad face buttons route through
+   * here so every input source shares one consuming wasPressed() path.
+   * Cleared by endFrame() like any real press.
+   */
+  injectPress(code: string): void {
+    this.pressedThisFrame.add(code);
+  }
+
   anyPressed(): boolean {
     return this.pressedThisFrame.size > 0;
   }
@@ -108,7 +121,11 @@ export class Input {
   private readGamepad(): [number, number] | null {
     if (this.gamepadIndex === null || !navigator.getGamepads) return null;
     const pad = navigator.getGamepads()[this.gamepadIndex];
-    if (!pad) return null;
+    if (!pad) {
+      // Pad went away: forget the held state so a reconnect starts clean.
+      this.padAbilityHeld = false;
+      return null;
+    }
 
     const deadzone = 0.22;
     let x = pad.axes[0] ?? 0;
@@ -127,6 +144,14 @@ export class Input {
     // Surface face/start buttons to menu code as synthetic key presses.
     if (pad.buttons[0]?.pressed) this.pressedThisFrame.add('Enter');
     if (pad.buttons[9]?.pressed) this.pressedThisFrame.add('Escape');
+    // West face button (X on the standard mapping) casts the active ability.
+    // Edge-detected, not level-triggered: Screens.handleInput treats Space as
+    // a confirm key, so re-injecting every held frame would let a held ability
+    // button auto-pick a level-up offer the frame a draft opens (and chain-pick
+    // banked drafts). Only button 0 (Enter) is the intentional confirm alias.
+    const abilityPressed = pad.buttons[2]?.pressed ?? false;
+    if (abilityPressed && !this.padAbilityHeld) this.pressedThisFrame.add('Space');
+    this.padAbilityHeld = abilityPressed;
 
     return [x, y];
   }

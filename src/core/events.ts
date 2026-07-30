@@ -43,4 +43,6 @@ export interface GameEvents {
   'blood:ready': undefined;
   'blood:feast': { spent: number; healed: number };
   'blood:frenzy': { spent: number; duration: number };
+  'ability:used': { name: string; kind: string; cooldown: number };
+  'ability:ready': undefined;
 }

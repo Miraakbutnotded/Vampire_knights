@@ -587,3 +587,74 @@ button.btn.primary {
     display: none;
   }
 }
+
+/* --- Ability button, in the blood cluster ------------------------------- */
+
+.ability-btn {
+  position: relative;
+  width: calc(var(--u) * 18);
+  height: calc(var(--u) * 18);
+  border-radius: 50%;
+  border: var(--u) solid var(--edge);
+  background: var(--panel);
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: calc(var(--u) * 3.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--u) * 0.5);
+  padding: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* The display: flex above beats the UA stylesheet's [hidden] { display: none },
+   so the fail-soft path (ability dropped by the normalizer -> hidden attribute
+   set in update()) needs an explicit author rule or the dead button stays. */
+.ability-btn[hidden] {
+  display: none;
+}
+
+.ability-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ability-icon canvas {
+  width: calc(var(--u) * 9);
+  height: calc(var(--u) * 9);
+  image-rendering: pixelated;
+}
+
+/* Cooldown sweep: --cd is the REMAINING fraction as a percent, so the shade
+   shrinks clockwise toward zero and vanishes when the ability is ready. */
+.ability-cd {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(rgba(0, 0, 0, 0.65) var(--cd, 0%), transparent 0);
+  pointer-events: none;
+}
+
+.ability-btn.ready {
+  color: var(--ink);
+  border-color: #d4a15a;
+  animation: ability-pulse 1.2s ease-in-out infinite;
+}
+
+.ability-btn.active {
+  border-color: #d94a5e;
+}
+
+@keyframes ability-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(212, 161, 90, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 calc(var(--u) * 2) rgba(212, 161, 90, 0.35);
+  }
+}

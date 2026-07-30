@@ -202,7 +202,7 @@ const WEAPON_STAT_KEYS: readonly (keyof WeaponStats)[] = [
   'turnRate',
 ];
 
-const WEAPON_STAT_DEFAULTS: WeaponStats = {
+export const WEAPON_STAT_DEFAULTS: WeaponStats = {
   damage: 10,
   cooldown: 1,
   count: 1,
@@ -417,6 +417,154 @@ export function passiveDef(id: string): PassiveDef | null {
   return passiveData.byId.get(id) ?? null;
 }
 
+// --- abilities ------------------------------------------------------------
+
+/** Whitelisted active-ability kinds, same contract as WeaponBehavior. */
+export const AbilityKind = {
+  /** Radial burst of player projectiles around the caster. */
+  Nova: 'nova',
+  /** A paced burst of homing projectiles across a short window. */
+  Volley: 'volley',
+  /** One large lingering hazard at the caster's feet. */
+  Zone: 'zone',
+  /** Temporary stat mods through recomputeStats, plus an instant heal. */
+  Buff: 'buff',
+  /** Instant map-clamped reposition with iframes and a damaging trail. */
+  Dash: 'dash',
+} as const;
+export type AbilityKind = (typeof AbilityKind)[keyof typeof AbilityKind];
+
+const ABILITY_KINDS = new Set<string>(Object.values(AbilityKind));
+
+/** Every tunable an ability can have. Kinds read the subset that applies. */
+export interface AbilityParams {
+  damage: number;
+  count: number;
+  speed: number;
+  pierce: number;
+  knockback: number;
+  radius: number;
+  interval: number;
+  lifetime: number;
+  turnRate: number;
+  distance: number;
+  trailCount: number;
+  heal: number;
+}
+
+const ABILITY_PARAM_DEFAULTS: AbilityParams = {
+  damage: 10,
+  count: 1,
+  speed: 120,
+  pierce: 1,
+  knockback: 0,
+  radius: 20,
+  interval: 0.5,
+  lifetime: 1,
+  turnRate: 0,
+  distance: 60,
+  trailCount: 0,
+  heal: 0,
+};
+
+const ABILITY_PARAM_KEYS = Object.keys(ABILITY_PARAM_DEFAULTS) as (keyof AbilityParams)[];
+
+export interface AbilityDef {
+  name: string;
+  description: string;
+  /** HUD icon, through the same sprites.json placeholder pipeline as loadout icons. */
+  icon: string;
+  /** Sprite used for entities the ability spawns (projectiles / hazards). */
+  sprite: string;
+  kind: AbilityKind;
+  /**
+   * Seconds between casts. Deliberately outside the stat system: neither the
+   * cooldown stat nor Frenzy's cooldownMult ever shortens it (design guardrail).
+   */
+  cooldown: number;
+  /** Buff window / dash iframe seconds / volley burst window. */
+  duration: number;
+  params: AbilityParams;
+  /** Buff kind only: folded into recomputeStats while the buff is active. */
+  mods: Partial<StatMods>;
+}
+
+/**
+ * Same fail-soft contract as the rest of the content pipeline: an unknown kind
+ * or a malformed block costs the character its active, never the game. Takes
+ * the raw value rather than reading JSON directly so the fail-soft paths are
+ * reachable from tests (the normalizeBlood pattern).
+ */
+export function normalizeAbility(raw: unknown, owner: string): AbilityDef | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    console.warn(`[content] character "${owner}" ability is not an object; ignoring it`);
+    return null;
+  }
+  const def = raw as Record<string, unknown>;
+
+  const kindRaw = typeof def['kind'] === 'string' ? (def['kind'] as string) : '';
+  if (!ABILITY_KINDS.has(kindRaw)) {
+    console.warn(
+      `[content] character "${owner}" ability has unknown kind "${kindRaw}"; ` +
+        `the character plays without an active. Valid: ${[...ABILITY_KINDS].join(', ')}`,
+    );
+    return null;
+  }
+
+  const num = (key: string, fallback: number): number => {
+    const v = def[key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  };
+  const str = (key: string, fallback: string): string => {
+    const v = def[key];
+    return typeof v === 'string' ? v : fallback;
+  };
+
+  const paramsRaw = (def['params'] ?? {}) as Record<string, unknown>;
+  const params = { ...ABILITY_PARAM_DEFAULTS };
+  for (const key of ABILITY_PARAM_KEYS) {
+    const v = paramsRaw[key];
+    if (typeof v === 'number' && Number.isFinite(v)) params[key] = v;
+  }
+
+  const modsRaw = (def['mods'] ?? {}) as Record<string, unknown>;
+  const mods: Partial<StatMods> = {};
+  for (const key of STAT_MOD_KEYS) {
+    const v = modsRaw[key];
+    if (typeof v === 'number' && Number.isFinite(v)) mods[key] = v;
+  }
+  for (const key of Object.keys(modsRaw)) {
+    if (!STAT_MOD_KEYS.includes(key as keyof StatMods)) {
+      console.warn(
+        `[content] character "${owner}" ability sets unknown mod "${key}"; it will have no effect. ` +
+          `Valid: ${STAT_MOD_KEYS.join(', ')}`,
+      );
+    }
+  }
+
+  const duration = Math.max(0, num('duration', 0));
+  const needsDuration = kindRaw === AbilityKind.Buff || kindRaw === AbilityKind.Volley;
+  if (needsDuration && duration <= 0) {
+    console.warn(
+      `[content] character "${owner}" ability kind "${kindRaw}" needs a positive duration; ` +
+        `got ${duration}. Falling back to 5s.`,
+    );
+  }
+
+  return {
+    name: str('name', 'Unnamed Rite'),
+    description: str('description', ''),
+    icon: str('icon', 'fx_star'),
+    sprite: str('sprite', 'proj_bolt'),
+    kind: kindRaw as AbilityKind,
+    cooldown: Math.max(1, num('cooldown', 20)),
+    duration: needsDuration && duration <= 0 ? 5 : duration,
+    params,
+    mods,
+  };
+}
+
 // --- characters -----------------------------------------------------------
 
 export interface BaseStats {
@@ -469,6 +617,8 @@ export interface CharacterDef {
   startingWeapon: string;
   radius: number;
   stats: BaseStats;
+  /** The character's active ability, or null when the JSON defines none. */
+  ability: AbilityDef | null;
 }
 
 function normalizeCharacters(): { list: CharacterDef[]; byId: Map<string, CharacterDef> } {
@@ -500,6 +650,7 @@ function normalizeCharacters(): { list: CharacterDef[]; byId: Map<string, Charac
       startingWeapon: weaponData.byId.has(startingWeapon) ? startingWeapon : WEAPON_LIST[0]!.id,
       radius: typeof def['radius'] === 'number' ? def['radius'] : 5,
       stats,
+      ability: normalizeAbility(def['ability'], id),
     };
     list.push(entry);
     byId.set(id, entry);

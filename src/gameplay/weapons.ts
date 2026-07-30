@@ -104,7 +104,7 @@ function fire(ctx: Ctx, weapon: OwnedWeapon, stats: WeaponStats): void {
 
 // --- shared spawn helpers -------------------------------------------------
 
-function spawnProjectile(
+export function spawnProjectile(
   ctx: Ctx,
   spriteName: string,
   x: number,
@@ -144,7 +144,7 @@ function spawnProjectile(
  * Creates a damaging area. `interval` of 0 means each enemy is hit once ever;
  * above 0 it re-hits everything inside on that cadence.
  */
-function spawnHazard(
+export function spawnHazard(
   ctx: Ctx,
   spriteName: string,
   x: number,

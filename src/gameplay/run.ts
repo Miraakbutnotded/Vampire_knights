@@ -1,6 +1,6 @@
 import { clamp } from '../core/math.ts';
 import { BLOOD_CONFIG, characterDef, passiveDef, weaponDef } from './content.ts';
-import type { BaseStats, CharacterDef, PassiveDef, StatMods, WeaponDef } from './content.ts';
+import type { AbilityDef, BaseStats, CharacterDef, PassiveDef, StatMods, WeaponDef } from './content.ts';
 
 /** Weapons and passives are capped separately, as in the genre standard. */
 export const MAX_WEAPON_SLOTS = 6;
@@ -37,6 +37,23 @@ export interface OwnedWeapon {
 export interface OwnedPassive {
   def: PassiveDef;
   level: number;
+}
+
+/**
+ * Per-run active-ability state, mirroring the OwnedWeapon.timer precedent:
+ * cooldowns live on Run structures and are ticked by gameplay systems
+ * (updateAbility) on sim dt only.
+ */
+export interface AbilityState {
+  def: AbilityDef;
+  /** Seconds until the next cast. 0 = ready. */
+  cooldownLeft: number;
+  /** Buff window / volley burst window remaining. */
+  activeLeft: number;
+  /** Volley: shots still queued in the current burst. */
+  burstLeft: number;
+  /** Volley: seconds until the next queued shot. */
+  burstTimer: number;
 }
 
 /**
@@ -82,11 +99,24 @@ export class Run {
   /** Seconds of decay grace left after the most recent gain. */
   graceT = 0;
 
+  /** Active-ability state, or null for a character without one. */
+  ability: AbilityState | null = null;
+
+  /**
+   * Stat mods from an active buff ability, or null. Set on activation and
+   * cleared on expiry inside updateAbility — both state changes — and folded
+   * into recomputeStats as its third source. Never touched per tick.
+   */
+  abilityMods: Partial<StatMods> | null = null;
+
   constructor(characterId: string) {
     this.character = characterDef(characterId);
     this.stats = { ...this.character.stats };
     this.xpNeeded = xpForLevel(1);
     this.revivesLeft = this.character.stats.revives;
+    this.ability = this.character.ability
+      ? { def: this.character.ability, cooldownLeft: 0, activeLeft: 0, burstLeft: 0, burstTimer: 0 }
+      : null;
 
     const starter = weaponDef(this.character.startingWeapon);
     if (starter) this.addWeapon(starter.id);
@@ -185,6 +215,16 @@ export class Run {
       for (const [key, perLevel] of Object.entries(owned.def.perLevel)) {
         if (perLevel === undefined) continue;
         sum[key as keyof StatMods] += perLevel * owned.level;
+      }
+    }
+
+    // Third source: an active buff ability. It enters through the same summed
+    // mods as passives, so every clamp below applies identically, and the
+    // restore on expiry is exact because this derives from scratch.
+    if (this.abilityMods) {
+      for (const [key, value] of Object.entries(this.abilityMods)) {
+        if (value === undefined) continue;
+        sum[key as keyof StatMods] += value;
       }
     }
 

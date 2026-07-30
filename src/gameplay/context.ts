@@ -61,4 +61,12 @@ export interface Ctx {
    * timestep runs the sim zero times, so a press is never lost.
    */
   bloodIntent: 'heal' | 'burst' | null;
+
+  /**
+   * Latched ability press from the input layer (Space / HUD button / gamepad),
+   * consumed (and cleared) by updateAbility on the next sim tick. Same latch
+   * pattern as bloodIntent: survives frames where the fixed timestep runs the
+   * sim zero times, and menus clear it so no cast survives a pause.
+   */
+  abilityQueued: boolean;
 }

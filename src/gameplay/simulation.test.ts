@@ -4,7 +4,7 @@ import { EventBus } from '../core/events.ts';
 import type { GameEvents } from '../core/events.ts';
 import { Rng } from '../core/rng.ts';
 import { FIXED_DT } from '../core/loop.ts';
-import { Kind } from '../ecs/components.ts';
+import { Kind, Team } from '../ecs/components.ts';
 import { World } from '../ecs/world.ts';
 import { Camera } from '../render/camera.ts';
 import { Fx } from '../render/fx.ts';
@@ -18,6 +18,7 @@ import {
   CHARACTER_LIST,
   WEAPON_LIST,
   enemyDef,
+  normalizeAbility,
   normalizeBlood,
   waveTable,
   weaponStatsAtLevel,
@@ -31,6 +32,7 @@ import { Spawner, difficultyAt } from './spawner.ts';
 import { applyOffer, rollOffers } from './upgrades.ts';
 import { effectiveStats, updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
 import { updateBlood } from './blood.ts';
+import { abilityStats, updateAbility } from './abilities.ts';
 import type { Ctx } from './context.ts';
 
 /**
@@ -127,6 +129,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345): Harness
     damageScale: 1,
     speedScale: 1,
     bloodIntent: null,
+    abilityQueued: false,
   };
   ctx.player = spawnPlayer(ctx, 0, 0);
 
@@ -154,6 +157,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345): Harness
 
         ctx.enemyHash.build(world, world.list(Kind.Enemy));
 
+        updateAbility(ctx, FIXED_DT);
         updateEnemyProjectiles(ctx, FIXED_DT);
         updateWeapons(ctx, FIXED_DT);
         updatePlayerProjectiles(ctx, FIXED_DT);
@@ -812,5 +816,511 @@ describe('blood economy', () => {
       ctx.run.stats.moveSpeed * BLOOD_CONFIG.frenzy.moveSpeedMult * FIXED_DT,
       5,
     );
+  });
+});
+
+describe('active abilities', () => {
+  it('normalizes a valid ability block and defaults missing params', () => {
+    const def = normalizeAbility(
+      { name: 'Test Nova', kind: 'nova', cooldown: 15, params: { damage: 40, count: 10 } },
+      'test',
+    )!;
+    expect(def).not.toBeNull();
+    expect(def.kind).toBe('nova');
+    expect(def.cooldown).toBe(15);
+    expect(def.params.damage).toBe(40);
+    expect(def.params.count).toBe(10);
+    // Missing params fall back to per-key defaults rather than exploding.
+    expect(def.params.pierce).toBe(1);
+    expect(def.params.lifetime).toBe(1);
+    expect(def.sprite).toBe('proj_bolt');
+    expect(def.mods).toEqual({});
+  });
+
+  it('omits abilities with unknown kinds and warns instead of throwing', () => {
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
+    try {
+      // Unknown kind: the ability is dropped, the character stays playable.
+      expect(normalizeAbility({ name: 'Bad', kind: 'summon' }, 'test')).toBeNull();
+      expect(normalizeAbility('not an object', 'test')).toBeNull();
+      expect(warnings.some((w) => w.includes('summon'))).toBe(true);
+      // Unknown mod keys are dropped with a warning; valid ones survive.
+      const buff = normalizeAbility(
+        { name: 'B', kind: 'buff', cooldown: 25, duration: 5, mods: { armor: 10, banana: 3 } },
+        'test',
+      )!;
+      expect(buff.mods).toEqual({ armor: 10 });
+      expect(warnings.some((w) => w.includes('banana'))).toBe(true);
+      // No ability block at all is legal and silent.
+      expect(normalizeAbility(undefined, 'test')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('warns and falls back to a 5s duration for buff/volley kinds missing one', () => {
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
+    try {
+      // duration <= 0 is fail-soft, not fatal: the ability survives with a
+      // sane fallback rather than shipping a buff/volley that can never end.
+      const buff = normalizeAbility({ name: 'B', kind: 'buff', cooldown: 25, duration: 0 }, 'test')!;
+      expect(buff.duration).toBe(5);
+      expect(warnings.some((w) => w.includes('buff') && w.includes('duration'))).toBe(true);
+
+      const volley = normalizeAbility({ name: 'V', kind: 'volley', cooldown: 20 }, 'test')!;
+      expect(volley.duration).toBe(5);
+
+      // Kinds that don't need a duration (nova, zone, dash) are unaffected by
+      // a missing one — they stay at 0, no warning.
+      warnings.length = 0;
+      const nova = normalizeAbility({ name: 'N', kind: 'nova', cooldown: 15 }, 'test')!;
+      expect(nova.duration).toBe(0);
+      expect(warnings).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('gives every character a gothic kit with a whitelisted ability', () => {
+    const expected: Record<string, string> = {
+      wanderer: 'nova',      // Ser Valen — Crimson Cleave
+      acolyte: 'volley',     // Lady Morrigan — Night Swarm
+      warden_knight: 'buff', // Ser Aldric — Sanguine Bulwark
+      outrider: 'dash',      // Vespera — Mist Dash
+      dragos: 'zone',        // Castellan Dragos — Unhallowed Ground
+    };
+    expect(CHARACTER_LIST).toHaveLength(5);
+    for (const [id, kind] of Object.entries(expected)) {
+      const character = CHARACTER_LIST.find((c) => c.id === id);
+      expect(character, `missing character "${id}"`).toBeDefined();
+      expect(character!.ability, `"${id}" has no ability`).not.toBeNull();
+      expect(character!.ability!.kind).toBe(kind);
+    }
+  });
+
+  it('keeps every kit inside the ability guardrails', () => {
+    for (const character of CHARACTER_LIST) {
+      const a = character.ability!;
+      expect(a, `${character.id} lost its ability in normalization`).not.toBeNull();
+      expect(a.cooldown, `${character.id} cooldown`).toBeGreaterThanOrEqual(12);
+      expect(a.cooldown, `${character.id} cooldown`).toBeLessThanOrEqual(30);
+      if (a.kind === 'buff') {
+        // Uptime ≤ 40%: cooldown at least 2.5x the buff window.
+        expect(a.cooldown).toBeGreaterThanOrEqual(2.5 * a.duration);
+      }
+      if (a.kind === 'dash') {
+        expect(a.params.distance).toBeLessThanOrEqual(100);
+        expect(a.duration, `${character.id} iframes`).toBeLessThanOrEqual(0.8);
+      }
+      if (a.kind === 'nova' || a.kind === 'volley') {
+        expect(a.params.count, `${character.id} pool pressure`).toBeLessThanOrEqual(16);
+      }
+    }
+  });
+
+  it('ships Castellan Dragos as the bloodGain 1.25 vampire-lord', () => {
+    const dragos = CHARACTER_LIST.find((c) => c.id === 'dragos')!;
+    expect(dragos.stats.bloodGain).toBeCloseTo(1.25);
+    expect(dragos.stats.area).toBeCloseTo(1.2);
+    expect(dragos.stats.duration).toBeCloseTo(1.2);
+    expect(dragos.stats.maxHp).toBe(120);
+    expect(dragos.startingWeapon).toBe('brazier');
+    // bloodGain multiplies kill grants BEFORE the intake cap in gainBlood —
+    // the Run-level unit proof that the multiplier reached the stat sheet.
+    const run = new Run('dragos');
+    expect(run.stats.bloodGain).toBeCloseTo(1.25);
+  });
+
+  it('seeds Run.ability ready-to-cast from the character def', () => {
+    const run = new Run('wanderer');
+    expect(run.ability).not.toBeNull();
+    expect(run.ability!.def.name).toBe('Crimson Cleave');
+    expect(run.ability!.cooldownLeft).toBe(0); // ready from the first tick
+    expect(run.ability!.activeLeft).toBe(0);
+    expect(run.ability!.burstLeft).toBe(0);
+  });
+
+  it('builds ability stats scaled by might, area and duration only', () => {
+    const run = new Run('dragos'); // area 1.2, duration 1.2
+    // Doctor the sheet with non-neutral multipliers so every claim below is
+    // discriminating. Dragos ships might=1, projectileSpeed=1, amount=0 and
+    // cooldown=1, so against the stock sheet the damage assertion and all
+    // three NOT-scaled assertions compare against neutral values — an
+    // abilityStats that copied effectiveStats wholesale (the exact mistake
+    // the guardrail warns against) would still pass.
+    run.stats = { ...run.stats, might: 1.5, projectileSpeed: 2, amount: 3, cooldown: 0.5 };
+    const def = run.character.ability!;
+    const stats = abilityStats(run, def);
+    expect(stats.damage).toBeCloseTo(def.params.damage * 1.5); // might applies
+    expect(stats.radius).toBeCloseTo(def.params.radius * run.stats.area); // 55 x 1.2 = 66
+    expect(stats.lifetime).toBeCloseTo(def.params.lifetime * run.stats.duration); // 6 x 1.2 = 7.2
+    // Explicitly NOT scaled: the guardrail says might/area/duration only.
+    expect(stats.speed).toBe(def.params.speed); // projectileSpeed x2 does not apply
+    expect(stats.count).toBe(def.params.count); // amount +3 does not apply
+    expect(stats.pierce).toBe(def.params.pierce);
+    expect(stats.knockback).toBe(def.params.knockback);
+    expect(stats.interval).toBe(def.params.interval); // cooldown x0.5 does not apply
+  });
+
+  it('applies frenzy to ability damage read-side, like effectiveStats', () => {
+    const run = new Run('wanderer');
+    const def = run.character.ability!;
+    const calm = abilityStats(run, def);
+    run.frenzyT = 5;
+    const frenzied = abilityStats(run, def);
+    expect(frenzied.damage).toBeCloseTo(calm.damage * BLOOD_CONFIG.frenzy.mightMult);
+    run.frenzyT = 0;
+    // Reverts with the timer; run.stats was never written.
+    expect(abilityStats(run, def).damage).toBeCloseTo(calm.damage);
+  });
+
+  it('nova: fires Crimson Cleave as a ring of player projectiles on the latched press', () => {
+    const harness = makeHarness('wanderer');
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0; // no weapon noise in the projectile list
+    // The ability cooldown must ignore the cooldown stat entirely (guardrail).
+    ctx.run.stats.cooldown = 0.5;
+
+    const used: Array<{ name: string; kind: string; cooldown: number }> = [];
+    ctx.bus.on('ability:used', (p) => {
+      used.push(p);
+    });
+
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+
+    const blades = world.list(Kind.Projectile).filter((id) => world.team[id] === Team.Player);
+    expect(blades.length).toBe(10);
+    expect(ctx.abilityQueued).toBe(false); // latch consumed by the sim
+    expect(used).toHaveLength(1);
+    expect(used[0]!.name).toBe('Crimson Cleave');
+    // 18s flat: neither run.stats.cooldown (0.5) nor anything else scaled it.
+    // Exact, not 18 - FIXED_DT: updateAbility decrements the cooldown BEFORE
+    // consuming the latch, so nothing ticks it down on the cast tick itself —
+    // the same consume-after-tick ordering the Phase 1 frenzyT test asserts.
+    expect(ctx.run.ability!.cooldownLeft).toBe(18);
+
+    // The blades actually cut: something in the surrounding ring dies.
+    const bat = enemyDef('bat')!;
+    ctx.run.ability!.cooldownLeft = 0;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const id = spawnEnemy(ctx, bat, Math.cos(a) * 40, Math.sin(a) * 40);
+      world.hp[id] = 1;
+    }
+    const kills = ctx.run.kills;
+    ctx.abilityQueued = true;
+    harness.run(0.5);
+    expect(ctx.run.kills).toBeGreaterThan(kills);
+  });
+
+  it('drops an ability press made during cooldown instead of banking it', () => {
+    const harness = makeHarness('wanderer');
+    const { ctx } = harness;
+    ctx.run.weapons.length = 0;
+    let used = 0;
+    ctx.bus.on('ability:used', () => {
+      used++;
+    });
+
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+    expect(used).toBe(1);
+
+    // Pressed again inside the 18s cooldown: consumed and dropped, not banked.
+    ctx.abilityQueued = true;
+    harness.run(1);
+    expect(used).toBe(1);
+    expect(ctx.abilityQueued).toBe(false);
+
+    // Once the cooldown is over, a fresh press casts again.
+    let ready = 0;
+    ctx.bus.on('ability:ready', () => {
+      ready++;
+    });
+    ctx.run.ability!.cooldownLeft = FIXED_DT; // fast-forward to the last tick
+    harness.run(FIXED_DT * 2);
+    expect(ready).toBe(1);
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+    expect(used).toBe(2);
+  });
+
+  it('volley: paces Night Swarm bats across the burst window', () => {
+    const harness = makeHarness('acolyte');
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+    world.hp[ctx.player] = 1e9;
+    ctx.run.stats.maxHp = 1e9;
+
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+    const state = ctx.run.ability!;
+    // First bat leaves on the activation tick; eleven remain queued.
+    expect(state.burstLeft).toBe(11);
+    // Exact on the cast tick: the cooldown decrement runs before the latch is
+    // consumed, so the fresh 20s value survives the tick untouched.
+    expect(state.cooldownLeft).toBe(20);
+    expect(
+      world.list(Kind.Projectile).filter((id) => world.team[id] === Team.Player).length,
+    ).toBeGreaterThanOrEqual(1);
+
+    // Halfway through the 2.4s window roughly half the swarm is out — paced,
+    // not dumped in one tick. (Range absorbs one tick of float drift.)
+    harness.run(1.2);
+    expect(state.burstLeft).toBeGreaterThanOrEqual(4);
+    expect(state.burstLeft).toBeLessThanOrEqual(6);
+
+    // Past the window the full dozen has launched.
+    harness.run(1.5);
+    expect(state.burstLeft).toBe(0);
+  });
+
+  it('zone: Unhallowed Ground damages a ring over time and its blood obeys the intake cap', () => {
+    const harness = makeHarness('dragos');
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+    world.hp[ctx.player] = 1e9;
+    ctx.run.stats.maxHp = 1e9;
+
+    const bat = enemyDef('bat')!;
+    const ring: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const id = spawnEnemy(ctx, bat, Math.cos(a) * 40, Math.sin(a) * 40);
+      world.hp[id] = 1;
+      ring.push(id);
+    }
+
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+
+    const zone = world.list(Kind.Hazard).find((id) => world.team[id] === Team.Player);
+    expect(zone).toBeDefined();
+    expect(world.radius[zone!]).toBeCloseTo(55 * 1.2); // radius x area stat = 66
+    expect(world.lifetime[zone!]).toBeCloseTo(6 * 1.2, 1); // lifetime x duration stat
+
+    harness.run(0.5);
+    for (const id of ring) expect(world.isAlive(id)).toBe(false);
+    // The cap seam, stated: 12 kills x 1 blood x bloodGain 1.25 = 15 offered,
+    // but gainBlood multiplies BEFORE the per-second intake cap — the 3 above
+    // the 12/sec window are discarded, exactly the Phase 1 semantics.
+    expect(ctx.run.blood).toBe(BLOOD_CONFIG.intakePerSec);
+  });
+
+  it('buff: Sanguine Bulwark recomputes stats on state change only and restores them exactly', () => {
+    const harness = makeHarness('warden_knight');
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0; // no kills -> no level-ups -> no third-party recomputes
+    world.hp[ctx.player] = 50;
+
+    const armorBefore = ctx.run.stats.armor; // 2
+    const statsBefore = JSON.stringify(ctx.run.stats);
+    const spy = vi.spyOn(ctx.run, 'recomputeStats');
+    try {
+      ctx.abilityQueued = true;
+      harness.run(FIXED_DT);
+      expect(ctx.run.stats.armor).toBe(armorBefore + 10);
+      // +20 instant heal plus one tick of Aldric's recovery 0.3: updatePlayer's
+      // regen runs BEFORE updateAbility in the tick, so the cast tick has
+      // already added 0.3 x FIXED_DT (= 0.005) hp when the heal lands.
+      expect(world.hp[ctx.player]).toBeCloseTo(70 + 0.3 * FIXED_DT, 3);
+      expect(spy).toHaveBeenCalledTimes(1); // activation
+
+      // Ride out the 5s window plus a margin: exactly one more recompute (expiry),
+      // and the stat sheet is byte-identical to before the cast — the invariant
+      // that the buff never wrote through and never drifted the derived stats.
+      harness.run(5.1);
+      expect(ctx.run.stats.armor).toBe(armorBefore);
+      expect(JSON.stringify(ctx.run.stats)).toBe(statsBefore);
+      expect(spy).toHaveBeenCalledTimes(2); // activation + expiry, never per tick
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('buff: expiry clamps hp to the restored cap when a mod raised maxHp', () => {
+    const harness = makeHarness('warden_knight');
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+    // Hand-built def swap: a maxHp buff instead of Bulwark's armor-only kit,
+    // proving the expiry clamp holds for any mod combo, not just the shipped
+    // one. Copy, not mutate: def.mods stays a fresh object either way.
+    const baseDef = ctx.run.ability!.def;
+    ctx.run.ability!.def = { ...baseDef, mods: { maxHpMul: 0.5 }, params: { ...baseDef.params, heal: 0 } };
+
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+    expect(ctx.run.stats.maxHp).toBeCloseTo(210); // 140 base x 1.5
+
+    // Overfill relative to the restored (unbuffed) cap while the buff's
+    // raised cap is still active.
+    world.hp[ctx.player] = 200;
+
+    harness.run(5.1); // ride out the buff window past expiry
+    expect(ctx.run.stats.maxHp).toBeCloseTo(140); // restored to base
+    expect(world.hp[ctx.player]).toBeLessThanOrEqual(140);
+  });
+
+  it('buff: the instant heal clamps at max health and reports what landed', () => {
+    const harness = makeHarness('warden_knight');
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+    const heals: number[] = [];
+    ctx.bus.on('player:healed', (p) => {
+      heals.push(p.amount);
+    });
+
+    const maxHp = ctx.run.stats.maxHp; // 140
+    world.hp[ctx.player] = maxHp - 5; // room for 5 of the 20 the kit grants
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+
+    // healPlayer clamps at run.stats.maxHp; overheal is discarded and the
+    // event reports the landed delta, not the requested 20 (cap contract).
+    expect(world.hp[ctx.player]).toBeCloseTo(maxHp);
+    expect(heals).toHaveLength(1);
+    // updatePlayer's recovery regen (0.3 x FIXED_DT) landed before the cast on
+    // the same tick, so the heal tops up 5 minus that sliver — not a flat 5.
+    expect(heals[0]).toBeCloseTo(5 - 0.3 * FIXED_DT, 3);
+  });
+
+  it('dash: Mist Dash travels the configured distance, grants iframes and drops a mist trail', () => {
+    const harness = makeHarness('outrider');
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+
+    // Aim persists from init (1, 0); the player stands still (stub input).
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+
+    expect(world.x[ctx.player]).toBeCloseTo(80);
+    expect(world.y[ctx.player]).toBeCloseTo(0);
+    // Direct x/y write, deliberately NOT world.place: prev stays at the dash
+    // origin, so the renderer lerps the dash across one frame (a fast smear).
+    // place() would snap with no motion. This assertion is the tripwire.
+    expect(world.prevX[ctx.player]).toBeCloseTo(0);
+    // iframes = def.duration; set after updatePlayer ran, so exact this tick.
+    expect(world.iframe[ctx.player]).toBeCloseTo(0.6, 5);
+
+    const trail = world.list(Kind.Hazard).filter((id) => world.team[id] === Team.Player);
+    expect(trail).toHaveLength(3);
+    const xs = trail.map((id) => world.x[id]!).sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(20);
+    expect(xs[1]).toBeCloseTo(40);
+    expect(xs[2]).toBeCloseTo(60);
+  });
+
+  it('dash: routes through map clamping', () => {
+    const harness = makeHarness('outrider');
+    const { ctx } = harness;
+    ctx.run.weapons.length = 0;
+    // A wall at x=30: if the dash teleported without consulting the map,
+    // the player would land at 80.
+    (ctx.map as { clampToBounds: (x: number, y: number, r: number) => [number, number] }).clampToBounds =
+      (x: number, y: number) => [Math.min(x, 30), y];
+
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+    expect(ctx.world.x[ctx.player]).toBeCloseTo(30);
+  });
+
+  it('dash: never shortens an existing longer iframe window', () => {
+    const harness = makeHarness('outrider');
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+
+    // The revive path grants 2.5s of iframes; panic-dashing inside that window
+    // must extend-or-keep, never truncate to the dash's 0.6s.
+    world.iframe[ctx.player] = 2.5;
+    ctx.abilityQueued = true;
+    harness.run(FIXED_DT);
+
+    // updatePlayer ticks iframes down by dt before the cast resolves; the dash
+    // then takes max(existing, 0.6) — the revive window survives.
+    expect(world.iframe[ctx.player]).toBeCloseTo(2.5 - FIXED_DT, 5);
+  });
+
+  it('activates every character kit without error and engages its cooldown', () => {
+    for (const character of CHARACTER_LIST) {
+      const harness = makeHarness(character.id);
+      const { ctx } = harness;
+      ctx.world.hp[ctx.player] = 1e9;
+      ctx.run.stats.maxHp = 1e9;
+
+      const used: string[] = [];
+      ctx.bus.on('ability:used', (p) => {
+        used.push(p.kind);
+      });
+
+      ctx.abilityQueued = true;
+      harness.run(1);
+
+      const state = ctx.run.ability;
+      expect(state, `${character.id} has no ability state`).not.toBeNull();
+      expect(used, `${character.id} did not cast`).toHaveLength(1);
+      expect(used[0]).toBe(character.ability!.kind);
+      expect(state!.cooldownLeft).toBeCloseTo(state!.def.cooldown - 1, 1);
+      expect(ctx.abilityQueued).toBe(false);
+    }
+  });
+
+  it('keeps seeded runs deterministic with an ability cast mid-run', () => {
+    const fingerprint = () => {
+      const harness = makeHarness('dragos', 4242);
+      const { ctx } = harness;
+      ctx.world.hp[ctx.player] = 1e9;
+      ctx.run.stats.maxHp = 1e9;
+      harness.run(5);
+      ctx.abilityQueued = true;
+      harness.run(25);
+      return [
+        ctx.run.kills,
+        ctx.run.blood,
+        ctx.run.gold,
+        ctx.run.level,
+        ctx.world.entityCount,
+        ctx.run.ability!.cooldownLeft,
+      ];
+    };
+    // Identical seed + identical inputs => identical world. Any Math.random or
+    // wall-clock leak in the ability path breaks this instantly.
+    expect(fingerprint()).toEqual(fingerprint());
+  });
+
+  // The design-§2 leak variant: the pre-existing 15-minute test never presses
+  // the ability, so this is the only bound on ability entity pressure (nova
+  // ring + zone + dash-trail hazards, cycle after cycle). Mirrors the existing
+  // leak test's shape: immortal player, chunked run, 4000-entity ceiling.
+  it('does not leak entities over a 15-minute run that auto-presses the ability', { timeout: 120_000 }, () => {
+    const harness = makeHarness('dragos', 4242);
+    const { ctx } = harness;
+    const world = ctx.world;
+    const victory = ctx.wave.victorySeconds;
+    const chunk = 15;
+    for (let elapsed = 0; elapsed < victory; elapsed += chunk) {
+      world.hp[ctx.player] = 1e9;
+      ctx.run.stats.maxHp = 1e9;
+      // Cast whenever the ability is off cooldown at a chunk boundary.
+      if (ctx.run.ability!.cooldownLeft === 0) ctx.abilityQueued = true;
+      harness.run(chunk);
+      // The pool is 16384; anything approaching that is a leak, not load.
+      expect(world.entityCount).toBeLessThan(4000);
+    }
+    expect(ctx.run.time).toBeGreaterThan(victory - FIXED_DT);
   });
 });
