@@ -37,7 +37,7 @@
 
   "acolyte": {
     "name": "Lady Morrigan of the Mist",
-    "sprite": "player",
+    "sprite": "morrigan",
     "description": "Frail but quick to learn. Calls the night's swarm to hunt for her.",
     "startingWeapon": "wand",
     "radius": 5,
@@ -74,7 +74,7 @@
 
   "warden_knight": {
     "name": "Ser Aldric the Sworn",
-    "sprite": "player",
+    "sprite": "aldric",
     "description": "Slow and armoured. His vow hardens to iron when it matters.",
     "startingWeapon": "garlic",
     "radius": 6,
@@ -111,7 +111,7 @@
 
   "outrider": {
     "name": "Vespera, the Pale Outrider",
-    "sprite": "player",
+    "sprite": "vespera",
     "description": "Built to kite. Steps through the mist and leaves it burning behind her.",
     "startingWeapon": "knife",
     "radius": 5,
@@ -148,7 +148,7 @@
 
   "dragos": {
     "name": "Castellan Dragos",
-    "sprite": "player",
+    "sprite": "dragos",
     "description": "The castle's old master. Ground he claims stays claimed, and blood comes easier to him.",
     "startingWeapon": "brazier",
     "radius": 6,

@@ -5,7 +5,7 @@ import { Rng } from './core/rng.ts';
 import { lerp } from './core/math.ts';
 import type { LoopHooks } from './core/loop.ts';
 
-import { Comp, Kind } from './ecs/components.ts';
+import { AnimState, Comp, Kind } from './ecs/components.ts';
 import { World } from './ecs/world.ts';
 
 import { Camera } from './render/camera.ts';
@@ -31,7 +31,7 @@ import type { Ctx } from './gameplay/context.ts';
 import { Hud } from './ui/hud.ts';
 import { Screens } from './ui/screens.ts';
 
-type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'results';
+type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'dying' | 'results';
 
 /**
  * Owns the game's state machine and the fixed order that systems run in.
@@ -64,6 +64,9 @@ export class Game implements LoopHooks {
   private debugVisible = false;
   /** Sim time the current siege banner/marker window closes. Frame-side only. */
   private siegeUntil = 0;
+  /** Seconds elapsed into the death animation, while state is 'dying'. */
+  private deathTimer = 0;
+  private deathDuration = 0;
   private debugEl: HTMLElement;
   /** Rolling fps, mirrored from the loop for the debug overlay. */
   fps = 0;
@@ -130,17 +133,7 @@ export class Game implements LoopHooks {
   }
 
   private wireEvents(): void {
-    this.bus.on('player:died', () => {
-      this.state = 'results';
-      this.hud.setVisible(false);
-      this.screens.showResults(
-        { victory: false, run: this.run },
-        {
-          onRetry: () => void this.startRun(this.lastCharacterId, this.lastMapId),
-          onTitle: () => this.openTitle(),
-        },
-      );
-    });
+    this.bus.on('player:died', () => this.beginDeath());
 
     this.bus.on('boss:spawned', ({ name }) => {
       this.hud.showBanner(`${name.toUpperCase()} APPROACHES`);
@@ -200,6 +193,8 @@ export class Game implements LoopHooks {
     this.fx.clear();
     this.spawner.reset();
     this.rng.reseed((Math.random() * 0xffffffff) >>> 0);
+    this.deathTimer = 0;
+    this.deathDuration = 0;
 
     this.run = new Run(characterId);
     this.ctx.run = this.run;
@@ -265,6 +260,65 @@ export class Game implements LoopHooks {
     });
   }
 
+  /**
+   * Holds on a frozen world while the player's death strip plays, then shows the
+   * results screen. Characters with no `death` art skip straight to results, so
+   * this stays correct for any sprite that only declares idle and walk.
+   */
+  private beginDeath(): void {
+    const id = this.ctx.player;
+    this.ctx.bloodIntent = null;
+    this.ctx.abilityQueued = false;
+
+    if (id < 0 || !this.world.isAlive(id)) {
+      this.showDefeat();
+      return;
+    }
+
+    const spriteId = this.world.spriteId[id]!;
+    // SpriteTable.anim falls back to Idle for states with no art of their own,
+    // so an identical strip means this character has no death animation.
+    const death = this.sprites.anim(spriteId, AnimState.Death);
+    if (death === this.sprites.anim(spriteId, AnimState.Idle)) {
+      this.showDefeat();
+      return;
+    }
+
+    this.state = 'dying';
+    this.deathTimer = 0;
+    this.deathDuration = death.duration;
+    this.world.animState[id] = AnimState.Death;
+    this.world.animTime[id] = 0;
+    // The blink would strobe the whole death animation.
+    this.world.iframe[id] = 0;
+    // Nothing moves from here on, so collapse prev onto current and the
+    // renderer's prev->current lerp can't jitter against a stale snapshot.
+    this.world.snapshotPositions();
+  }
+
+  /** Advances only the death strip and the fx pool; the simulation stays frozen. */
+  private updateDying(dt: number): void {
+    const id = this.ctx.player;
+    if (id >= 0 && this.world.isAlive(id)) {
+      this.world.animTime[id] = this.world.animTime[id]! + dt;
+    }
+    this.fx.update(dt);
+    this.deathTimer += dt;
+    if (this.deathTimer >= this.deathDuration) this.showDefeat();
+  }
+
+  private showDefeat(): void {
+    this.state = 'results';
+    this.hud.setVisible(false);
+    this.screens.showResults(
+      { victory: false, run: this.run },
+      {
+        onRetry: () => void this.startRun(this.lastCharacterId, this.lastMapId),
+        onTitle: () => this.openTitle(),
+      },
+    );
+  }
+
   private declareVictory(): void {
     this.state = 'results';
     this.hud.setVisible(false);
@@ -320,6 +374,10 @@ export class Game implements LoopHooks {
   }
 
   update(dt: number): void {
+    if (this.state === 'dying') {
+      this.updateDying(dt);
+      return;
+    }
     if (this.state !== 'playing') return;
     this.tick(dt);
   }
