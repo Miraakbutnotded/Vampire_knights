@@ -15,12 +15,13 @@ import { TileMap, availableMaps } from './render/tilemap.ts';
 import type { SpriteTable } from './render/sprites.ts';
 
 import { MAX_QUERY_RESULTS, SpatialHash } from './gameplay/collision.ts';
-import { CHARACTER_LIST, waveTable } from './gameplay/content.ts';
+import { CHARACTER_LIST, structureDef, waveTable } from './gameplay/content.ts';
 import { updateEnemies, updateEnemyProjectiles } from './gameplay/enemies.ts';
 import { playerAlpha, spawnPlayer, updatePlayer } from './gameplay/player.ts';
 import { updatePickups } from './gameplay/pickups.ts';
 import { updateBlood } from './gameplay/blood.ts';
 import { updateAbility } from './gameplay/abilities.ts';
+import { spawnStructure, updateStructures } from './gameplay/structures.ts';
 import { Run } from './gameplay/run.ts';
 import { Spawner, difficultyAt } from './gameplay/spawner.ts';
 import { applyOffer, rollOffers } from './gameplay/upgrades.ts';
@@ -61,6 +62,8 @@ export class Game implements LoopHooks {
 
   private ctx: Ctx;
   private debugVisible = false;
+  /** Sim time the current siege banner/marker window closes. Frame-side only. */
+  private siegeUntil = 0;
   private debugEl: HTMLElement;
   /** Rolling fps, mirrored from the loop for the debug overlay. */
   fps = 0;
@@ -142,6 +145,27 @@ export class Game implements LoopHooks {
     this.bus.on('boss:spawned', ({ name }) => {
       this.hud.showBanner(`${name.toUpperCase()} APPROACHES`);
     });
+
+    this.bus.on('siege:started', ({ duration }) => {
+      this.siegeUntil = this.run.time + duration;
+      this.hud.showBanner('SIEGE! DEFEND THE BASTION');
+    });
+
+    this.bus.on('siege:defended', () => {
+      this.siegeUntil = 0;
+      this.hud.showBanner('SIEGE REPELLED');
+    });
+
+    this.bus.on('structure:damaged', ({ hp, maxHp, index }) => {
+      this.hud.updateStructurePip(index, hp, maxHp);
+    });
+
+    this.bus.on('structure:destroyed', ({ name, remaining, index }) => {
+      this.hud.destroyStructurePip(index);
+      this.hud.showBanner(
+        remaining > 0 ? `THE ${name.toUpperCase()} HAS FALLEN` : 'EVERY WALL HAS FALLEN',
+      );
+    });
   }
 
   // --- state transitions --------------------------------------------------
@@ -168,6 +192,9 @@ export class Game implements LoopHooks {
       this.mapCache.set(mapId, map);
     }
     this.map = map;
+    // Maps persist across runs in the cache: strip the previous run's
+    // structure solids before this run registers its own.
+    map.clearRuntimeSolids();
 
     this.world.reset();
     this.fx.clear();
@@ -187,6 +214,16 @@ export class Game implements LoopHooks {
     this.ctx.abilityQueued = false;
 
     this.ctx.player = spawnPlayer(this.ctx, map.spawnX, map.spawnY);
+    const pips: { name: string; hp: number }[] = [];
+    for (const entry of map.structures) {
+      const def = structureDef(entry.type);
+      if (!def) continue; // warn-don't-throw: a typo costs one structure, not the run
+      if (spawnStructure(this.ctx, def, entry.x, entry.y) >= 0) {
+        pips.push({ name: def.name, hp: def.hp });
+      }
+    }
+    this.hud.setStructurePips(pips);
+    this.siegeUntil = 0;
     this.camera.bounds = map.bounds;
     this.camera.snapTo(map.spawnX, map.spawnY);
 
@@ -329,6 +366,7 @@ export class Game implements LoopHooks {
     updateWeapons(ctx, dt);
     updatePlayerProjectiles(ctx, dt);
     updateHazards(ctx, dt);
+    updateStructures(ctx, dt);
 
     ctx.pickupHash.build(this.world, this.world.list(Kind.Pickup));
     updatePickups(ctx, dt);
@@ -372,10 +410,31 @@ export class Game implements LoopHooks {
     // Hazards first: auras and burning ground use a large negative draw bias so
     // they sit under everything, while orbiting tomes sort normally.
     this.queueKind(Kind.Hazard, alpha);
+    this.queueKind(Kind.Structure, alpha);
     this.queueKind(Kind.Pickup, alpha);
     this.queueKind(Kind.Enemy, alpha);
     this.queueKind(Kind.Projectile, alpha);
     this.queuePlayer(alpha);
+
+    // Off-screen structure markers during an active siege: the structure's own
+    // sprite at half scale, clamped 8px inside the 480x270 buffer edge, always
+    // on top of the sprite pass (flat decor uses -1e6; this is its ceiling twin).
+    if (this.siegeUntil > this.run.time) {
+      const view = this.renderer.viewRect();
+      const ids = world.list(Kind.Structure);
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i]!;
+        const x = lerp(world.prevX[id]!, world.x[id]!, alpha);
+        const y = lerp(world.prevY[id]!, world.y[id]!, alpha);
+        if (x >= view.left && x <= view.right && y >= view.top && y <= view.bottom) continue;
+        const mx = Math.max(view.left + 8, Math.min(view.right - 8, x));
+        const my = Math.max(view.top + 8, Math.min(view.bottom - 8, y));
+        this.renderer.queue(world.spriteId[id]!, world.animState[id]!, world.animTime[id]!, mx, my, {
+          scale: 0.5,
+          depth: 1e6,
+        });
+      }
+    }
 
     this.renderer.flushSprites();
     this.fx.drawNumbers(this.renderer);
@@ -461,6 +520,7 @@ export class Game implements LoopHooks {
       `pickups  ${world.list(Kind.Pickup).length}`,
       `shots    ${world.list(Kind.Projectile).length}`,
       `hazards  ${world.list(Kind.Hazard).length}`,
+      `structures ${world.list(Kind.Structure).length}`,
       `particles ${this.fx.activeParticles}`,
       `hp x${this.ctx.hpScale.toFixed(2)}  dmg x${this.ctx.damageScale.toFixed(2)}`,
     ];

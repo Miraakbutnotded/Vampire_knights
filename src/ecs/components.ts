@@ -22,6 +22,8 @@ export const Kind = {
   Pickup: 4,
   /** Persistent damaging area — auras, lingering fire, garlic. */
   Hazard: 5,
+  /** Defendable castle objective — gates, shrines. Static, player-team, has HP. */
+  Structure: 6,
 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 

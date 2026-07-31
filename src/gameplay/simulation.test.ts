@@ -9,17 +9,20 @@ import { World } from '../ecs/world.ts';
 import { Camera } from '../render/camera.ts';
 import { Fx } from '../render/fx.ts';
 import type { SpriteTable } from '../render/sprites.ts';
-import type { TileMap } from '../render/tilemap.ts';
+import type { Solid, TileMap } from '../render/tilemap.ts';
 import type { Input } from '../core/input.ts';
 
 import { MAX_QUERY_RESULTS, SpatialHash } from './collision.ts';
 import {
   BLOOD_CONFIG,
   CHARACTER_LIST,
+  STRUCTURE_LIST,
   WEAPON_LIST,
   enemyDef,
   normalizeAbility,
   normalizeBlood,
+  structureDef,
+  structureDefByIndex,
   waveTable,
   weaponStatsAtLevel,
 } from './content.ts';
@@ -29,6 +32,7 @@ import { spawnPlayer, updatePlayer } from './player.ts';
 import { PickupKind, spawnBloodVial, updatePickups } from './pickups.ts';
 import { Run, xpForLevel } from './run.ts';
 import { Spawner, difficultyAt } from './spawner.ts';
+import { damageStructure, spawnStructure, updateStructures } from './structures.ts';
 import { applyOffer, rollOffers } from './upgrades.ts';
 import { effectiveStats, updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
 import { updateBlood } from './blood.ts';
@@ -77,6 +81,7 @@ function stubSprites(): SpriteTable {
 
 /** Open, unbounded map with no collision — the meadow case. */
 function stubMap(): TileMap {
+  const solids: Solid[] = [];
   return {
     name: 'test',
     tileSize: 16,
@@ -84,12 +89,27 @@ function stubMap(): TileMap {
     spawnX: 0,
     spawnY: 0,
     wavesTable: 'default',
-    solids: [],
+    solids,
+    structures: [],
     hasCollision: false,
     clampToBounds: (x: number, y: number) => [x, y] as [number, number],
     resolveSolids: (x: number, y: number) => [x, y] as [number, number],
     resolveTiles: (x: number, y: number) => [x, y] as [number, number],
     isSolidTile: () => false,
+    // Functional mini-implementation of TileMap's runtime-solid contract (not
+    // no-ops) so headless tests can prove the gate-breach bookkeeping.
+    // hasCollision stays false, so movement in tests is unchanged.
+    addRuntimeSolid: (x: number, y: number, r: number) => {
+      solids.push({ x, y, r });
+      return solids.length - 1;
+    },
+    removeRuntimeSolid: (index: number) => {
+      const solid = solids[index];
+      if (solid) solid.r = 0;
+    },
+    clearRuntimeSolids: () => {
+      solids.length = 0;
+    },
   } as unknown as TileMap;
 }
 
@@ -162,6 +182,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345): Harness
         updateWeapons(ctx, FIXED_DT);
         updatePlayerProjectiles(ctx, FIXED_DT);
         updateHazards(ctx, FIXED_DT);
+        updateStructures(ctx, FIXED_DT);
 
         ctx.pickupHash.build(world, world.list(Kind.Pickup));
         updatePickups(ctx, FIXED_DT);
@@ -1322,5 +1343,470 @@ describe('active abilities', () => {
       expect(world.entityCount).toBeLessThan(4000);
     }
     expect(ctx.run.time).toBeGreaterThan(victory - FIXED_DT);
+  });
+});
+
+describe('castle defense', () => {
+  it('registers Kind.Structure as a seventh kind with its own live list', () => {
+    const world = new World();
+    const id = world.create(Kind.Structure);
+    expect(id).toBeGreaterThanOrEqual(0);
+    expect(world.kind[id]).toBe(Kind.Structure);
+    expect(world.list(Kind.Structure)).toContain(id);
+    // The other kind lists are untouched by the new kind.
+    expect(world.list(Kind.Enemy)).toHaveLength(0);
+  });
+
+  it('resets targetHandle on recycled ids and resolves stale handles to -1', () => {
+    const world = new World();
+    const structure = world.create(Kind.Structure);
+    const enemy = world.create(Kind.Enemy);
+    const stale = world.handleOf(structure);
+    world.targetHandle[enemy] = stale;
+
+    world.destroy(structure);
+    world.flush();
+    // Generation bump: the handle is dead even before the id is reused.
+    expect(world.resolve(stale)).toBe(-1);
+
+    world.destroy(enemy);
+    world.flush();
+    const recycled = world.create(Kind.Enemy);
+    // The freelist is LIFO, so the enemy id comes straight back — the classic
+    // recycled-id stale-value trap the create() reset line exists to close.
+    expect(recycled).toBe(enemy);
+    expect(world.targetHandle[recycled]).toBe(-1);
+  });
+
+  it('normalizes structure defs and fails soft on unknown ids', () => {
+    expect(STRUCTURE_LIST).toHaveLength(2);
+
+    const gate = structureDef('gate')!;
+    expect(gate).not.toBeNull();
+    expect(gate.name).toBe('Bastion Gate');
+    expect(gate.hp).toBe(300);
+    expect(gate.radius).toBe(14);
+    expect(gate.solid).toBe(true);
+    expect(gate.gold).toBe(25);
+    expect(gate.index).toBe(0);
+
+    const shrine = structureDef('shrine')!;
+    expect(shrine.solid).toBe(false);
+    expect(shrine.gold).toBe(40);
+
+    // Unknown id: warn-don't-throw, null return — the caller skips the spawn.
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(structureDef('barbican')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+
+    // Index lookup mirrors enemyDefByIndex: out of range falls back to entry 0.
+    expect(structureDefByIndex(0).id).toBe('gate');
+    expect(structureDefByIndex(99).id).toBe('gate');
+  });
+
+  it('keeps structure-less maps untouched: a default run spawns no structures', () => {
+    // The meadow case: no "structures" array in the map, no sieges in the
+    // table. Everything that shipped in Phases 1-2 must behave identically.
+    const harness = makeHarness();
+    harness.run(30);
+    const { ctx } = harness;
+    expect(ctx.map.structures).toHaveLength(0);
+    expect(ctx.world.list(Kind.Structure)).toHaveLength(0);
+    expect(ctx.world.isAlive(ctx.player)).toBe(true);
+    expect(ctx.run.kills).toBeGreaterThan(0);
+  });
+
+  it('damages a structure through the hit pipeline and reports each hit', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const gate = structureDef('gate')!;
+    const id = spawnStructure(ctx, gate, 80, 0);
+    expect(id).toBeGreaterThanOrEqual(0);
+    expect(ctx.world.team[id]).toBe(Team.Player);
+    expect(ctx.world.maxHp[id]).toBe(gate.hp);
+    // The gate registered a runtime solid at its own radius; the pip slot is 0.
+    expect(ctx.map.solids).toHaveLength(1);
+    expect(ctx.map.solids[0]!.r).toBe(gate.radius);
+    expect(ctx.world.aiPhase[id]).toBe(0);
+
+    const events: { hp: number; maxHp: number; index: number }[] = [];
+    ctx.bus.on('structure:damaged', (e) => events.push(e));
+    damageStructure(ctx, id, 40);
+    expect(ctx.world.hp[id]).toBe(gate.hp - 40);
+    expect(ctx.world.hitFlash[id]).toBeGreaterThan(0);
+    expect(events).toEqual([{ hp: gate.hp - 40, maxHp: gate.hp, index: 0 }]);
+  });
+
+  it('destroys a fallen structure: solid tombstoned, penalty banked, event fired', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const gate = structureDef('gate')!;
+    const gateId = spawnStructure(ctx, gate, 80, 0);
+    spawnStructure(ctx, structureDef('shrine')!, -80, 0);
+    // Only the gate is solid; the shrine is walk-through.
+    expect(ctx.map.solids).toHaveLength(1);
+
+    const destroyed: { name: string; remaining: number; index: number }[] = [];
+    ctx.bus.on('structure:destroyed', (e) => destroyed.push(e));
+    damageStructure(ctx, gateId, gate.hp);
+
+    expect(destroyed).toEqual([{ name: 'Bastion Gate', remaining: 1, index: 0 }]);
+    expect(ctx.run.structuresLost).toBe(1);
+    // Gate breach opens the wall: the solid is disabled in place, not spliced.
+    expect(ctx.map.solids).toHaveLength(1);
+    expect(ctx.map.solids[0]!.r).toBe(0);
+    // Deferred destruction: dead immediately, recycled at flush.
+    expect(ctx.world.isAlive(gateId)).toBe(false);
+    ctx.world.flush();
+    expect(ctx.world.list(Kind.Structure)).toHaveLength(1);
+  });
+
+  it('runs structures through the tick with hit-flash decay and free interpolation', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const id = spawnStructure(ctx, structureDef('gate')!, 60, 0);
+    damageStructure(ctx, id, 10);
+    expect(ctx.world.hitFlash[id]).toBeGreaterThan(0);
+
+    harness.run(1);
+
+    // updateStructures ran: the flash decayed to zero over the second.
+    expect(ctx.world.hitFlash[id]).toBe(0);
+    expect(ctx.world.isAlive(id)).toBe(true);
+    // Static entity: snapshotPositions keeps prev == current every tick.
+    expect(ctx.world.prevX[id]).toBe(ctx.world.x[id]);
+    expect(ctx.world.prevY[id]).toBe(ctx.world.y[id]);
+  });
+
+  it('marches a siege enemy to the wall, parks it, and swings on the 0.8s cadence', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    // Empty field: no stage spawns muddying the assertions.
+    ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+    // Player parked far away: outside peel range, contact damage irrelevant.
+    world.place(ctx.player, -400, 0);
+    world.hp[ctx.player] = 1e9;
+
+    const gate = structureDef('gate')!;
+    const gateId = spawnStructure(ctx, gate, 120, 0);
+    const zombie = spawnEnemy(ctx, enemyDef('zombie')!, 40, 0);
+    world.targetHandle[zombie] = world.handleOf(gateId);
+
+    harness.run(8);
+
+    // Parked at a stable standoff just outside the touch radius, not culled,
+    // not orbiting the player.
+    expect(world.isAlive(zombie)).toBe(true);
+    const dist = Math.hypot(world.x[gateId]! - world.x[zombie]!, world.y[gateId]! - world.y[zombie]!);
+    const touch = world.radius[zombie]! + world.radius[gateId]! + 0.5;
+    expect(dist).toBeLessThanOrEqual(touch);
+    expect(dist).toBeGreaterThan(touch - 3);
+
+    // ~5.5s of contact at the 0.8s cadence: several whole swings landed, each
+    // for exactly the zombie's contact damage — never a per-tick shred.
+    const lost = gate.hp - world.hp[gateId]!;
+    const perSwing = world.damage[zombie]!;
+    expect(lost).toBeGreaterThanOrEqual(3 * perSwing);
+    expect(lost).toBeLessThan(gate.hp);
+    expect(lost % perSwing).toBe(0);
+  });
+
+  it('peels a siege enemy off the gate when the player closes in', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+    world.hp[ctx.player] = 1e9;
+
+    const gateId = spawnStructure(ctx, structureDef('gate')!, 200, 0);
+    const zombie = spawnEnemy(ctx, enemyDef('zombie')!, 150, 0);
+    world.targetHandle[zombie] = world.handleOf(gateId);
+
+    // The player steps to 40u from the attacker — inside the 56u peel radius.
+    world.place(ctx.player, 110, 0);
+    harness.run(0.5);
+
+    // The siege order is dropped and the zombie hunts the player again
+    // (the player is to its left, so its velocity points left).
+    expect(world.targetHandle[zombie]).toBe(-1);
+    expect(world.vx[zombie]).toBeLessThan(0);
+  });
+
+  it('retargets to the player after its structure falls', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+    world.hp[ctx.player] = 1e9;
+    world.place(ctx.player, -200, 0);
+
+    const gateId = spawnStructure(ctx, structureDef('gate')!, 100, 0);
+    const zombie = spawnEnemy(ctx, enemyDef('zombie')!, 60, 0);
+    world.targetHandle[zombie] = world.handleOf(gateId);
+
+    damageStructure(ctx, gateId, 1e9); // the gate falls
+    harness.run(1);                    // flush recycles it; the handle dies
+
+    expect(world.targetHandle[zombie]).toBe(-1);
+    // Marching at the player again (player at -200: velocity points left).
+    expect(world.vx[zombie]).toBeLessThan(0);
+  });
+
+  it('never lets a stale handle point at a recycled id', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+    world.hp[ctx.player] = 1e9;
+    world.place(ctx.player, -300, 0);
+
+    const gateId = spawnStructure(ctx, structureDef('gate')!, 100, 0);
+    const staleHandle = world.handleOf(gateId);
+    const zombie = spawnEnemy(ctx, enemyDef('zombie')!, 50, 0);
+    world.targetHandle[zombie] = staleHandle;
+
+    damageStructure(ctx, gateId, 1e9);
+    world.flush(); // recycle immediately, mid-scenario
+    const squatter = world.create(Kind.Enemy);
+    // LIFO freelist hands the gate's id straight back — the recycle trap.
+    expect(squatter).toBe(gateId);
+    // The generation bump means the stale handle can never reach the squatter.
+    expect(world.resolve(staleHandle)).toBe(-1);
+
+    harness.run(0.5);
+    // updateEnemies saw the dead handle and cleared it — no misdirected attacks.
+    expect(world.targetHandle[zombie]).toBe(-1);
+    expect(world.hp[squatter]).toBe(1); // the squatter was never "attacked"
+  });
+
+  it('exempts enemies with a live siege target from distance culling', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+    world.hp[ctx.player] = 1e9;
+
+    // Both enemies are ~680u from the player at (0,0) — past CULL_DISTANCE 620.
+    const gateId = spawnStructure(ctx, structureDef('gate')!, 700, 0);
+    const attacker = spawnEnemy(ctx, enemyDef('zombie')!, 680, 0);
+    world.targetHandle[attacker] = world.handleOf(gateId);
+    const wanderer = spawnEnemy(ctx, enemyDef('zombie')!, 680, 40);
+
+    harness.run(1);
+
+    // The siege order holds the attacker on the field; the untargeted twin
+    // is silently culled on the first tick.
+    expect(world.isAlive(attacker)).toBe(true);
+    expect(world.isAlive(wanderer)).toBe(false);
+  });
+
+  it('parses siege schedules with defaults and keeps default siege-free', () => {
+    // The optionality tripwire for waves: shipping maps on the default table
+    // keep their exact spawn stream — no sieges materialize from nowhere.
+    expect(waveTable('default').sieges).toEqual([]);
+
+    const bastion = waveTable('bastion');
+    expect(bastion.sieges.length).toBeGreaterThanOrEqual(3);
+    for (const siege of bastion.sieges) {
+      expect(enemyDef(siege.type), `unknown siege enemy "${siege.type}"`).not.toBeNull();
+      expect(siege.count).toBeGreaterThanOrEqual(1);
+      expect(siege.duration).toBeGreaterThanOrEqual(1);
+    }
+    // Sorted by time so the spawner can walk a cursor through them.
+    for (let i = 1; i < bastion.sieges.length; i++) {
+      expect(bastion.sieges[i]!.at).toBeGreaterThanOrEqual(bastion.sieges[i - 1]!.at);
+    }
+  });
+
+  it('spawns a siege wave aimed at the nearest living structure', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    world.hp[ctx.player] = 1e9;
+
+    const gateId = spawnStructure(ctx, structureDef('gate')!, 150, 0);
+    const shrineId = spawnStructure(ctx, structureDef('shrine')!, -150, 0);
+    ctx.wave = {
+      ...waveTable('default'),
+      stages: [],
+      elites: null,
+      bosses: [],
+      sieges: [{ at: 1, type: 'zombie', count: 6, duration: 30 }],
+    };
+
+    let started = 0;
+    ctx.bus.on('siege:started', ({ duration }) => {
+      started++;
+      expect(duration).toBe(30);
+    });
+
+    harness.run(2);
+
+    expect(started).toBe(1);
+    const enemies = world.list(Kind.Enemy);
+    expect(enemies).toHaveLength(6);
+    for (const id of enemies) {
+      // Every attacker holds a live handle to one of the two structures.
+      const target = world.resolve(world.targetHandle[id]!);
+      expect([gateId, shrineId]).toContain(target);
+    }
+  });
+
+  it('degrades a siege to player-chasers on a structure-less map', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.world.hp[ctx.player] = 1e9;
+    ctx.wave = {
+      ...waveTable('default'),
+      stages: [],
+      elites: null,
+      bosses: [],
+      sieges: [{ at: 1, type: 'zombie', count: 5, duration: 20 }],
+    };
+
+    harness.run(2);
+
+    // No structures anywhere: the siege still spawns, nobody crashes, and
+    // every attacker simply hunts the player (handle stays -1).
+    const enemies = ctx.world.list(Kind.Enemy);
+    expect(enemies).toHaveLength(5);
+    for (const id of enemies) {
+      expect(ctx.world.targetHandle[id]).toBe(-1);
+    }
+  });
+
+  it('pays out a chest and gold when the siege window closes with a survivor', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    world.hp[ctx.player] = 1e9;
+    // Player parked far from the reward site so the chest is not auto-collected.
+    world.place(ctx.player, -400, 0);
+
+    spawnStructure(ctx, structureDef('gate')!, 300, 0);
+    ctx.wave = {
+      ...waveTable('default'),
+      stages: [],
+      elites: null,
+      bosses: [],
+      sieges: [{ at: 1, type: 'zombie', count: 1, duration: 5 }],
+    };
+
+    const defended: { gold: number }[] = [];
+    ctx.bus.on('siege:defended', (e) => defended.push(e));
+
+    harness.run(8); // window opens at 1s, closes at 6s; the lone zombie never reaches the gate
+
+    expect(defended).toEqual([{ gold: structureDef('gate')!.gold }]);
+    const pickups = world.list(Kind.Pickup).map((id) => world.defIndex[id]);
+    expect(pickups).toContain(PickupKind.Chest);
+    expect(pickups).toContain(PickupKind.Coin);
+  });
+
+  it('pays nothing when every structure fell before the window closed', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    world.hp[ctx.player] = 1e9;
+    world.place(ctx.player, -400, 0);
+
+    const gateId = spawnStructure(ctx, structureDef('gate')!, 300, 0);
+    ctx.wave = {
+      ...waveTable('default'),
+      stages: [],
+      elites: null,
+      bosses: [],
+      sieges: [{ at: 1, type: 'zombie', count: 1, duration: 5 }],
+    };
+    const defended: unknown[] = [];
+    ctx.bus.on('siege:defended', (e) => defended.push(e));
+
+    harness.run(2);
+    damageStructure(ctx, gateId, 1e9); // the gate falls mid-siege
+    harness.run(6);                    // the window closes with nothing standing
+
+    expect(defended).toEqual([]);
+    expect(ctx.run.structuresLost).toBe(1);
+    const pickups = world.list(Kind.Pickup).map((id) => world.defIndex[id]);
+    expect(pickups).not.toContain(PickupKind.Chest);
+    // Not a fail state: the run continues, only the difficulty penalty banks.
+    expect(world.isAlive(ctx.player)).toBe(true);
+  });
+
+  it('raises damage and speed difficulty by 8% per lost structure', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const base = difficultyAt(ctx, 60);
+
+    ctx.run.structuresLost = 2;
+    const bolder = difficultyAt(ctx, 60);
+
+    // hp is untouched: sponginess would punish weapons, aggression punishes
+    // the player — the penalty should feel like the latter.
+    expect(bolder.hp).toBe(base.hp);
+    expect(bolder.damage).toBeCloseTo(base.damage * 1.16);
+    expect(bolder.speed).toBeCloseTo(base.speed * 1.16);
+  });
+
+  it('keeps a seeded bastion siege deterministic', { timeout: 60_000 }, () => {
+    const fingerprint = (): number[] => {
+      const harness = makeHarness('wanderer', 777);
+      const { ctx } = harness;
+      ctx.world.hp[ctx.player] = 1e9;
+      ctx.run.stats.maxHp = 1e9;
+      ctx.wave = waveTable('bastion');
+      // The stub map has no structures; stand the bastion pair up manually.
+      spawnStructure(ctx, structureDef('gate')!, -240, 0);
+      spawnStructure(ctx, structureDef('shrine')!, 180, -120);
+      harness.run(150); // covers the 120s siege start plus 30s of fighting
+      let structureHp = 0;
+      for (const sid of ctx.world.list(Kind.Structure)) {
+        structureHp += ctx.world.hp[sid]!;
+      }
+      return [
+        ctx.run.kills,
+        ctx.run.gold,
+        ctx.run.structuresLost,
+        ctx.world.entityCount,
+        Math.round(structureHp),
+      ];
+    };
+    // Identical seed => identical world. Any Math.random or wall-clock leak in
+    // the siege path (spawn points, targeting, rewards) breaks this instantly.
+    expect(fingerprint()).toEqual(fingerprint());
+  });
+
+  it('does not leak entities over a full bastion run with sieges', { timeout: 120_000 }, () => {
+    const harness = makeHarness('wanderer', 4242);
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.wave = waveTable('bastion');
+    spawnStructure(ctx, structureDef('gate')!, -240, 0);
+    spawnStructure(ctx, structureDef('shrine')!, 180, -120);
+
+    const victory = ctx.wave.victorySeconds;
+    const chunk = 15;
+    for (let elapsed = 0; elapsed < victory; elapsed += chunk) {
+      world.hp[ctx.player] = 1e9;
+      ctx.run.stats.maxHp = 1e9;
+      harness.run(chunk);
+      // The cull exemption must never balloon the field: siege durations are
+      // bounded, so attackers either die, land their handle on a corpse and
+      // resume normal culling, or the window ends. 4000 = leak, not load.
+      expect(world.entityCount).toBeLessThan(4000);
+    }
+    expect(ctx.run.time).toBeGreaterThan(victory - FIXED_DT);
+
+    // Counter coherence across the whole run: every spawned structure is
+    // either lost or still alive — no double-counts, no ghosts.
+    let aliveStructures = 0;
+    for (const sid of world.list(Kind.Structure)) {
+      if (world.isAlive(sid)) aliveStructures++;
+    }
+    expect(ctx.run.structuresLost + aliveStructures).toBe(2);
   });
 });

@@ -56,6 +56,8 @@ export interface MapJson {
   props?: PropJson[];
   /** Which wave table from content/waves.json this map uses. */
   waves?: string;
+  /** Defendable structures spawned at run start. Optional; most maps have none. */
+  structures?: { type: string; x: number; y: number }[];
   /** Background colour shown where there is no tile. */
   voidColor?: string;
 }
@@ -103,8 +105,10 @@ export class TileMap {
   readonly spawnY: number;
   readonly wavesTable: string;
   readonly solids: Solid[] = [];
+  readonly structures: { type: string; x: number; y: number }[];
 
   private mode: 'scatter' | 'grid';
+  private propSolidCount = 0;
   private hasSolidTiles = false;
   private textures: TileTexture[] = [];
   private cumulativeWeights: number[] = [];
@@ -131,6 +135,7 @@ export class TileMap {
     this.voidColor = def.voidColor ?? '#0b0d14';
     this.decor = def.decor ?? [];
     this.props = def.props ?? [];
+    this.structures = def.structures ?? [];
 
     if (this.mode === 'grid') {
       this.gridWidth = def.gridWidth ?? 0;
@@ -290,6 +295,9 @@ export class TileMap {
         this.solids.push({ x: prop.x, y: prop.y, r: prop.solid });
       }
     }
+    // Everything below this index is hand-authored and permanent; everything
+    // above is a runtime structure solid and lives run-to-run.
+    this.propSolidCount = this.solids.length;
   }
 
   /** Keeps a circle of radius `r` inside the map bounds. Returns the clamped position. */
@@ -304,6 +312,7 @@ export class TileMap {
     let px = x;
     let py = y;
     for (const solid of this.solids) {
+      if (solid.r <= 0) continue;
       const dx = px - solid.x;
       const dy = py - solid.y;
       const minDist = r + solid.r;
@@ -315,6 +324,35 @@ export class TileMap {
       py += (dy / d) * push;
     }
     return [px, py];
+  }
+
+  // --- runtime solids (castle structures) ---------------------------------
+
+  /**
+   * Registers a circular obstacle at runtime (a solid structure). Returns its
+   * index into `solids`, valid for the structure's whole life: removal
+   * tombstones the entry (r = 0) rather than splicing, so the indices other
+   * structures hold in `world.value` never shift.
+   */
+  addRuntimeSolid(x: number, y: number, r: number): number {
+    this.solids.push({ x, y, r });
+    return this.solids.length - 1;
+  }
+
+  /** Disables one runtime solid (a gate breach opens the wall). Prop solids are untouchable. */
+  removeRuntimeSolid(index: number): void {
+    if (index < this.propSolidCount) return;
+    const solid = this.solids[index];
+    if (solid) solid.r = 0;
+  }
+
+  /**
+   * Drops every runtime solid, keeping the hand-authored prop solids. Maps are
+   * cached across runs in Game.mapCache, so startRun() must call this or a
+   * restarted run would collide with the previous run's structures.
+   */
+  clearRuntimeSolids(): void {
+    this.solids.length = this.propSolidCount;
   }
 
   /** Draws the ground layer. Call before queuing sprites. */

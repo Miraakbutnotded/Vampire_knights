@@ -45,4 +45,8 @@ export interface GameEvents {
   'blood:frenzy': { spent: number; duration: number };
   'ability:used': { name: string; kind: string; cooldown: number };
   'ability:ready': undefined;
+  'structure:damaged': { hp: number; maxHp: number; index: number };
+  'structure:destroyed': { name: string; remaining: number; index: number };
+  'siege:started': { duration: number };
+  'siege:defended': { gold: number };
 }

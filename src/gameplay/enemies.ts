@@ -2,6 +2,7 @@ import { AnimState, Behavior, Comp, Kind, Team } from '../ecs/components.ts';
 import { TAU } from '../core/math.ts';
 import { enemyDefByIndex } from './content.ts';
 import { damagePlayer } from './damage.ts';
+import { damageStructure } from './structures.ts';
 import { separateCrowd } from './collision.ts';
 import type { EnemyDef } from './content.ts';
 import type { Ctx } from './context.ts';
@@ -12,6 +13,10 @@ const CULL_DISTANCE = 620;
 const KNOCKBACK_DECAY = 9;
 /** Strength of the crowd separation pass; 1 would fully resolve overlaps in one tick. */
 const CROWD_STRENGTH = 0.45;
+/** Siege enemies whose target's player gets this close switch back to the player. */
+const PEEL_DISTANCE = 56;
+/** Seconds between structure hits while parked at the wall. */
+const SIEGE_HIT_INTERVAL = 0.8;
 
 /** Charger phases, stored in `aiPhase`. */
 const ChargePhase = {
@@ -152,11 +157,41 @@ export function updateEnemies(ctx: Ctx, dt: number): void {
 
     const ex = world.x[id]!;
     const ey = world.y[id]!;
-    const dx = px - ex;
-    const dy = py - ey;
+
+    // Siege targeting: a live target handle substitutes the structure's
+    // position for the player's in everything below, so the existing melee
+    // movement code marches at the wall unchanged. Handles, not ids: a
+    // recycled id resolves to -1, never to the squatter.
+    let tx = px;
+    let ty = py;
+    let structTarget = -1;
+    if (world.targetHandle[id]! >= 0) {
+      const sid = world.resolve(world.targetHandle[id]!);
+      if (sid < 0) {
+        // Structure destroyed (or its id recycled): resume the player hunt.
+        world.targetHandle[id] = -1;
+      } else if (
+        hasPlayer &&
+        (px - ex) * (px - ex) + (py - ey) * (py - ey) <= PEEL_DISTANCE * PEEL_DISTANCE
+      ) {
+        // The player closing in outranks the siege order — peeling enemies
+        // off the gate is the intended counterplay. Cleared for good; the
+        // next siege wave brings fresh attackers.
+        world.targetHandle[id] = -1;
+      } else {
+        structTarget = sid;
+        tx = world.x[sid]!;
+        ty = world.y[sid]!;
+      }
+    }
+
+    const dx = tx - ex;
+    const dy = ty - ey;
     const d2 = dx * dx + dy * dy;
 
-    if (!world.has(id, Comp.Persistent) && d2 > cullDist2) {
+    // Culling is exempt while a live target holds this enemy on the field —
+    // otherwise attackers evaporate the moment the player kites away.
+    if (structTarget < 0 && !world.has(id, Comp.Persistent) && d2 > cullDist2) {
       // Silent removal — no drops, no kill credit. The spawner will replace it.
       world.destroy(id);
       continue;
@@ -276,6 +311,24 @@ export function updateEnemies(ctx: Ctx, dt: number): void {
         world.vx[id] = towardX * speed;
         world.vy[id] = towardY * speed;
         break;
+    }
+
+    // Parked at the wall: stop and swing on the hitCooldown cadence. Only
+    // melee behaviors ever carry a target handle (updateSieges enforces it),
+    // so this reuse of hitCooldown never collides with Ranged shooting. The
+    // +0.5 slack keeps resolveSolids' exact-touch parking from starving the
+    // attack at the float boundary.
+    if (structTarget >= 0) {
+      const touch = world.radius[id]! + world.radius[structTarget]! + 0.5;
+      if (d2 <= touch * touch) {
+        world.vx[id] = 0;
+        world.vy[id] = 0;
+        world.hitCooldown[id] = world.hitCooldown[id]! - dt;
+        if (world.hitCooldown[id]! <= 0) {
+          world.hitCooldown[id] = SIEGE_HIT_INTERVAL;
+          damageStructure(ctx, structTarget, world.damage[id]!);
+        }
+      }
     }
 
     // Knockback decays independently of AI velocity, then both are integrated.

@@ -109,6 +109,13 @@ export class Run {
    */
   abilityMods: Partial<StatMods> | null = null;
 
+  // --- castle defense -----------------------------------------------------
+
+  /** Structures spawned this run, in spawn order — the HUD pip count. */
+  structuresSpawned = 0;
+  /** Structures lost this run; difficultyAt turns each into +8% damage/speed. */
+  structuresLost = 0;
+
   constructor(characterId: string) {
     this.character = characterDef(characterId);
     this.stats = { ...this.character.stats };

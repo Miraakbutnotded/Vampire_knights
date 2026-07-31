@@ -39,6 +39,8 @@ export class Hud {
   private weaponRow: HTMLElement;
   private passiveRow: HTMLElement;
   private banner: HTMLElement;
+  private structureRow: HTMLElement;
+  private structurePips: { wrap: HTMLElement; fill: HTMLElement }[] = [];
   private bloodWrap: HTMLElement;
   private bloodFill: HTMLElement;
   private bloodIntentCb: ((intent: 'heal' | 'burst') => void) | null = null;
@@ -100,6 +102,7 @@ export class Hud {
     loadout.append(this.weaponRow, this.passiveRow);
 
     this.banner = el('div', 'boss-banner');
+    this.structureRow = el('div', 'structure-pips');
 
     // Bottom-centre thumb zone: the blood orb flanked by Feast / Frenzy taps.
     this.bloodWrap = el('div', 'blood-cluster');
@@ -144,7 +147,7 @@ export class Hud {
     });
     this.bloodWrap.appendChild(this.abilityBtn);
 
-    this.root.append(xpTrack, left, center, right, loadout, this.bloodWrap, this.banner);
+    this.root.append(xpTrack, left, center, right, loadout, this.bloodWrap, this.banner, this.structureRow);
   }
 
   setVisible(visible: boolean): void {
@@ -165,6 +168,41 @@ export class Hud {
   /** Game injects the callback; the HUD never touches gameplay or Input itself. */
   bindAbilityButton(cb: () => void): void {
     this.abilityCb = cb;
+  }
+
+  /**
+   * Builds one HP pip per structure at run start (Game calls this from
+   * startRun — creation has no gameplay event; updates are event-driven).
+   * An empty list hides the row: structure-less maps show nothing new.
+   */
+  setStructurePips(structures: { name: string; hp: number }[]): void {
+    this.structurePips = [];
+    this.structureRow.replaceChildren();
+    this.structureRow.classList.toggle('visible', structures.length > 0);
+    for (const s of structures) {
+      const wrap = el('div', 'structure-pip');
+      wrap.title = s.name;
+      const fill = el('div', 'structure-pip-fill');
+      wrap.appendChild(fill);
+      this.structureRow.appendChild(wrap);
+      this.structurePips.push({ wrap, fill });
+    }
+  }
+
+  /** Driven by the structure:damaged event, like hp-fill. */
+  updateStructurePip(index: number, hp: number, maxHp: number): void {
+    const pip = this.structurePips[index];
+    if (!pip) return;
+    const percent = maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
+    pip.fill.style.width = `${percent}%`;
+  }
+
+  /** Driven by the structure:destroyed event. The slot stays, marked lost. */
+  destroyStructurePip(index: number): void {
+    const pip = this.structurePips[index];
+    if (!pip) return;
+    pip.fill.style.width = '0%';
+    pip.wrap.classList.add('lost');
   }
 
   /** Called once per rendered frame. `hp` is passed in since it lives on the entity. */

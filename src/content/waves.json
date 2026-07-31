@@ -158,5 +158,116 @@
       { "at": 720, "type": "warden", "count": 3 },
       { "at": 880, "type": "reaper", "count": 1 }
     ]
+  },
+  "bastion": {
+    "victorySeconds": 900,
+    "maxAlive": 400,
+    "scaling": {
+      "hpPerMinute": 0.2,
+      "damagePerMinute": 0.05,
+      "speedPerMinute": 0.012,
+      "hpExponent": 1.05
+    },
+    "waves": [
+      {
+        "at": 0,
+        "spawnInterval": 1.4,
+        "perSpawn": 2,
+        "enemies": [{ "type": "bat", "weight": 10 }]
+      },
+      {
+        "at": 50,
+        "spawnInterval": 1.1,
+        "perSpawn": 3,
+        "enemies": [
+          { "type": "bat", "weight": 7 },
+          { "type": "swarmling", "weight": 5 }
+        ]
+      },
+      {
+        "at": 110,
+        "spawnInterval": 1.0,
+        "perSpawn": 3,
+        "enemies": [
+          { "type": "zombie", "weight": 6 },
+          { "type": "bat", "weight": 5 },
+          { "type": "slime", "weight": 4 }
+        ]
+      },
+      {
+        "at": 200,
+        "spawnInterval": 0.9,
+        "perSpawn": 4,
+        "enemies": [
+          { "type": "skeleton", "weight": 6 },
+          { "type": "zombie", "weight": 5 },
+          { "type": "wisp", "weight": 2 }
+        ]
+      },
+      {
+        "at": 320,
+        "spawnInterval": 0.8,
+        "perSpawn": 5,
+        "enemies": [
+          { "type": "ghost", "weight": 5 },
+          { "type": "skeleton", "weight": 5 },
+          { "type": "slime", "weight": 4 },
+          { "type": "wisp", "weight": 3 }
+        ]
+      },
+      {
+        "at": 470,
+        "spawnInterval": 0.7,
+        "perSpawn": 6,
+        "enemies": [
+          { "type": "swarmling", "weight": 8 },
+          { "type": "skeleton", "weight": 6 },
+          { "type": "drifter", "weight": 4 },
+          { "type": "ghost", "weight": 4 }
+        ]
+      },
+      {
+        "at": 620,
+        "spawnInterval": 0.55,
+        "perSpawn": 7,
+        "enemies": [
+          { "type": "skeleton", "weight": 7 },
+          { "type": "ghost", "weight": 6 },
+          { "type": "zombie", "weight": 5 },
+          { "type": "wisp", "weight": 4 }
+        ]
+      },
+      {
+        "at": 780,
+        "spawnInterval": 0.45,
+        "perSpawn": 9,
+        "enemies": [
+          { "type": "swarmling", "weight": 10 },
+          { "type": "skeleton", "weight": 7 },
+          { "type": "ghost", "weight": 6 },
+          { "type": "drifter", "weight": 6 },
+          { "type": "wisp", "weight": 4 }
+        ]
+      }
+    ],
+    "elites": {
+      "startAt": 150,
+      "interval": 60,
+      "type": "brute",
+      "count": 1,
+      "countGrowthPerMinute": 0.15
+    },
+    "bosses": [
+      { "at": 240, "type": "warden", "count": 1 },
+      { "at": 540, "type": "warden", "count": 2 },
+      { "at": 880, "type": "reaper", "count": 1 }
+    ],
+    "sieges": [
+      { "at": 120, "type": "zombie", "count": 10, "duration": 45 },
+      { "at": 300, "type": "skeleton", "count": 12, "duration": 45 },
+      { "at": 480, "type": "slime", "count": 14, "duration": 45 },
+      { "at": 660, "type": "skeleton", "count": 16, "duration": 50 },
+      { "at": 840, "type": "zombie", "count": 18, "duration": 50 }
+    ]
   }
 }

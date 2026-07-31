@@ -2,7 +2,7 @@ import { Kind } from './components.ts';
 
 export const MAX_ENTITIES = 16384;
 
-const KIND_COUNT = 6;
+const KIND_COUNT = 7;
 
 /**
  * Entity store. Every array below is indexed by entity id; see components.ts
@@ -83,6 +83,18 @@ export class World {
   readonly behavior = new Uint8Array(MAX_ENTITIES);
   readonly aiTimer = new Float32Array(MAX_ENTITIES);
   readonly aiPhase = new Float32Array(MAX_ENTITIES);
+
+  // --- siege targeting ----------------------------------------------------
+  /**
+   * Handle of the structure this enemy is ordered to attack, or -1.
+   * Float64 because handles pack id + gen*16384 — beyond Float32's exact-integer
+   * range once gen >= 1024, and future-proof if handleOf's current Int32-
+   * truncating `id | gen*MAX_ENTITIES` encoding is ever widened to plain
+   * addition. (Generations >= 131072 would silently truncate — a pre-existing
+   * engine-wide caveat, unreachable in practice; do not change handleOf.)
+   * Handles, not raw ids: structures die and their ids recycle mid-siege.
+   */
+  readonly targetHandle = new Float64Array(MAX_ENTITIES).fill(-1);
 
   // --- orbit (weapons that circle the player) -----------------------------
   readonly orbitAngle = new Float32Array(MAX_ENTITIES);
@@ -182,6 +194,7 @@ export class World {
     this.behavior[id] = 0;
     this.aiTimer[id] = 0;
     this.aiPhase[id] = 0;
+    this.targetHandle[id] = -1;
 
     this.orbitAngle[id] = 0;
     this.orbitRadius[id] = 0;

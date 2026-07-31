@@ -5,6 +5,7 @@ import weaponsJson from '../content/weapons.json';
 import passivesJson from '../content/passives.json';
 import wavesJson from '../content/waves.json';
 import bloodJson from '../content/blood.json';
+import structuresJson from '../content/structures.json';
 
 /**
  * Turns the hand-authored JSON in src/content into typed defs with every
@@ -135,6 +136,72 @@ export function enemyDef(id: string): EnemyDef | null {
 
 export function enemyDefByIndex(index: number): EnemyDef {
   return enemyData.list[index] ?? enemyData.list[0]!;
+}
+
+// --- structures -----------------------------------------------------------
+
+export interface StructureDef {
+  id: string;
+  index: number;
+  name: string;
+  sprite: string;
+  hp: number;
+  radius: number;
+  /** Registers a runtime solid on spawn (gates). False = walk-through (shrines). */
+  solid: boolean;
+  /** Gold paid out when a siege ends with this structure alive. */
+  gold: number;
+}
+
+function normalizeStructures(): { list: StructureDef[]; byId: Map<string, StructureDef> } {
+  const raw = structuresJson as unknown as Record<string, Record<string, unknown>>;
+  const list: StructureDef[] = [];
+  const byId = new Map<string, StructureDef>();
+
+  for (const [id, def] of Object.entries(raw)) {
+    const num = (key: string, fallback: number): number => {
+      const v = def[key];
+      return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+    };
+    const str = (key: string, fallback: string): string => {
+      const v = def[key];
+      return typeof v === 'string' ? v : fallback;
+    };
+
+    const entry: StructureDef = {
+      id,
+      index: list.length,
+      name: str('name', id),
+      sprite: str('sprite', 'structure_gate'),
+      hp: Math.max(1, num('hp', 200)),
+      radius: Math.max(1, num('radius', 12)),
+      solid: def['solid'] === true,
+      gold: Math.max(0, num('gold', 20)),
+    };
+
+    list.push(entry);
+    byId.set(id, entry);
+  }
+
+  // Unlike enemies, an empty structures.json is legal: structures are an
+  // optional per-map feature, and a game without them must keep working.
+  return { list, byId };
+}
+
+const structureData = normalizeStructures();
+export const STRUCTURE_LIST: readonly StructureDef[] = structureData.list;
+
+export function structureDef(id: string): StructureDef | null {
+  const def = structureData.byId.get(id);
+  if (!def) {
+    warnOnce(`[content] unknown structure "${id}"`);
+    return null;
+  }
+  return def;
+}
+
+export function structureDefByIndex(index: number): StructureDef {
+  return structureData.list[index] ?? structureData.list[0]!;
 }
 
 // --- weapons --------------------------------------------------------------
@@ -695,6 +762,26 @@ export interface BossSpawn {
   count: number;
 }
 
+export interface SiegeEvent {
+  at: number;
+  type: string;
+  count: number;
+  /** Seconds the siege window stays open after `at`. */
+  duration: number;
+}
+
+/**
+ * Siege attackers park at the wall and swing through hitCooldown, which
+ * Ranged already uses for shooting — so only touch-range behaviors may target
+ * structures. Single source of truth: the load-time siege warning and the
+ * spawner's structure assignment both call this, so they can never drift.
+ */
+export function isSiegeMelee(behavior: number): boolean {
+  return (
+    behavior === Behavior.Chase || behavior === Behavior.Hopper || behavior === Behavior.Charger
+  );
+}
+
 export interface WaveTable {
   id: string;
   victorySeconds: number;
@@ -706,6 +793,7 @@ export interface WaveTable {
   stages: WaveStage[];
   elites: EliteSchedule | null;
   bosses: BossSpawn[];
+  sieges: SiegeEvent[];
 }
 
 function normalizeWaves(): Map<string, WaveTable> {
@@ -768,6 +856,36 @@ function normalizeWaves(): Map<string, WaveTable> {
       }))
       .sort((a, b) => a.at - b.at);
 
+    const siegesRaw = Array.isArray(def['sieges']) ? (def['sieges'] as Record<string, unknown>[]) : [];
+    const sieges: SiegeEvent[] = siegesRaw
+      .filter((s) => {
+        const type = s['type'];
+        if (typeof type !== 'string' || !enemyData.byId.has(type)) {
+          console.warn(`[content] wave table "${id}" siege references unknown enemy "${String(type)}"`);
+          return false;
+        }
+        return true;
+      })
+      .map((s) => ({
+        at: numFrom(s, 'at', 0),
+        type: s['type'] as string,
+        count: Math.max(1, Math.round(numFrom(s, 'count', 6))),
+        duration: Math.max(1, numFrom(s, 'duration', 45)),
+      }))
+      .sort((a, b) => a.at - b.at);
+
+    // A non-melee siege type still spawns, but as a plain player-chaser — see
+    // isSiegeMelee for why structures accept only touch-range attackers.
+    for (const siege of sieges) {
+      const behavior = enemyData.byId.get(siege.type)!.behavior;
+      if (!isSiegeMelee(behavior)) {
+        console.warn(
+          `[content] wave table "${id}" siege at ${siege.at}s uses non-melee "${siege.type}"; ` +
+            `those enemies will chase the player instead of a structure`,
+        );
+      }
+    }
+
     tables.set(id, {
       id,
       victorySeconds: numFrom(def, 'victorySeconds', 900),
@@ -779,6 +897,7 @@ function normalizeWaves(): Map<string, WaveTable> {
       stages,
       elites,
       bosses,
+      sieges,
     });
   }
 

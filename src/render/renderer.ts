@@ -268,6 +268,21 @@ export class Renderer {
   }
 
   /**
+   * World-space rect exactly covering the 480x270 buffer — no cull margin.
+   * Use this for anchoring UI-ish overlays (edge markers) to the screen edge;
+   * `visibleBounds()` is for culling only, and anything clamped to its edge
+   * sits CULL_MARGIN px outside the buffer and gets canvas-clipped.
+   */
+  viewRect(): { left: number; top: number; right: number; bottom: number } {
+    return {
+      left: this.camX,
+      top: this.camY,
+      right: this.camX + VIEW_W,
+      bottom: this.camY + VIEW_H,
+    };
+  }
+
+  /**
    * Queues a sprite for depth-sorted drawing. `depth` defaults to y, which is
    * what you want for anything standing on the ground.
    */

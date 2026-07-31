@@ -1,0 +1,34 @@
+{
+  "name": "The Broken Bastion",
+  "tileSize": 16,
+  "ground": { "mode": "scatter" },
+  "bounds": { "left": -560, "top": -420, "right": 560, "bottom": 420 },
+  "spawnPoint": [0, 60],
+  "waves": "bastion",
+  "voidColor": "#0c0a12",
+  "tileset": [
+    { "src": "tiles/flagstone.png", "weight": 22, "placeholder": { "color": "#33303c", "detail": 0.5 } },
+    { "src": "tiles/flagstone_b.png", "weight": 10, "placeholder": { "color": "#2b2834", "detail": 0.7 } },
+    { "src": "tiles/flagstone_cracked.png", "weight": 5, "placeholder": { "color": "#262230", "detail": 1 } },
+    { "src": "tiles/blood_moss.png", "weight": 3, "placeholder": { "color": "#3a2430", "detail": 0.8 } }
+  ],
+  "decor": [
+    { "sprite": "rock", "density": 0.04 },
+    { "sprite": "grave", "density": 0.03 },
+    { "sprite": "puddle", "density": 0.04, "flat": true }
+  ],
+  "props": [
+    { "sprite": "rock", "x": -240, "y": -90, "solid": 9 },
+    { "sprite": "rock", "x": -240, "y": -60, "solid": 9 },
+    { "sprite": "rock", "x": -240, "y": -30, "solid": 9 },
+    { "sprite": "rock", "x": -240, "y": 30, "solid": 9 },
+    { "sprite": "rock", "x": -240, "y": 60, "solid": 9 },
+    { "sprite": "rock", "x": -240, "y": 90, "solid": 9 },
+    { "sprite": "tree", "x": 380, "y": -280, "solid": 10 },
+    { "sprite": "tree", "x": -380, "y": 300, "solid": 10 }
+  ],
+  "structures": [
+    { "type": "gate", "x": -240, "y": 0 },
+    { "type": "shrine", "x": 180, "y": -120 }
+  ]
+}

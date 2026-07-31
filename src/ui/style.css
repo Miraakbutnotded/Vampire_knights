@@ -658,3 +658,36 @@ button.btn.primary {
     box-shadow: 0 0 0 calc(var(--u) * 2) rgba(212, 161, 90, 0.35);
   }
 }
+
+/* Structure HP pips, top-centre under the clock (castle-defense maps only). */
+.structure-pips {
+  position: absolute;
+  top: calc(var(--u) * 30);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  gap: calc(var(--u) * 3);
+}
+
+.structure-pips.visible {
+  display: flex;
+}
+
+.structure-pip {
+  width: calc(var(--u) * 24);
+  height: calc(var(--u) * 4);
+  background: var(--panel);
+  border: var(--u) solid #0a0508;
+  overflow: hidden;
+}
+
+.structure-pip-fill {
+  height: 100%;
+  width: 100%;
+  background: #c9a86a;
+}
+
+.structure-pip.lost {
+  border-color: #5c1024;
+  background: #2a0910;
+}
