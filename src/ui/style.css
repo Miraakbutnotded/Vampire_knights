@@ -132,8 +132,15 @@ body {
   overflow: hidden;
 }
 
+/* The layer itself is transparent to touch so the canvas underneath stays
+   playable, and anything interactive opts back in. `.screen` has to be on this
+   list even though it is a plain div: it is the scrollport for menus that
+   overflow, and an element that is not hit-testable can never be the target of
+   a drag, so without this its overflow-y is unreachable and the Sanctum can
+   trap you with the Back button below the fold. */
 #ui button,
-#ui .card {
+#ui .card,
+#ui .screen {
   pointer-events: auto;
 }
 
@@ -366,12 +373,13 @@ body {
   display: none;
   flex-direction: column;
   align-items: center;
-  /* `safe` matters more than it looks: a centred flex column that overflows
-     spills off BOTH ends and the overflowing top can never be scrolled to, so
-     the Sanctum's ten cards pushed its own Back button somewhere no phone
-     could reach. Falling back to flex-start once the content is taller than
-     the screen keeps every child reachable. */
-  justify-content: safe center;
+  /* Centre when there is room, pack to the top when there is not. A plain
+     `center` on an overflowing column spills off BOTH ends and the top can
+     never be scrolled to. `safe center` says exactly this but only lands in
+     Safari 18, and the deployment target is 15, so the auto-margin form below
+     carries it instead — free space is absorbed by the first and last child
+     and collapses to nothing once the content is taller than the box. */
+  justify-content: flex-start;
   gap: calc(var(--u) * 6);
   /* Void black wash with a deep-indigo bloom behind the content, so menus read
      as a crypt interior rather than a flat grey scrim. */
@@ -390,6 +398,15 @@ body {
 
 .screen.visible {
   display: flex;
+}
+
+/* The auto-margin half of the centring described on `.screen` above. */
+.screen.visible > *:first-child {
+  margin-top: auto;
+}
+
+.screen.visible > *:last-child {
+  margin-bottom: auto;
 }
 
 .screen h1 {
@@ -547,7 +564,9 @@ body {
    finding the bottom of it first — the way out is always on screen. */
 .screen .button-row {
   position: sticky;
-  bottom: calc(var(--u) * -8);
+  /* Parked flush with the bottom of the scrollport. A negative offset would
+     push the row past the fold and clip its own padding away. */
+  bottom: 0;
   z-index: 1;
   padding: calc(var(--u) * 4) 0;
   width: 100%;
