@@ -10,8 +10,8 @@ const BOSS_RING = 210;
 const ELITE_RING = 290;
 /** Siege attackers arrive between elites and trash: visible, not instant. */
 const SIEGE_RING = 300;
-/** Extra damage/speed multiplier per structure lost — "the hunters grow bolder". */
-const BOLDER_PER_STRUCTURE = 0.08;
+/** Extra damage/speed multiplier per wall lost — "the hunters grow bolder". */
+const BOLDER_PER_WALL = 0.08;
 
 /**
  * Drives all enemy population: the timed wave stages, periodic elites, and
@@ -169,8 +169,8 @@ export class Spawner {
    * The window closed. Defended = at least one structure still stands: the
    * reward (chest + gold) lands at the first survivor, so walking back to the
    * wall you held is the loop. Every structure down = no reward and nothing
-   * else — the difficulty penalty is already banked in run.structuresLost,
-   * and player death stays the only fail state.
+   * else — the difficulty penalty is already banked in run.wallsLost, and
+   * player death stays the only fail state.
    */
   private resolveSiege(ctx: Ctx): void {
     const structures = ctx.world.list(Kind.Structure);
@@ -215,10 +215,12 @@ export function difficultyAt(ctx: Ctx, seconds: number): {
 } {
   const table = ctx.wave;
   const minutes = seconds / 60;
-  // Losing a structure is not a fail state; the world just leans harder on
-  // you. Consumed at spawn time only, like the rest of these multipliers —
-  // enemies already on the field never rescale.
-  const bolder = 1 + BOLDER_PER_STRUCTURE * ctx.run.structuresLost;
+  // Losing a wall is not a fail state; the world just leans harder on you.
+  // Consumed at spawn time only, like the rest of these multipliers — enemies
+  // already on the field never rescale. Counted off run.wallsLost, not
+  // structuresLost, so the ceiling is set by how many walls a map defends and
+  // not by how many guns it happens to mount.
+  const bolder = 1 + BOLDER_PER_WALL * ctx.run.wallsLost;
   return {
     // The exponent lets late-game health outpace linear weapon growth, which is
     // what forces build decisions rather than letting one weapon carry forever.

@@ -13,6 +13,15 @@ const SMOKE_THRESHOLD = 0.3;
 const SMOKE_RATE = 3;
 /** Height above the entity origin that a tower's bolts leave from. */
 const MUZZLE_HEIGHT = 10;
+/**
+ * Seconds an armed structure waits before sweeping for targets again after a
+ * miss. A loaded tower with an empty field would otherwise re-enter the
+ * `ready <= 0` branch every tick and run a full spatial-hash query 60 times a
+ * second for the whole run — sieges are five bounded windows, so idle is the
+ * common case. At 100ms a tower is still all but instant on anything that walks
+ * into range, and idle time still never banks into owed shots.
+ */
+const IDLE_RESCAN = 0.1;
 
 /**
  * Scratch stats for tower shots, overwritten in place per shot — one shared
@@ -75,9 +84,10 @@ export function spawnStructure(ctx: Ctx, def: StructureDef, x: number, y: number
  * tower the whole downstream pipeline: movement, despawn, the pierce/hit
  * registry, damageEnemy, drops, blood and kill events.
  *
- * Accepted coupling: resolveDamageArea always allows crits, so tower bolts do
- * crit off the player's crit chance. Threading a canCrit flag through the
- * player's own damage path for this was not worth it — note it when balancing.
+ * The bolt claims its owner, and resolveDamageArea reads that claim twice: to
+ * exempt the shot from the on-screen engagement rule, and to deny it crits.
+ * Crit chance and crit multiplier are player upgrade stats, and a tower that
+ * scaled with them would stop being terrain.
  */
 function fireTower(ctx: Ctx, id: number, def: StructureDef): void {
   const { world } = ctx;
@@ -87,7 +97,13 @@ function fireTower(ctx: Ctx, id: number, def: StructureDef): void {
   const y = world.y[id]! - MUZZLE_HEIGHT;
 
   const target = nearestEnemy(ctx, x, y, def.range);
-  if (target < 0) return;
+  if (target < 0) {
+    // Nothing in range: sleep off the rescan interval instead of querying the
+    // hash again next tick. Capped by shootInterval so a fast emplacement is
+    // never slowed down by its own idle throttle.
+    world.hitCooldown[id] = Math.min(def.shootInterval, IDLE_RESCAN);
+    return;
+  }
 
   const angle = Math.atan2(world.y[target]! - y, world.x[target]! - x);
   TOWER_STATS.damage = def.projectileDamage;
@@ -149,6 +165,10 @@ function destroyStructure(ctx: Ctx, id: number): void {
   if (solidIndex >= 0) ctx.map.removeRuntimeSolid(solidIndex);
 
   run.structuresLost++;
+  // Only walls are scored. An emplacement is hardware you spend defending them,
+  // so losing one costs its guns and nothing more — otherwise arming a map
+  // would raise its difficulty ceiling as a side effect of the placement.
+  if (def.range === 0) run.wallsLost++;
   fx.shockwave(x, y, '#c9a86a', 0.7, 14);
   fx.burst(x, y, 24, 110, '#8a7a66', 0.7, 2);
   ctx.camera.shake(4, 0.4);

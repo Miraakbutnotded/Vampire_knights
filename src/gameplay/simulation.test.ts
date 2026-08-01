@@ -1354,6 +1354,18 @@ describe('active abilities', () => {
 });
 
 describe('castle defense', () => {
+  /**
+   * Stands the shipped bastion layout up on the stub map (which carries no
+   * structures of its own), reading the placements out of the map file rather
+   * than restating them — so a structure added to bastion.json is a structure
+   * the full-run tests actually simulate.
+   */
+  function standUpBastion(ctx: Ctx): void {
+    for (const s of bastionMap.structures as { type: string; x: number; y: number }[]) {
+      spawnStructure(ctx, structureDef(s.type)!, s.x, s.y);
+    }
+  }
+
   it('registers Kind.Structure as a seventh kind with its own live list', () => {
     const world = new World();
     const id = world.create(Kind.Structure);
@@ -1745,12 +1757,12 @@ describe('castle defense', () => {
     expect(world.isAlive(ctx.player)).toBe(true);
   });
 
-  it('raises damage and speed difficulty by 8% per lost structure', () => {
+  it('raises damage and speed difficulty by 8% per lost wall', () => {
     const harness = makeHarness();
     const { ctx } = harness;
     const base = difficultyAt(ctx, 60);
 
-    ctx.run.structuresLost = 2;
+    ctx.run.wallsLost = 2;
     const bolder = difficultyAt(ctx, 60);
 
     // hp is untouched: sponginess would punish weapons, aggression punishes
@@ -1760,6 +1772,54 @@ describe('castle defense', () => {
     expect(bolder.speed).toBeCloseTo(base.speed * 1.16);
   });
 
+  it('scores walls, not guns: a fallen tower costs its guns and no difficulty', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const base = difficultyAt(ctx, 60);
+
+    const tower = spawnStructure(ctx, structureDef('tower')!, 120, 0);
+    damageStructure(ctx, tower, 1e9);
+
+    // The loss is still counted honestly...
+    expect(ctx.run.structuresLost).toBe(1);
+    // ...it just is not what the horde is scored on.
+    expect(ctx.run.wallsLost).toBe(0);
+    const after = difficultyAt(ctx, 60);
+    expect(after.damage).toBeCloseTo(base.damage);
+    expect(after.speed).toBeCloseTo(base.speed);
+
+    // A wall on the same map still moves it, so the penalty is exempted for
+    // emplacements rather than switched off.
+    const gate = spawnStructure(ctx, structureDef('gate')!, -120, 0);
+    damageStructure(ctx, gate, 1e9);
+    expect(ctx.run.wallsLost).toBe(1);
+    expect(difficultyAt(ctx, 60).damage).toBeCloseTo(base.damage * 1.08);
+  });
+
+  it('holds the bastion penalty ceiling at 1.16x with every shipped structure down', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const base = difficultyAt(ctx, 60);
+
+    // The map file itself, not a synthetic count: adding structures to
+    // bastion.json must never move this ceiling by accident again.
+    const placed = bastionMap.structures as { type: string; x: number; y: number }[];
+    for (const s of placed) {
+      damageStructure(ctx, spawnStructure(ctx, structureDef(s.type)!, s.x, s.y), 1e9);
+    }
+
+    const walls = placed.filter((s) => structureDef(s.type)!.range === 0);
+    expect(placed).toHaveLength(4);
+    expect(walls).toHaveLength(2);
+    expect(ctx.run.structuresLost).toBe(placed.length);
+    expect(ctx.run.wallsLost).toBe(walls.length);
+
+    const worst = difficultyAt(ctx, 60);
+    expect(worst.damage).toBeCloseTo(base.damage * (1 + 0.08 * walls.length));
+    expect(worst.damage).toBeCloseTo(base.damage * 1.16);
+    expect(worst.speed).toBeCloseTo(base.speed * 1.16);
+  });
+
   it('keeps a seeded bastion siege deterministic', { timeout: 60_000 }, () => {
     const fingerprint = (): number[] => {
       const harness = makeHarness('wanderer', 777);
@@ -1767,9 +1827,10 @@ describe('castle defense', () => {
       ctx.world.hp[ctx.player] = 1e9;
       ctx.run.stats.maxHp = 1e9;
       ctx.wave = waveTable('bastion');
-      // The stub map has no structures; stand the bastion pair up manually.
-      spawnStructure(ctx, structureDef('gate')!, -240, 0);
-      spawnStructure(ctx, structureDef('shrine')!, 180, -120);
+      // The stub map has no structures; stand the real bastion layout up
+      // manually, towers included — their fire, their bolts and their ctx.rng
+      // draws are part of what has to come out identical.
+      standUpBastion(ctx);
       harness.run(150); // covers the 120s siege start plus 30s of fighting
       let structureHp = 0;
       for (const sid of ctx.world.list(Kind.Structure)) {
@@ -1793,8 +1854,8 @@ describe('castle defense', () => {
     const { ctx } = harness;
     const world = ctx.world;
     ctx.wave = waveTable('bastion');
-    spawnStructure(ctx, structureDef('gate')!, -240, 0);
-    spawnStructure(ctx, structureDef('shrine')!, 180, -120);
+    standUpBastion(ctx);
+    const placed = (bastionMap.structures as unknown[]).length;
 
     const victory = ctx.wave.victorySeconds;
     const chunk = 15;
@@ -1815,13 +1876,18 @@ describe('castle defense', () => {
     for (const sid of world.list(Kind.Structure)) {
       if (world.isAlive(sid)) aliveStructures++;
     }
-    expect(ctx.run.structuresLost + aliveStructures).toBe(2);
+    expect(placed).toBe(4);
+    expect(ctx.run.structuresLost + aliveStructures).toBe(placed);
+    // Only walls feed the difficulty penalty, so the counter it actually reads
+    // can never run past the walls the map shipped.
+    expect(ctx.run.wallsLost).toBeLessThanOrEqual(2);
 
-    // Phase 4 balance tripwire: a full seeded run banked ~253 gold when this
-    // band was calibrated. Half-to-double catches order-of-magnitude economy
-    // regressions without pinning every balance tweak.
-    expect(ctx.run.gold).toBeGreaterThan(125);
-    expect(ctx.run.gold).toBeLessThan(500);
+    // Balance tripwire: a full seeded run banked ~603 gold once the bastion's
+    // two watchtowers were part of it (~253 with the phase-3 pair alone — the
+    // towers earn their keep in kills). Half-to-double catches order-of-
+    // magnitude economy regressions without pinning every balance tweak.
+    expect(ctx.run.gold).toBeGreaterThan(300);
+    expect(ctx.run.gold).toBeLessThan(1200);
   });
 });
 
@@ -1919,9 +1985,54 @@ describe('watchtowers', () => {
     harness.run(2);
 
     expect(ctx.world.list(Kind.Projectile)).toHaveLength(0);
-    // Idle time does not bank: the tower stays loaded rather than drifting
-    // negative and owing itself shots.
-    expect(ctx.world.hitCooldown[tower]).toBe(0);
+    // Idle time does not bank: the timer never drifts negative and the tower
+    // never owes itself shots. It rests on the 100ms rescan interval rather
+    // than at zero, so an idle tower is not re-querying the hash every tick.
+    expect(ctx.world.hitCooldown[tower]).toBeGreaterThan(0);
+    // 0.11, not 0.1: hitCooldown is a Float32Array, so the stored interval
+    // reads back a hair above the literal.
+    expect(ctx.world.hitCooldown[tower]).toBeLessThan(0.11);
+  });
+
+  it('throttles its hash queries while the field is clear, and fires the moment it is not', () => {
+    const { harness, ctx, def } = towerField();
+    // Count the sweeps the tower costs: same field twice, once with the tower
+    // and once without, so every other per-tick query cancels out.
+    const sweeps = (withTower: boolean): number => {
+      const field = towerField();
+      const hash = field.ctx.enemyHash;
+      const real = hash.query.bind(hash);
+      let calls = 0;
+      hash.query = (x: number, y: number, r: number, out: Int32Array): number => {
+        calls++;
+        return real(x, y, r, out);
+      };
+      if (withTower) spawnStructure(field.ctx, def, 300, 0);
+      // Far out of range: the tower sweeps, finds nothing, and sleeps.
+      pinnedEnemy(field.ctx, 300 + def.range + 200, 0);
+      field.harness.run(3);
+      return calls;
+    };
+    const ticks = Math.round(3 / FIXED_DT);
+    const idleSweeps = sweeps(true) - sweeps(false);
+    // One sweep per 0.1s rather than one per tick — a full order of magnitude
+    // below the 180 an unthrottled tower ran here.
+    expect(idleSweeps).toBeGreaterThan(0);
+    expect(idleSweeps).toBeLessThan(ticks / 4);
+
+    // The throttle is a rescan interval, not a hold: a target that walks in is
+    // engaged within it, and the first bolt still carries the full damage.
+    spawnStructure(ctx, def, 300, 0);
+    harness.run(1); // the tower goes idle and starts resting on the interval
+    expect(ctx.world.list(Kind.Projectile)).toHaveLength(0);
+
+    const zombie = pinnedEnemy(ctx, 350, 0);
+    harness.run(0.1 + FIXED_DT);
+    const fired = ctx.world.list(Kind.Projectile);
+    expect(fired).toHaveLength(1);
+    expect(ctx.world.damage[fired[0]!]).toBe(def.projectileDamage);
+    harness.run(0.5); // flight time across the 50px gap
+    expect(ctx.world.hp[zombie]).toBe(5000 - def.projectileDamage);
   });
 
   it('cannot friendly-fire the wall it guards or the player standing under it', () => {
@@ -1941,15 +2052,16 @@ describe('watchtowers', () => {
     expect(world.hp[ctx.player]).toBe(playerHp);
   });
 
-  it('fires on its own cadence with numbers no passive, level or frenzy can touch', () => {
+  it('fires on its own cadence with numbers no passive, level, frenzy or crit can touch', () => {
     const { harness, ctx, def } = towerField();
     const world = ctx.world;
-    // Everything that scales the player's own damage, cranked to absurdity.
+    // Everything that scales the player's own damage, cranked to absurdity —
+    // crits included: guaranteed and quintupled, so if a single tower bolt
+    // could crit this assertion would come back 5x.
     ctx.run.stats.might = 10;
     ctx.run.frenzyT = 999;
-    // Crits are the one accepted coupling (resolveDamageArea always allows
-    // them); pinned off here so the shot count is exact rather than sampled.
-    ctx.run.stats.critChance = 0;
+    ctx.run.stats.critChance = 1;
+    ctx.run.stats.critMult = 5;
 
     spawnStructure(ctx, def, 300, 0);
     const zombie = pinnedEnemy(ctx, 350, 0);
@@ -1960,6 +2072,20 @@ describe('watchtowers', () => {
     // each for exactly the number in structures.json and nothing more.
     const lost = 5000 - world.hp[zombie]!;
     expect(lost).toBe(4 * def.projectileDamage);
+  });
+
+  it('leaves the player their crits: the exemption is the bolt, not the stat', () => {
+    const { ctx } = towerField();
+    const world = ctx.world;
+    ctx.run.stats.critChance = 1;
+    ctx.run.stats.critMult = 5;
+    const zombie = pinnedEnemy(ctx, 60, 0);
+
+    // The player's own damage path is untouched by the tower exemption — the
+    // guard is per-shot ownership, not a global "crits off".
+    const dealt = damageEnemy(ctx, zombie, 10, 0, 0, 0);
+    expect(dealt).toBe(50);
+    expect(world.hp[zombie]).toBe(4950);
   });
 
   it('stops shooting the moment it falls', () => {

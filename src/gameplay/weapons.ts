@@ -579,7 +579,9 @@ function resolveDamageArea(
   // The player only gets to fight what the screen shows. Emplacements are the
   // exception — a watchtower defends a wall you have walked away from — and
   // they are the ones that claim their shots, so anything unclaimed is the
-  // player's and answers to the camera.
+  // player's and answers to the camera. The same flag decides crits: an
+  // emplacement fires the number in structures.json and nothing else, or the
+  // player's crit stats start scaling terrain.
   const emplaced = world.owner[source] >= 0 && world.kind[world.owner[source]!] === Kind.Structure;
 
   for (let i = 0; i < found; i++) {
@@ -594,7 +596,7 @@ function resolveDamageArea(
 
     if (!world.registerHit(source, enemy)) continue;
 
-    damageEnemy(ctx, enemy, damage, knockback, x, y);
+    damageEnemy(ctx, enemy, damage, knockback, x, y, !emplaced);
 
     if (consumePierce) {
       const left = world.pierce[source]!;

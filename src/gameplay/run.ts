@@ -121,8 +121,15 @@ export class Run {
 
   /** Structures spawned this run, in spawn order — the HUD pip count. */
   structuresSpawned = 0;
-  /** Structures lost this run; difficultyAt turns each into +8% damage/speed. */
+  /** Every structure lost this run, armed or not — the honest counter. */
   structuresLost = 0;
+  /**
+   * Passive structures lost this run; difficultyAt turns each into +8%
+   * damage/speed. Armed emplacements are deliberately excluded: a watchtower is
+   * expendable hardware, not the wall you are scored on, so adding towers to a
+   * map must not silently raise that map's difficulty ceiling.
+   */
+  wallsLost = 0;
 
   constructor(characterId: string, metaMods: MetaMods = {}) {
     this.character = characterDef(characterId);
