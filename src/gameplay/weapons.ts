@@ -1,7 +1,7 @@
 import { Comp, Kind, Team } from '../ecs/components.ts';
 import { TAU } from '../core/math.ts';
 import { BLOOD_CONFIG, WeaponBehavior, weaponStatsAtLevel } from './content.ts';
-import { damageEnemy } from './damage.ts';
+import { damageEnemy, withinEngagement } from './damage.ts';
 import type { WeaponStats } from './content.ts';
 import type { Ctx } from './context.ts';
 import type { OwnedWeapon, Run } from './run.ts';
@@ -576,10 +576,16 @@ function resolveDamageArea(
 
   const damage = world.damage[source]!;
   const knockback = world.knockback[source]!;
+  // The player only gets to fight what the screen shows. Emplacements are the
+  // exception — a watchtower defends a wall you have walked away from — and
+  // they are the ones that claim their shots, so anything unclaimed is the
+  // player's and answers to the camera.
+  const emplaced = world.owner[source] >= 0 && world.kind[world.owner[source]!] === Kind.Structure;
 
   for (let i = 0; i < found; i++) {
     const enemy = ctx.scratch[i]!;
     if (!world.isAlive(enemy)) continue;
+    if (!emplaced && !withinEngagement(ctx, enemy)) continue;
 
     const dx = world.x[enemy]! - x;
     const dy = world.y[enemy]! - y;

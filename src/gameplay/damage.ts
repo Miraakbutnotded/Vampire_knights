@@ -1,7 +1,39 @@
 import { Kind } from '../ecs/components.ts';
+import { VIEW_H, VIEW_W } from '../render/renderer.ts';
 import { enemyDefByIndex } from './content.ts';
 import { grantBlood, spawnBloodVial, spawnCoin, spawnChest, spawnGem, spawnMagnet, spawnMeat } from './pickups.ts';
 import type { Ctx } from './context.ts';
+
+/**
+ * Half-extents of the ground an attack can reach, plus a sprite's worth of
+ * slack so an enemy leaning into frame is already fair game.
+ *
+ * Enemies arrive on a ring wider than the view, so without this a stray knife
+ * kills things you cannot see and drops their gems out there with them — the
+ * arena quietly asks you to walk into the dark after loot you never earned
+ * sight of. Anything that can hurt you closes well inside this box (the
+ * furthest is the acolyte's censer at 110 units), so nothing can shoot from a
+ * place you are unable to answer.
+ */
+const ENGAGE_HALF_W = VIEW_W / 2 + 24;
+const ENGAGE_HALF_H = VIEW_H / 2 + 24;
+
+/**
+ * Whether an enemy is on screen, and so a fair target for the player's own
+ * weapons. Emplacements are exempt: a watchtower's whole job is to hold a wall
+ * you have walked away from, so it answers to its own range instead.
+ *
+ * Deliberately measured from the camera rather than the player: on a bounded
+ * map the camera stops at the wall while the player keeps walking, and what
+ * the player can see is what the camera frames.
+ */
+export function withinEngagement(ctx: Ctx, id: number): boolean {
+  const { world, camera } = ctx;
+  return (
+    Math.abs(world.x[id]! - camera.x) <= ENGAGE_HALF_W &&
+    Math.abs(world.y[id]! - camera.y) <= ENGAGE_HALF_H
+  );
+}
 
 /** Seconds of invulnerability granted after the player is hit. */
 export const PLAYER_IFRAME = 0.45;

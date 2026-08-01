@@ -92,7 +92,7 @@ function fireTower(ctx: Ctx, id: number, def: StructureDef): void {
   const angle = Math.atan2(world.y[target]! - y, world.x[target]! - x);
   TOWER_STATS.damage = def.projectileDamage;
   TOWER_STATS.lifetime = def.projectileLifetime;
-  spawnProjectile(
+  const bolt = spawnProjectile(
     ctx,
     def.projectileSprite,
     x,
@@ -102,6 +102,9 @@ function fireTower(ctx: Ctx, id: number, def: StructureDef): void {
     TOWER_STATS,
     false,
   );
+  // Marks the shot as the tower's rather than the player's, which is what
+  // exempts it from the on-screen restraint the player's own weapons obey.
+  if (bolt >= 0) world.owner[bolt] = id;
 
   world.hitCooldown[id] = def.shootInterval;
   ctx.fx.burst(x, y, 3, 40, '#ffd9a0', 0.18, 1);

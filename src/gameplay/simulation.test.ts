@@ -36,11 +36,12 @@ import { updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts'
 import { damageEnemy } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
 import { PickupKind, spawnBloodVial, spawnCoin, spawnGem, updatePickups } from './pickups.ts';
+import { withinEngagement } from './damage.ts';
 import { Run, xpForLevel } from './run.ts';
 import { Spawner, difficultyAt } from './spawner.ts';
 import { damageStructure, spawnStructure, updateStructures } from './structures.ts';
 import { applyOffer, rollOffers } from './upgrades.ts';
-import { effectiveStats, updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
+import { effectiveStats, spawnHazard, updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
 import { updateBlood } from './blood.ts';
 import { abilityStats, updateAbility } from './abilities.ts';
 import type { Ctx } from './context.ts';
@@ -2129,5 +2130,41 @@ describe('pickup magnetism', () => {
 
     expect(ctx.run.gold).toBe(before + 7);
     expect(world.isAlive(coin)).toBe(false);
+  });
+});
+
+describe('engagement range', () => {
+  it('answers for what the camera frames, not what the player is nearest to', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const near = spawnEnemy(ctx, enemyDef('zombie')!, ctx.camera.x + 100, ctx.camera.y);
+    const far = spawnEnemy(ctx, enemyDef('zombie')!, ctx.camera.x + 400, ctx.camera.y);
+
+    expect(withinEngagement(ctx, near)).toBe(true);
+    expect(withinEngagement(ctx, far)).toBe(false);
+  });
+
+  it('will not let the player hit what the screen does not show', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const { world } = ctx;
+    const near = spawnEnemy(ctx, enemyDef('zombie')!, ctx.camera.x + 120, ctx.camera.y);
+    const far = spawnEnemy(ctx, enemyDef('zombie')!, ctx.camera.x + 420, ctx.camera.y);
+    const nearHp = world.hp[near]!;
+    const farHp = world.hp[far]!;
+
+    // A hazard wide enough to cover both, owned by the player. Without the
+    // engagement rule its reach alone would decide, and it would sweep up a
+    // kill four hundred units into the dark.
+    const stats = effectiveStats(ctx.run, ctx.run.weapons[0]!);
+    const hazard = spawnHazard(ctx, 'hazard_mist', ctx.camera.x, ctx.camera.y, 600, 5, stats, 0);
+    expect(hazard).toBeGreaterThanOrEqual(0);
+
+    // Damage resolves against the post-movement hash, exactly as the tick does.
+    ctx.enemyHash.build(world, world.list(Kind.Enemy));
+    updateHazards(ctx, FIXED_DT);
+
+    expect(world.hp[near]!).toBeLessThan(nearHp);
+    expect(world.hp[far]!).toBe(farHp);
   });
 });
