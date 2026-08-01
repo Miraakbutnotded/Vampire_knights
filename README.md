@@ -17,6 +17,7 @@ npm run dev      # http://localhost:5173
 | `npm run preview` | Serve the production bundle. |
 | `npm test` | Headless simulation tests (see [Tests](#tests)). |
 | `npm run typecheck` | Types only. |
+| `npm run validate:art` | Check every sprite strip against the palette and frame rules (see [The art pipeline](#the-art-pipeline)). |
 
 ## Controls
 
@@ -49,6 +50,45 @@ public/assets/tiles/grass.png     ← meadow ground tile
 **Sprite sheets are horizontal strips of equal frames.** By default frames are assumed *square*, sized
 by the image height — a 128×32 PNG is read as 4 frames of 32×32 with no configuration. Only declare
 `frameW`/`frameH` for non-square frames.
+
+## The art pipeline
+
+`docs/art/palette.md` is the single source of truth for colour. Twenty entries, derived from the
+shipped character sprites so new art matches what is already on screen. Nothing reads a colour list
+from anywhere else — the converters parse that table, and the validator checks against the same
+parse. If a piece of art needs a colour the palette does not have, the fix is to add a row there and
+say why, never to let one sprite carry its own hues.
+
+Image models cannot draw at 32×32, so the pipeline works the other way round: ask for one big frame
+on a chroma-green field, then bring it down.
+
+```bash
+python3 scripts/spritify.py raw.png public/assets/enemies/ghoul.png --size 32 --preview look.png
+python3 scripts/tilify.py  raw.png public/assets/tiles/flagstone.png --size 16
+```
+
+`spritify.py` keys out the green, crops to the subject, box-samples to the target size, snaps every
+surviving pixel to the palette and redraws the 1px silhouette outline. Quantising *last* is what
+holds the style together across batches — the prompt only nudges the model, the remap is binding.
+`tilify.py` is the tile counterpart: no keying, no crop, no outline, but a wrap fold across the seam
+so a texture repeats without printing a grid over the map. `--preview` on either writes a
+nearest-neighbour blow-up worth actually looking at before you commit the result.
+
+Then gate it:
+
+```bash
+npm run validate:art
+```
+
+For every animation in `sprites.json` that names a `src`, the validator checks that the PNG exists,
+that the strip width divides evenly into whole frames, and that every opaque pixel is a palette
+member. Each of those failures is otherwise **silent** — a missing PNG falls back to a placeholder
+and the game still runs, a ragged strip just cuts the last frame short, and off-palette art only
+shows up as a slow drift in how the set looks. It exits non-zero, prints one line per strip and
+names the worst stray colours, so `--quiet` gives you just the problems.
+
+Art that predates the pipeline will fail the palette check honestly; that is a real finding about the
+art, not noise to be tuned out.
 
 ## Content reference
 

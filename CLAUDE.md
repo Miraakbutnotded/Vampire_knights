@@ -11,6 +11,7 @@ npm run typecheck  # types only
 npm test           # vitest run — headless simulation tests
 npm run test:watch # vitest watch mode
 npx vitest run -t "every weapon"   # single test by name pattern
+npm run validate:art               # sprite strips vs. the canonical palette and frame rules
 ```
 
 All tests live in `src/gameplay/simulation.test.ts`. There is no linter configured; `tsc` is the gate.
@@ -147,6 +148,12 @@ directly.
   in `WeaponStats` + `WEAPON_STAT_KEYS` + `WEAPON_STAT_DEFAULTS`.
 - **New map**: drop a JSON in `src/content/maps/` — auto-discovered via `import.meta.glob`, filename
   is the map id. No registration.
+- **New art**: colour comes from `docs/art/palette.md` and nowhere else — never start a second
+  palette. Bring generated images down with `scripts/spritify.py` (sprites) or `scripts/tilify.py`
+  (tiles) instead of hand-placing PNGs, then run `npm run validate:art`: it fails on a missing PNG
+  (which otherwise silently falls back to a placeholder), a strip that doesn't divide into whole
+  frames, and any off-palette pixel. The five character strips in `public/assets/player/` predate the
+  pipeline and fail the palette check today — a known finding, not a reason to loosen the gate.
 - **New game event**: add to the `GameEvents` interface in `src/core/events.ts`.
 - **New Ctx field**: initialize in Game's constructor **and** `makeHarness()` in
   simulation.test.ts, reset in `startRun()`.
