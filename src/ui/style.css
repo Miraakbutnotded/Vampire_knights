@@ -366,7 +366,12 @@ body {
   display: none;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* `safe` matters more than it looks: a centred flex column that overflows
+     spills off BOTH ends and the overflowing top can never be scrolled to, so
+     the Sanctum's ten cards pushed its own Back button somewhere no phone
+     could reach. Falling back to flex-start once the content is taller than
+     the screen keeps every child reachable. */
+  justify-content: safe center;
   gap: calc(var(--u) * 6);
   /* Void black wash with a deep-indigo bloom behind the content, so menus read
      as a crypt interior rather than a flat grey scrim. */
@@ -537,6 +542,17 @@ body {
 }
 
 /* Buttons */
+
+/* Pinned to the foot of the scroller so leaving a screen never requires
+   finding the bottom of it first — the way out is always on screen. */
+.screen .button-row {
+  position: sticky;
+  bottom: calc(var(--u) * -8);
+  z-index: 1;
+  padding: calc(var(--u) * 4) 0;
+  width: 100%;
+  background: linear-gradient(to top, rgba(4, 1, 9, 0.96) 60%, rgba(4, 1, 9, 0));
+}
 
 .button-row {
   display: flex;

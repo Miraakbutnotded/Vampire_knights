@@ -195,7 +195,7 @@ export class Screens {
     focusables.push(sanctumBtn);
 
     this.root.appendChild(
-      el('div', 'hint', 'WASD or arrows to move · ESC to pause · number keys or click to choose'),
+      el('div', 'hint key-hint', 'WASD or arrows to move · ESC to pause · number keys or click to choose'),
     );
 
     const mapCount = this.maps.length;
@@ -276,7 +276,7 @@ export class Screens {
     }
 
     this.root.appendChild(cards);
-    this.root.appendChild(el('div', 'hint', 'Arrows to move · Enter to choose · 1-3 for a direct pick'));
+    this.root.appendChild(el('div', 'hint key-hint', 'Arrows to move · Enter to choose · 1-3 for a direct pick'));
 
     this.setChoices(focusables, (index) => {
       const offer = offers[index];
@@ -313,7 +313,7 @@ export class Screens {
     quit.type = 'button';
     row.append(resume, restart, quit);
     this.root.appendChild(row);
-    this.root.appendChild(el('div', 'hint', 'ESC to resume'));
+    this.root.appendChild(el('div', 'hint key-hint', 'ESC to resume'));
 
     this.setChoices([resume, restart, quit], (index) => {
       if (index === 0) callbacks.onResume();
@@ -423,7 +423,7 @@ export class Screens {
     this.root.appendChild(row);
     focusables.push(back);
 
-    this.root.appendChild(el('div', 'hint', 'Arrows to move · Enter to buy · ESC to leave'));
+    this.root.appendChild(el('div', 'hint key-hint', 'Arrows to move · Enter to buy · ESC to leave'));
 
     this.setChoices(focusables, (index) => {
       if (index < META_LIST.length) {
