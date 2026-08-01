@@ -1,4 +1,5 @@
 import { Kind } from '../ecs/components.ts';
+import type { DeathCause } from '../core/events.ts';
 import { VIEW_H, VIEW_W } from '../render/renderer.ts';
 import { enemyDefByIndex } from './content.ts';
 import { grantBlood, spawnBloodVial, spawnCoin, spawnChest, spawnGem, spawnMagnet, spawnMeat } from './pickups.ts';
@@ -149,13 +150,39 @@ export function killEnemy(ctx: Ctx, id: number): void {
 }
 
 /**
+ * Attributes a blow to whatever threw it.
+ *
+ * Both shapes resolve through `defIndex`: an enemy carries its own, and an
+ * enemy projectile is stamped with its shooter's at spawn — so a bolt still
+ * names the wisp that fired it after the wisp itself is dead. Anything else,
+ * including an unattributed call, answers 'unknown' rather than guessing at
+ * enemy zero.
+ */
+function attribute(ctx: Ctx, source: number, damage: number): DeathCause {
+  const kind = source >= 0 ? ctx.world.kind[source] : Kind.None;
+  if (kind !== Kind.Enemy && kind !== Kind.Projectile) {
+    return { kind: 'unknown', enemyId: '', damage };
+  }
+  return {
+    kind: kind === Kind.Projectile ? 'projectile' : 'contact',
+    enemyId: enemyDefByIndex(ctx.world.defIndex[source]!).id,
+    damage,
+  };
+}
+
+/**
  * Damages the player, respecting armour and invulnerability frames.
  * Returns true if the hit landed.
  *
  * Armour is flat reduction with a floor of 1, so stacking it stays valuable
  * against weak enemies without ever making the player literally untouchable.
+ *
+ * `source` is the entity that landed the blow — the enemy body or its
+ * projectile. It exists so a death can name its killer at the one site where
+ * the killer is still in scope; a caller that genuinely has no source may omit
+ * it and the death reports 'unknown'.
  */
-export function damagePlayer(ctx: Ctx, amount: number): boolean {
+export function damagePlayer(ctx: Ctx, amount: number, source = -1): boolean {
   const { world, run, fx, bus } = ctx;
   const player = ctx.player;
   if (player < 0 || !world.isAlive(player)) return false;
@@ -190,7 +217,11 @@ export function damagePlayer(ctx: Ctx, amount: number): boolean {
       clearNearbyEnemies(ctx, px, py, 90);
     } else {
       world.hp[player] = 0;
-      bus.emit('player:died', { survivedSeconds: run.time, kills: run.kills });
+      bus.emit('player:died', {
+        survivedSeconds: run.time,
+        kills: run.kills,
+        killedBy: attribute(ctx, source, reduced),
+      });
     }
   }
 

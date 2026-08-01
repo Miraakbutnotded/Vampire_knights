@@ -1,5 +1,6 @@
 import { PASSIVE_LIST, WEAPON_LIST, weaponStatsAtLevel } from './content.ts';
 import { healPlayer } from './pickups.ts';
+import type { DraftPickKind } from '../core/events.ts';
 import type { Ctx } from './context.ts';
 
 /**
@@ -9,7 +10,8 @@ import type { Ctx } from './context.ts';
  */
 const EXISTING_WEIGHT_BONUS = 1.6;
 
-export type OfferKind = 'weapon' | 'passive' | 'heal' | 'gold';
+/** Aliased rather than redeclared, so the event vocabulary is the only copy. */
+export type OfferKind = DraftPickKind;
 
 export interface Offer {
   kind: OfferKind;
@@ -151,8 +153,16 @@ export function rollOffers(ctx: Ctx, count = 3): Offer[] {
   return chosen;
 }
 
-/** Applies a drafted offer. Consumes one banked level-up. */
-export function applyOffer(ctx: Ctx, offer: Offer): void {
+/**
+ * Applies a drafted offer. Consumes one banked level-up.
+ *
+ * `offered` is the whole draft this pick came out of. It is a parameter rather
+ * than something reconstructed later because the draft is drawn without
+ * replacement from a weighted pool: the offers that were declined exist
+ * nowhere else once the screen closes, and without them "popularity" is just
+ * the weight table read back.
+ */
+export function applyOffer(ctx: Ctx, offer: Offer, offered: readonly Offer[]): void {
   const { run, world } = ctx;
 
   switch (offer.kind) {
@@ -180,6 +190,17 @@ export function applyOffer(ctx: Ctx, offer: Offer): void {
       break;
     }
   }
+
+  // Emitted before the level-up is consumed, so `atLevel` is the level the
+  // player was actually drafting at.
+  ctx.bus.emit('draft:picked', {
+    kind: offer.kind,
+    id: offer.id,
+    level: offer.level,
+    isNew: offer.isNew,
+    atLevel: run.level,
+    offered: offered.map((o) => o.id),
+  });
 
   if (run.pendingLevelUps > 0) run.pendingLevelUps--;
   ctx.bus.emit('stats:changed', undefined);

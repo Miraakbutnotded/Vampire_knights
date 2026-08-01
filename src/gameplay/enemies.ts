@@ -123,6 +123,9 @@ function shootAtPlayer(ctx: Ctx, shooter: number, def: EnemyDef): void {
   );
   world.place(id, sx, sy);
   world.spriteId[id] = ctx.sprites.id(def.projectileSprite);
+  // The bolt carries its shooter's content id, not a handle: the wisp may be
+  // dead by the time this lands, and a death still has to be able to name it.
+  world.defIndex[id] = def.index;
   world.radius[id] = def.projectileRadius;
   world.team[id] = Team.Enemy;
   world.damage[id] = def.projectileDamage * ctx.damageScale;
@@ -358,7 +361,7 @@ export function updateEnemies(ctx: Ctx, dt: number): void {
       const cdx = px - nx;
       const cdy = py - ny;
       if (cdx * cdx + cdy * cdy <= touch * touch) {
-        damagePlayer(ctx, world.damage[id]!);
+        damagePlayer(ctx, world.damage[id]!, id);
       }
     }
   }
@@ -424,7 +427,7 @@ export function updateEnemyProjectiles(ctx: Ctx, dt: number): void {
     const dx = px - nx;
     const dy = py - ny;
     if (dx * dx + dy * dy <= touch * touch) {
-      if (damagePlayer(ctx, world.damage[id]!)) {
+      if (damagePlayer(ctx, world.damage[id]!, id)) {
         ctx.fx.burst(nx, ny, 6, 70, '#ff6b8a', 0.25, 1);
         world.destroy(id);
       }

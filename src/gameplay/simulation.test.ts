@@ -203,7 +203,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345, metaMods
         while (run.pendingLevelUps > 0 && guard++ < 50) {
           const offers = rollOffers(ctx);
           expect(offers.length).toBeGreaterThan(0);
-          applyOffer(ctx, offers[0]!);
+          applyOffer(ctx, offers[0]!, offers);
           harness.levelUpsTaken++;
         }
       }
@@ -274,7 +274,7 @@ describe('progression', () => {
     for (let i = 0; i < 200; i++) {
       run.pendingLevelUps = 1;
       const offers = rollOffers(ctx);
-      applyOffer(ctx, offers[0]!);
+      applyOffer(ctx, offers[0]!, offers);
     }
     expect(run.weapons.length).toBeLessThanOrEqual(6);
     expect(run.passives.length).toBeLessThanOrEqual(6);
@@ -292,7 +292,7 @@ describe('progression', () => {
     // Force every weapon and passive to its ceiling.
     for (let i = 0; i < 400; i++) {
       const offers = rollOffers(ctx);
-      applyOffer(ctx, offers[0]!);
+      applyOffer(ctx, offers[0]!, offers);
     }
     const offers = rollOffers(ctx);
     expect(offers.length).toBeGreaterThan(0);
@@ -2292,5 +2292,70 @@ describe('engagement range', () => {
 
     expect(world.hp[near]!).toBeLessThan(nearHp);
     expect(world.hp[far]!).toBe(farHp);
+  });
+});
+
+describe('a run reports what happened to it', () => {
+  it('names the enemy whose body killed the player', () => {
+    const harness = makeHarness();
+    const { ctx, ctx: { world } } = harness;
+    let cause: GameEvents['player:died'] | null = null;
+    ctx.bus.on('player:died', (payload) => {
+      cause = cause ?? payload;
+    });
+
+    world.hp[ctx.player] = 1;
+    // Touching distance: contact damage resolves on the very next tick.
+    spawnEnemy(ctx, enemyDef('brute')!, 4, 0);
+    harness.run(FIXED_DT * 2);
+
+    expect(cause).not.toBeNull();
+    expect(cause!.killedBy.kind).toBe('contact');
+    expect(cause!.killedBy.enemyId).toBe('brute');
+    // The blow after armour — what the player actually felt, not the raw stat.
+    expect(cause!.killedBy.damage).toBeGreaterThan(0);
+  });
+
+  it('names the shooter behind a projectile, not the projectile', () => {
+    const harness = makeHarness();
+    const { ctx, ctx: { world } } = harness;
+    let cause: GameEvents['player:died'] | null = null;
+    ctx.bus.on('player:died', (payload) => {
+      cause = cause ?? payload;
+    });
+
+    // Far enough that the wisp shoots rather than touches, and unkillable so
+    // the player's own weapons can't end the exchange early.
+    const wisp = spawnEnemy(ctx, enemyDef('wisp')!, 90, 0);
+    world.hp[wisp] = 1e9;
+    world.hp[ctx.player] = 1;
+    harness.run(4);
+
+    expect(cause).not.toBeNull();
+    expect(cause!.killedBy.kind).toBe('projectile');
+    expect(cause!.killedBy.enemyId).toBe('wisp');
+  });
+
+  it('announces which upgrade was taken out of what was offered', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const picked: GameEvents['draft:picked'][] = [];
+    ctx.bus.on('draft:picked', (payload) => picked.push(payload));
+
+    ctx.run.pendingLevelUps = 1;
+    const offers = rollOffers(ctx);
+    applyOffer(ctx, offers[1] ?? offers[0]!, offers);
+
+    expect(picked.length).toBe(1);
+    const taken = offers[1] ?? offers[0]!;
+    expect(picked[0]!.id).toBe(taken.id);
+    expect(picked[0]!.kind).toBe(taken.kind);
+    expect(picked[0]!.level).toBe(taken.level);
+    expect(picked[0]!.isNew).toBe(taken.isNew);
+    expect(picked[0]!.atLevel).toBe(ctx.run.level);
+    // Every id in the draft, the taken one included: take-rate needs the
+    // offers that were declined, not just the one that won.
+    expect(picked[0]!.offered).toEqual(offers.map((o) => o.id));
+    expect(picked[0]!.offered).toContain(taken.id);
   });
 });

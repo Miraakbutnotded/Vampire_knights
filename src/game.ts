@@ -35,6 +35,7 @@ import { TouchControls } from './platform/touch.ts';
 import { shouldAutoPause } from './platform/lifecycle.ts';
 
 import type { MetaService } from './services/meta.ts';
+import type { RunSummary, TelemetryService } from './services/telemetry.ts';
 
 type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'dying' | 'results' | 'sanctum';
 
@@ -87,6 +88,11 @@ export class Game implements LoopHooks {
     uiRoot: HTMLElement,
     private sprites: SpriteTable,
     private meta: MetaService,
+    // Taken here rather than reached for through the bus because a run's
+    // identity — character, map, seed — exists only on this side: 'run:ended'
+    // carries none of it, and the seed is generated in startRun where no
+    // gameplay system can see it.
+    private telemetry: TelemetryService,
   ) {
     this.input = new Input();
     this.renderer = new Renderer(canvas, sprites);
@@ -152,7 +158,27 @@ export class Game implements LoopHooks {
     this.openTitle();
   }
 
+  /** What a closing run reports about itself, for the telemetry log. */
+  private runSummary(): RunSummary {
+    return {
+      survivedSeconds: this.run.time,
+      kills: this.run.kills,
+      gold: this.run.gold,
+      level: this.run.level,
+    };
+  }
+
   private wireEvents(): void {
+    // Telemetry subscribes first, and that order is load-bearing: the
+    // 'player:died' handler below runs the whole end-of-run funnel
+    // (beginDeath → settleRun → 'run:ended'), so the cause of death must be
+    // stashed before that funnel closes the record.
+    this.bus.on('player:died', ({ killedBy }) => this.telemetry.recordDeath(killedBy));
+    this.bus.on('draft:picked', (pick) => this.telemetry.recordPick(pick));
+    this.bus.on('run:ended', ({ victory, survivedSeconds, kills, gold, level }) => {
+      this.telemetry.finishRun(victory, { survivedSeconds, kills, gold, level });
+    });
+
     this.bus.on('player:died', () => this.beginDeath());
 
     this.bus.on('boss:spawned', ({ name }) => {
@@ -184,6 +210,9 @@ export class Game implements LoopHooks {
   // --- state transitions --------------------------------------------------
 
   private openTitle(): void {
+    // Quitting mid-run is a real signal, and it is the one ending no other
+    // path records. A no-op when no run is open, which is every other way in.
+    this.telemetry.abandonRun(this.runSummary());
     this.state = 'title';
     this.hud.setVisible(false);
     this.screens.showTitle(
@@ -226,6 +255,10 @@ export class Game implements LoopHooks {
   }
 
   async startRun(characterId: string, mapId: string): Promise<void> {
+    // Restarting from the pause screen abandons the run in flight. Done here,
+    // while `this.run` is still the old one, so its final numbers are real
+    // rather than the zeroes beginRun would fall back to.
+    this.telemetry.abandonRun(this.runSummary());
     this.state = 'loading';
     this.screens.hide();
     this.lastCharacterId = characterId;
@@ -246,7 +279,10 @@ export class Game implements LoopHooks {
     this.world.reset();
     this.fx.clear();
     this.spawner.reset();
-    this.rng.reseed((Math.random() * 0xffffffff) >>> 0);
+    // Hoisted into a local because Rng exposes no getter for it, and a run
+    // record is only worth keeping if the run can be replayed from it.
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    this.rng.reseed(seed);
     this.deathTimer = 0;
     this.deathDuration = 0;
 
@@ -275,6 +311,7 @@ export class Game implements LoopHooks {
     this.siegeUntil = 0;
     this.runEnded = false;
     this.runToken++;
+    this.telemetry.beginRun(characterId, mapId, seed);
     this.camera.bounds = map.bounds;
     this.camera.snapTo(map.spawnX, map.spawnY);
 
@@ -289,8 +326,9 @@ export class Game implements LoopHooks {
     // the press, and possibly on a bar the player has since read differently.
     this.ctx.bloodIntent = null;
     this.ctx.abilityQueued = false;
-    this.screens.showLevelUp(rollOffers(this.ctx), (offer) => {
-      applyOffer(this.ctx, offer);
+    const offers = rollOffers(this.ctx);
+    this.screens.showLevelUp(offers, (offer) => {
+      applyOffer(this.ctx, offer, offers);
       // More level-ups can be banked than one draft resolves — keep drafting
       // until the queue is empty rather than dropping the extras.
       if (this.run.pendingLevelUps > 0) this.openLevelUp();
@@ -701,6 +739,9 @@ export class Game implements LoopHooks {
     if (this.sprites.missing.length > 0) {
       lines.push(`placeholder art: ${this.sprites.missing.length}`);
     }
+    // Memoised behind a revision counter in the service: this method runs every
+    // frame the overlay is up, but the aggregate only moves when a run closes.
+    lines.push('', ...this.telemetry.summary());
     this.debugEl.textContent = lines.join('\n');
   }
 

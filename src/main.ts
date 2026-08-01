@@ -6,6 +6,18 @@ import { wireCapacitorLifecycle, wireLifecycle } from './platform/lifecycle.ts';
 import { SpriteTable } from './render/sprites.ts';
 import { MetaService } from './services/meta.ts';
 import { LocalStorageAdapter } from './services/storage.ts';
+import { TelemetryService } from './services/telemetry.ts';
+
+/**
+ * Dev-only console handle: `copy(vkTelemetry.dump())` gives you the log as a
+ * file. Declared rather than cast so the service itself never has to know a
+ * global exists — that is what keeps it headless-testable.
+ */
+declare global {
+  interface Window {
+    vkTelemetry?: TelemetryService;
+  }
+}
 
 /**
  * Boots the game: load art, build the game, start the loop.
@@ -22,9 +34,15 @@ async function boot(): Promise<void> {
   const sprites = await SpriteTable.load();
   // Second async boot step: the wallet and sanctum ranks must exist before the
   // title screen renders and before the first Run is constructed.
-  const meta = new MetaService(new LocalStorageAdapter());
-  await meta.load();
-  const game = new Game(canvas, uiRoot, sprites, meta);
+  const storage = new LocalStorageAdapter();
+  const meta = new MetaService(storage);
+  const telemetry = new TelemetryService(storage);
+  // Both read the same backing store and neither depends on the other, so they
+  // load together rather than adding a third serial step to boot.
+  await Promise.all([meta.load(), telemetry.load()]);
+  const game = new Game(canvas, uiRoot, sprites, meta, telemetry);
+
+  if (import.meta.env.DEV) window.vkTelemetry = telemetry;
 
   const loop = new Loop({
     beforeFrame: () => game.beforeFrame(),
@@ -40,7 +58,15 @@ async function boot(): Promise<void> {
 
   const detachLifecycle = wireLifecycle(game, document);
   let detachCapacitorLifecycle: () => void = () => {};
-  void wireCapacitorLifecycle(game).then(({ detach }) => {
+  // The native pause is the last moment before iOS may terminate a suspended
+  // app, so completed records get pushed down here. A run still in flight is
+  // lost, which is fine — it had no outcome to record anyway.
+  void wireCapacitorLifecycle({
+    autoPause: () => {
+      game.autoPause();
+      void telemetry.flush();
+    },
+  }).then(({ detach }) => {
     detachCapacitorLifecycle = detach;
   });
 
@@ -57,6 +83,7 @@ async function boot(): Promise<void> {
       detachCapacitorLifecycle();
       audio.dispose();
       haptics.dispose();
+      delete window.vkTelemetry;
     });
   }
 }
