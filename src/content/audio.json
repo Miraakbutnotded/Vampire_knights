@@ -1,0 +1,21 @@
+{
+  "player:damaged": { "wave": "square", "freq": 190, "freqEnd": 70, "duration": 0.14, "volume": 0.55, "throttleMs": 120 },
+  "player:healed": { "wave": "sine", "freq": 420, "freqEnd": 620, "duration": 0.18, "volume": 0.35, "throttleMs": 150 },
+  "player:died": { "wave": "sawtooth", "freq": 220, "freqEnd": 40, "duration": 0.9, "volume": 0.6, "throttleMs": 0 },
+  "player:levelup": { "wave": "triangle", "freq": 520, "freqEnd": 1040, "duration": 0.3, "volume": 0.5, "throttleMs": 200 },
+  "run:victory": { "wave": "triangle", "freq": 392, "freqEnd": 784, "duration": 0.8, "volume": 0.6, "throttleMs": 0 },
+  "enemy:killed": { "wave": "square", "freq": 140, "freqEnd": 60, "duration": 0.06, "volume": 0.18, "throttleMs": 70 },
+  "gold:gained": { "wave": "sine", "freq": 880, "freqEnd": 1320, "duration": 0.07, "volume": 0.2, "throttleMs": 90 },
+  "xp:gained": { "wave": "sine", "freq": 660, "freqEnd": 720, "duration": 0.05, "volume": 0.12, "throttleMs": 120 },
+  "boss:spawned": { "wave": "sawtooth", "freq": 110, "freqEnd": 55, "duration": 0.6, "volume": 0.6, "throttleMs": 0 },
+  "blood:ready": { "wave": "triangle", "freq": 300, "freqEnd": 600, "duration": 0.25, "volume": 0.45, "throttleMs": 300 },
+  "blood:feast": { "wave": "sine", "freq": 500, "freqEnd": 250, "duration": 0.35, "volume": 0.5, "throttleMs": 200 },
+  "blood:frenzy": { "wave": "sawtooth", "freq": 160, "freqEnd": 320, "duration": 0.4, "volume": 0.55, "throttleMs": 200 },
+  "ability:used": { "wave": "square", "freq": 340, "freqEnd": 170, "duration": 0.2, "volume": 0.5, "throttleMs": 150 },
+  "ability:ready": { "wave": "triangle", "freq": 440, "freqEnd": 880, "duration": 0.15, "volume": 0.4, "throttleMs": 300 },
+  "structure:destroyed": { "wave": "sawtooth", "freq": 90, "freqEnd": 30, "duration": 0.5, "volume": 0.6, "throttleMs": 200 },
+  "siege:started": { "wave": "sawtooth", "freq": 130, "freqEnd": 90, "duration": 0.5, "volume": 0.55, "throttleMs": 0 },
+  "siege:defended": { "wave": "triangle", "freq": 392, "freqEnd": 588, "duration": 0.4, "volume": 0.5, "throttleMs": 0 },
+  "character:unlocked": { "wave": "triangle", "freq": 523, "freqEnd": 1046, "duration": 0.5, "volume": 0.55, "throttleMs": 0 },
+  "meta:purchased": { "wave": "sine", "freq": 700, "freqEnd": 1050, "duration": 0.12, "volume": 0.4, "throttleMs": 100 }
+}

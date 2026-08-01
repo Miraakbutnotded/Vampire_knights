@@ -1,276 +1,945 @@
 {
   "player": {
-    "origin": [0.5, 0.85],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "player/idle.png", "fps": 6 },
-      "walk": { "src": "player/walk.png", "fps": 10 }
+      "idle": {
+        "src": "player/idle.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "player/walk.png",
+        "fps": 10
+      }
     },
-    "placeholder": { "shape": "capsule", "color": "#f2d9a8", "accent": "#3a2b4d", "size": 20 }
+    "placeholder": {
+      "shape": "capsule",
+      "color": "#f2d9a8",
+      "accent": "#3a2b4d",
+      "size": 20
+    }
   },
   "morrigan": {
-    "origin": [0.5, 0.85],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "player/morrigan_idle.png", "fps": 6 },
-      "walk": { "src": "player/morrigan_walk.png", "fps": 10 },
-      "death": { "src": "player/morrigan_death.png", "fps": 8 }
+      "idle": {
+        "src": "player/morrigan_idle.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "player/morrigan_walk.png",
+        "fps": 10
+      },
+      "death": {
+        "src": "player/morrigan_death.png",
+        "fps": 8
+      }
     },
-    "placeholder": { "shape": "capsule", "color": "#6b4a8f", "accent": "#241733", "size": 20 }
+    "placeholder": {
+      "shape": "capsule",
+      "color": "#6b4a8f",
+      "accent": "#241733",
+      "size": 20
+    }
   },
   "aldric": {
-    "origin": [0.5, 0.85],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "player/aldric_idle.png", "fps": 6 },
-      "walk": { "src": "player/aldric_walk.png", "fps": 10 },
-      "death": { "src": "player/aldric_death.png", "fps": 8 }
+      "idle": {
+        "src": "player/aldric_idle.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "player/aldric_walk.png",
+        "fps": 10
+      },
+      "death": {
+        "src": "player/aldric_death.png",
+        "fps": 8
+      }
     },
-    "placeholder": { "shape": "capsule", "color": "#d9cfc0", "accent": "#6e1423", "size": 20 }
+    "placeholder": {
+      "shape": "capsule",
+      "color": "#d9cfc0",
+      "accent": "#6e1423",
+      "size": 20
+    }
   },
   "vespera": {
-    "origin": [0.5, 0.85],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "player/vespera_idle.png", "fps": 6 },
-      "walk": { "src": "player/vespera_walk.png", "fps": 10 },
-      "death": { "src": "player/vespera_death.png", "fps": 8 }
+      "idle": {
+        "src": "player/vespera_idle.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "player/vespera_walk.png",
+        "fps": 10
+      },
+      "death": {
+        "src": "player/vespera_death.png",
+        "fps": 8
+      }
     },
-    "placeholder": { "shape": "capsule", "color": "#b8c4d4", "accent": "#241733", "size": 20 }
+    "placeholder": {
+      "shape": "capsule",
+      "color": "#b8c4d4",
+      "accent": "#241733",
+      "size": 20
+    }
   },
   "dragos": {
-    "origin": [0.5, 0.85],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "player/dragos_idle.png", "fps": 6 },
-      "walk": { "src": "player/dragos_walk.png", "fps": 10 },
-      "death": { "src": "player/dragos_death.png", "fps": 8 }
+      "idle": {
+        "src": "player/dragos_idle.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "player/dragos_walk.png",
+        "fps": 10
+      },
+      "death": {
+        "src": "player/dragos_death.png",
+        "fps": 8
+      }
     },
-    "placeholder": { "shape": "capsule", "color": "#8a93a6", "accent": "#3d0f1a", "size": 20 }
+    "placeholder": {
+      "shape": "capsule",
+      "color": "#8a93a6",
+      "accent": "#3d0f1a",
+      "size": 20
+    }
   },
-
   "bat": {
-    "origin": [0.5, 0.6],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "enemies/bat.png", "fps": 10 },
-      "walk": { "src": "enemies/bat_fly.png", "fps": 12 }
+      "idle": {
+        "src": "enemies/bat.png",
+        "fps": 10
+      },
+      "walk": {
+        "src": "enemies/bat_fly.png",
+        "fps": 12
+      }
     },
-    "placeholder": { "shape": "bat", "color": "#6b4a8f", "accent": "#241733", "size": 14, "bob": 2 }
+    "placeholder": {
+      "shape": "bat",
+      "color": "#6b4a8f",
+      "accent": "#241733",
+      "size": 14,
+      "bob": 2
+    }
   },
   "zombie": {
-    "origin": [0.5, 0.85],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "enemies/zombie.png", "fps": 5 },
-      "walk": { "src": "enemies/zombie_walk.png", "fps": 8 }
+      "idle": {
+        "src": "enemies/zombie.png",
+        "fps": 5
+      },
+      "walk": {
+        "src": "enemies/zombie_walk.png",
+        "fps": 8
+      }
     },
-    "placeholder": { "shape": "capsule", "color": "#6f9e5a", "accent": "#2b3d21", "size": 18 }
+    "placeholder": {
+      "shape": "capsule",
+      "color": "#6f9e5a",
+      "accent": "#2b3d21",
+      "size": 18
+    }
   },
   "skeleton": {
-    "origin": [0.5, 0.85],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "enemies/skeleton.png", "fps": 6 },
-      "walk": { "src": "enemies/skeleton_walk.png", "fps": 9 }
+      "idle": {
+        "src": "enemies/skeleton.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "enemies/skeleton_walk.png",
+        "fps": 9
+      }
     },
-    "placeholder": { "shape": "skull", "color": "#e8e3d0", "accent": "#4a4436", "size": 18 }
+    "placeholder": {
+      "shape": "skull",
+      "color": "#e8e3d0",
+      "accent": "#4a4436",
+      "size": 18
+    }
   },
   "ghost": {
-    "origin": [0.5, 0.7],
-    "anims": { "idle": { "src": "enemies/ghost.png", "fps": 7 } },
-    "placeholder": { "shape": "ghost", "color": "#9fd8e8", "accent": "#2f5d6b", "size": 16, "bob": 3 }
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "enemies/ghost.png",
+        "fps": 7
+      }
+    },
+    "placeholder": {
+      "shape": "ghost",
+      "color": "#9fd8e8",
+      "accent": "#2f5d6b",
+      "size": 16,
+      "bob": 3
+    }
   },
   "slime": {
-    "origin": [0.5, 0.85],
-    "anims": { "idle": { "src": "enemies/slime.png", "fps": 8 } },
-    "placeholder": { "shape": "blob", "color": "#6ad4a8", "accent": "#1f5a44", "size": 14 }
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "enemies/slime.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#6ad4a8",
+      "accent": "#1f5a44",
+      "size": 14
+    }
   },
   "wisp": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "enemies/wisp.png", "fps": 12 } },
-    "placeholder": { "shape": "orb", "color": "#ffd66b", "accent": "#7a5a10", "size": 12, "bob": 3 }
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "enemies/wisp.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "orb",
+      "color": "#ffd66b",
+      "accent": "#7a5a10",
+      "size": 12,
+      "bob": 3
+    }
   },
   "swarmling": {
-    "origin": [0.5, 0.8],
-    "anims": { "idle": { "src": "enemies/swarmling.png", "fps": 10 } },
-    "placeholder": { "shape": "blob", "color": "#b06de8", "accent": "#3a1f52", "size": 10 }
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "enemies/swarmling.png",
+        "fps": 10
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#b06de8",
+      "accent": "#3a1f52",
+      "size": 10
+    }
   },
   "brute": {
-    "origin": [0.5, 0.88],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "enemies/brute.png", "fps": 4 },
-      "walk": { "src": "enemies/brute_walk.png", "fps": 7 }
+      "idle": {
+        "src": "enemies/brute.png",
+        "fps": 4
+      },
+      "walk": {
+        "src": "enemies/brute_walk.png",
+        "fps": 7
+      }
     },
-    "placeholder": { "shape": "capsule", "color": "#c25b4a", "accent": "#4a1f18", "size": 28 }
+    "placeholder": {
+      "shape": "capsule",
+      "color": "#c25b4a",
+      "accent": "#4a1f18",
+      "size": 28
+    }
   },
   "reaper": {
-    "origin": [0.5, 0.88],
+    "origin": [
+      0.5,
+      0.85
+    ],
     "anims": {
-      "idle": { "src": "enemies/reaper.png", "fps": 5 },
-      "walk": { "src": "enemies/reaper_walk.png", "fps": 8 }
+      "idle": {
+        "src": "enemies/reaper.png",
+        "fps": 5
+      },
+      "walk": {
+        "src": "enemies/reaper_walk.png",
+        "fps": 8
+      }
     },
-    "placeholder": { "shape": "ghost", "color": "#8b3a62", "accent": "#2a0f1c", "size": 40, "bob": 2 }
+    "placeholder": {
+      "shape": "ghost",
+      "color": "#8b3a62",
+      "accent": "#2a0f1c",
+      "size": 40,
+      "bob": 2
+    }
   },
   "warden": {
-    "origin": [0.5, 0.88],
-    "anims": { "idle": { "src": "enemies/warden.png", "fps": 5 } },
-    "placeholder": { "shape": "skull", "color": "#7f9cc4", "accent": "#1e2a3d", "size": 34 }
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "enemies/warden.png",
+        "fps": 5
+      }
+    },
+    "placeholder": {
+      "shape": "skull",
+      "color": "#7f9cc4",
+      "accent": "#1e2a3d",
+      "size": 34
+    }
   },
-
   "gem_small": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "pickups/gem_small.png", "fps": 8 } },
-    "placeholder": { "shape": "gem", "color": "#5ac8fa", "accent": "#123f5c", "size": 8, "bob": 1 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "pickups/gem_small.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "gem",
+      "color": "#5ac8fa",
+      "accent": "#123f5c",
+      "size": 8,
+      "bob": 1
+    }
   },
   "gem_med": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "pickups/gem_med.png", "fps": 8 } },
-    "placeholder": { "shape": "gem", "color": "#4ade80", "accent": "#14532d", "size": 10, "bob": 1 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "pickups/gem_med.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "gem",
+      "color": "#4ade80",
+      "accent": "#14532d",
+      "size": 10,
+      "bob": 1
+    }
   },
   "gem_large": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "pickups/gem_large.png", "fps": 8 } },
-    "placeholder": { "shape": "gem", "color": "#c084fc", "accent": "#3b1a63", "size": 13, "bob": 1 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "pickups/gem_large.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "gem",
+      "color": "#c084fc",
+      "accent": "#3b1a63",
+      "size": 13,
+      "bob": 1
+    }
   },
   "coin": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "pickups/coin.png", "fps": 8 } },
-    "placeholder": { "shape": "coin", "color": "#ffd23f", "accent": "#7a5a00", "size": 9, "bob": 1 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "pickups/coin.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "coin",
+      "color": "#ffd23f",
+      "accent": "#7a5a00",
+      "size": 9,
+      "bob": 1
+    }
   },
   "meat": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "pickups/meat.png", "fps": 6 } },
-    "placeholder": { "shape": "blob", "color": "#ff8fa3", "accent": "#6b1f2e", "size": 12, "bob": 1 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "pickups/meat.png",
+        "fps": 6
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#ff8fa3",
+      "accent": "#6b1f2e",
+      "size": 12,
+      "bob": 1
+    }
   },
   "blood_vial": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "pickups/blood_vial.png", "fps": 6 } },
-    "placeholder": { "shape": "gem", "color": "#d94a5e", "accent": "#4a0e16", "size": 10, "bob": 1 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "pickups/blood_vial.png",
+        "fps": 6
+      }
+    },
+    "placeholder": {
+      "shape": "gem",
+      "color": "#d94a5e",
+      "accent": "#4a0e16",
+      "size": 10,
+      "bob": 1
+    }
   },
   "magnet": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "pickups/magnet.png", "fps": 8 } },
-    "placeholder": { "shape": "ring", "color": "#7dd3fc", "accent": "#0c4a6e", "size": 14, "bob": 2 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "pickups/magnet.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "ring",
+      "color": "#7dd3fc",
+      "accent": "#0c4a6e",
+      "size": 14,
+      "bob": 2
+    }
   },
   "chest": {
-    "origin": [0.5, 0.75],
-    "anims": { "idle": { "src": "pickups/chest.png", "fps": 6 } },
-    "placeholder": { "shape": "square", "color": "#d4a15a", "accent": "#4a3013", "size": 16, "bob": 1 }
+    "origin": [
+      0.5,
+      0.75
+    ],
+    "anims": {
+      "idle": {
+        "src": "pickups/chest.png",
+        "fps": 6
+      }
+    },
+    "placeholder": {
+      "shape": "square",
+      "color": "#d4a15a",
+      "accent": "#4a3013",
+      "size": 16,
+      "bob": 1
+    }
   },
   "structure_gate": {
-    "origin": [0.5, 0.8],
-    "anims": { "idle": { "src": "structures/gate.png", "fps": 4 } },
-    "placeholder": { "shape": "square", "color": "#6b6273", "accent": "#241f2e", "size": 30, "bob": 0 }
+    "origin": [
+      0.5,
+      0.8
+    ],
+    "anims": {
+      "idle": {
+        "src": "structures/gate.png",
+        "fps": 4
+      }
+    },
+    "placeholder": {
+      "shape": "square",
+      "color": "#6b6273",
+      "accent": "#241f2e",
+      "size": 30,
+      "bob": 0
+    }
   },
   "structure_shrine": {
-    "origin": [0.5, 0.8],
-    "anims": { "idle": { "src": "structures/shrine.png", "fps": 6 } },
-    "placeholder": { "shape": "diamond", "color": "#8a2f3f", "accent": "#2e0d14", "size": 22, "bob": 0 }
+    "origin": [
+      0.5,
+      0.8
+    ],
+    "anims": {
+      "idle": {
+        "src": "structures/shrine.png",
+        "fps": 6
+      }
+    },
+    "placeholder": {
+      "shape": "diamond",
+      "color": "#8a2f3f",
+      "accent": "#2e0d14",
+      "size": 22,
+      "bob": 0
+    }
   },
-
   "fx_slash": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "weapons/slash.png", "fps": 14 } },
-    "placeholder": { "shape": "slash", "color": "#fff4e0", "accent": "#c9a86a", "size": 30, "frames": 3, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/slash.png",
+        "fps": 14
+      }
+    },
+    "placeholder": {
+      "shape": "slash",
+      "color": "#fff4e0",
+      "accent": "#c9a86a",
+      "size": 30,
+      "frames": 3,
+      "bob": 0
+    }
   },
   "proj_bolt": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "weapons/bolt.png", "fps": 12 } },
-    "placeholder": { "shape": "orb", "color": "#8ec5ff", "accent": "#1e3a5f", "size": 10, "bob": 1 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/bolt.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "orb",
+      "color": "#8ec5ff",
+      "accent": "#1e3a5f",
+      "size": 10,
+      "bob": 1
+    }
   },
   "proj_knife": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "weapons/knife.png", "fps": 1 } },
-    "placeholder": { "shape": "knife", "color": "#e0e6f0", "accent": "#4a5568", "size": 13, "frames": 1, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/knife.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "knife",
+      "color": "#e0e6f0",
+      "accent": "#4a5568",
+      "size": 13,
+      "frames": 1,
+      "bob": 0
+    }
   },
   "aura_garlic": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "weapons/aura.png", "fps": 8 } },
-    "placeholder": { "shape": "ring", "color": "#b8f0d0", "accent": "#2f7a55", "size": 48, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/aura.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "ring",
+      "color": "#b8f0d0",
+      "accent": "#2f7a55",
+      "size": 48,
+      "bob": 0
+    }
   },
   "orb_tome": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "weapons/tome.png", "fps": 8 } },
-    "placeholder": { "shape": "square", "color": "#ffe9a8", "accent": "#7a5a20", "size": 12, "bob": 1 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/tome.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "square",
+      "color": "#ffe9a8",
+      "accent": "#7a5a20",
+      "size": 12,
+      "bob": 1
+    }
   },
   "hazard_fire": {
-    "origin": [0.5, 0.7],
-    "anims": { "idle": { "src": "weapons/fire.png", "fps": 12 } },
-    "placeholder": { "shape": "blob", "color": "#ff8c42", "accent": "#7a2e05", "size": 22, "bob": 2 }
+    "origin": [
+      0.5,
+      0.7
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/fire.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#ff8c42",
+      "accent": "#7a2e05",
+      "size": 22,
+      "bob": 2
+    }
   },
   "fx_bolt_strike": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "weapons/strike.png", "fps": 16 } },
-    "placeholder": { "shape": "diamond", "color": "#cfe8ff", "accent": "#4a7fb5", "size": 18, "frames": 3, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/strike.png",
+        "fps": 16
+      }
+    },
+    "placeholder": {
+      "shape": "diamond",
+      "color": "#cfe8ff",
+      "accent": "#4a7fb5",
+      "size": 18,
+      "frames": 3,
+      "bob": 0
+    }
   },
   "proj_enemy": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "weapons/enemy_shot.png", "fps": 10 } },
-    "placeholder": { "shape": "orb", "color": "#ff6b8a", "accent": "#5c1024", "size": 8, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/enemy_shot.png",
+        "fps": 10
+      }
+    },
+    "placeholder": {
+      "shape": "orb",
+      "color": "#ff6b8a",
+      "accent": "#5c1024",
+      "size": 8,
+      "bob": 0
+    }
   },
   "fx_star": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "weapons/star.png", "fps": 12 } },
-    "placeholder": { "shape": "star", "color": "#fff0b0", "accent": "#8a6a10", "size": 14 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/star.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "star",
+      "color": "#fff0b0",
+      "accent": "#8a6a10",
+      "size": 14
+    }
   },
-
   "ability_cleave": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "ui/ability_cleave.png", "fps": 1 } },
-    "placeholder": { "shape": "slash", "color": "#d94a5e", "accent": "#4a0d16", "size": 14, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "ui/ability_cleave.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "slash",
+      "color": "#d94a5e",
+      "accent": "#4a0d16",
+      "size": 14,
+      "bob": 0
+    }
   },
   "ability_swarm": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "ui/ability_swarm.png", "fps": 1 } },
-    "placeholder": { "shape": "bat", "color": "#6b4a8f", "accent": "#241733", "size": 14, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "ui/ability_swarm.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "bat",
+      "color": "#6b4a8f",
+      "accent": "#241733",
+      "size": 14,
+      "bob": 0
+    }
   },
   "ability_bulwark": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "ui/ability_bulwark.png", "fps": 1 } },
-    "placeholder": { "shape": "ring", "color": "#d4a15a", "accent": "#4a3013", "size": 14, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "ui/ability_bulwark.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "ring",
+      "color": "#d4a15a",
+      "accent": "#4a3013",
+      "size": 14,
+      "bob": 0
+    }
   },
   "ability_dash": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "ui/ability_dash.png", "fps": 1 } },
-    "placeholder": { "shape": "ghost", "color": "#9fd8e8", "accent": "#2f5d6b", "size": 14, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "ui/ability_dash.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "ghost",
+      "color": "#9fd8e8",
+      "accent": "#2f5d6b",
+      "size": 14,
+      "bob": 0
+    }
   },
   "ability_zone": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "ui/ability_zone.png", "fps": 1 } },
-    "placeholder": { "shape": "square", "color": "#7a3fa0", "accent": "#2a1138", "size": 14, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "ui/ability_zone.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "square",
+      "color": "#7a3fa0",
+      "accent": "#2a1138",
+      "size": 14,
+      "bob": 0
+    }
   },
   "hazard_mist": {
-    "origin": [0.5, 0.6],
-    "anims": { "idle": { "src": "weapons/mist.png", "fps": 8 } },
-    "placeholder": { "shape": "blob", "color": "#b8c8d8", "accent": "#3d4a5c", "size": 36, "bob": 1 }
+    "origin": [
+      0.5,
+      0.6
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/mist.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#b8c8d8",
+      "accent": "#3d4a5c",
+      "size": 36,
+      "bob": 1
+    }
   },
   "hazard_unhallowed": {
-    "origin": [0.5, 0.6],
-    "anims": { "idle": { "src": "weapons/unhallowed.png", "fps": 8 } },
-    "placeholder": { "shape": "ring", "color": "#7a3fa0", "accent": "#2a1138", "size": 48, "bob": 0 }
+    "origin": [
+      0.5,
+      0.6
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/unhallowed.png",
+        "fps": 8
+      }
+    },
+    "placeholder": {
+      "shape": "ring",
+      "color": "#7a3fa0",
+      "accent": "#2a1138",
+      "size": 48,
+      "bob": 0
+    }
   },
-
   "tree": {
-    "origin": [0.5, 0.92],
-    "anims": { "idle": { "src": "tiles/tree.png", "fps": 3 } },
-    "placeholder": { "shape": "blob", "color": "#2d5a3d", "accent": "#16301f", "size": 28, "bob": 1 }
+    "origin": [
+      0.5,
+      0.92
+    ],
+    "anims": {
+      "idle": {
+        "src": "tiles/tree.png",
+        "fps": 3
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#2d5a3d",
+      "accent": "#16301f",
+      "size": 28,
+      "bob": 1
+    }
   },
   "rock": {
-    "origin": [0.5, 0.8],
-    "anims": { "idle": { "src": "tiles/rock.png", "fps": 1 } },
-    "placeholder": { "shape": "blob", "color": "#6b6b73", "accent": "#2f2f36", "size": 18, "frames": 1, "bob": 0 }
+    "origin": [
+      0.5,
+      0.8
+    ],
+    "anims": {
+      "idle": {
+        "src": "tiles/rock.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#6b6b73",
+      "accent": "#2f2f36",
+      "size": 18,
+      "frames": 1,
+      "bob": 0
+    }
   },
   "grave": {
-    "origin": [0.5, 0.9],
-    "anims": { "idle": { "src": "tiles/grave.png", "fps": 1 } },
-    "placeholder": { "shape": "square", "color": "#8a8a92", "accent": "#33333a", "size": 18, "frames": 1, "bob": 0 }
+    "origin": [
+      0.5,
+      0.9
+    ],
+    "anims": {
+      "idle": {
+        "src": "tiles/grave.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "square",
+      "color": "#8a8a92",
+      "accent": "#33333a",
+      "size": 18,
+      "frames": 1,
+      "bob": 0
+    }
   },
   "bush": {
-    "origin": [0.5, 0.85],
-    "anims": { "idle": { "src": "tiles/bush.png", "fps": 4 } },
-    "placeholder": { "shape": "blob", "color": "#35704a", "accent": "#1a3a26", "size": 16, "bob": 1 }
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "tiles/bush.png",
+        "fps": 4
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#35704a",
+      "accent": "#1a3a26",
+      "size": 16,
+      "bob": 1
+    }
   },
   "flower": {
-    "origin": [0.5, 0.6],
-    "anims": { "idle": { "src": "tiles/flower.png", "fps": 4 } },
-    "placeholder": { "shape": "star", "color": "#e8a0c0", "accent": "#7a3050", "size": 8, "bob": 0 }
+    "origin": [
+      0.5,
+      0.6
+    ],
+    "anims": {
+      "idle": {
+        "src": "tiles/flower.png",
+        "fps": 4
+      }
+    },
+    "placeholder": {
+      "shape": "star",
+      "color": "#e8a0c0",
+      "accent": "#7a3050",
+      "size": 8,
+      "bob": 0
+    }
   },
   "puddle": {
-    "origin": [0.5, 0.5],
-    "anims": { "idle": { "src": "tiles/puddle.png", "fps": 1 } },
-    "placeholder": { "shape": "blob", "color": "#2a4a5a", "accent": "#16303c", "size": 22, "frames": 1, "bob": 0 }
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "tiles/puddle.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#2a4a5a",
+      "accent": "#16303c",
+      "size": 22,
+      "frames": 1,
+      "bob": 0
+    }
   }
 }

@@ -1,5 +1,8 @@
 import { Loop } from './core/loop.ts';
 import { Game } from './game.ts';
+import { AudioEngine } from './platform/audio.ts';
+import { HapticsDriver } from './platform/haptics.ts';
+import { wireCapacitorLifecycle, wireLifecycle } from './platform/lifecycle.ts';
 import { SpriteTable } from './render/sprites.ts';
 import { MetaService } from './services/meta.ts';
 import { LocalStorageAdapter } from './services/storage.ts';
@@ -35,12 +38,25 @@ async function boot(): Promise<void> {
 
   loop.start();
 
+  const detachLifecycle = wireLifecycle(game, document);
+  let detachCapacitorLifecycle: () => void = () => {};
+  void wireCapacitorLifecycle(game).then(({ detach }) => {
+    detachCapacitorLifecycle = detach;
+  });
+
+  const audio = new AudioEngine(game.bus);
+  const haptics = new HapticsDriver(game.bus);
+
   // Vite replaces this module on save; without tearing the old loop down, each
   // edit would leave another one running and inputs would be handled twice.
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
       loop.stop();
       game.dispose();
+      detachLifecycle();
+      detachCapacitorLifecycle();
+      audio.dispose();
+      haptics.dispose();
     });
   }
 }

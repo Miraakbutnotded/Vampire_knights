@@ -28,6 +28,14 @@
   --danger: #ff6b8a;
 
   --u: calc(var(--scale) * 1px);
+
+  /* Device notch/home-indicator insets. `env()` resolves to 0px on desktop and
+     on any browser without the keyword, so every `max()` below falls back to
+     its design inset unchanged. Requires `viewport-fit=cover` in index.html. */
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
 }
 
 * {
@@ -56,6 +64,8 @@ body {
   position: relative;
   width: 100%;
   height: 100%;
+  /* Kills double-tap zoom and rubber-banding inside the game surface. */
+  touch-action: none;
 }
 
 #game {
@@ -111,9 +121,14 @@ body {
   transition: width 90ms linear;
 }
 
+/* Edge anchors compose the design inset with the device safe inset. `#ui` is
+   already translated by the letterbox offset, so a child only has to make up
+   the difference: `max(design, safe - offset)`. When the letterbox bar is
+   wider than the notch the safe term goes negative and the design value wins,
+   which is exactly the desktop/wide-window behaviour. */
 .hud-row {
   position: absolute;
-  top: calc(var(--u) * 8);
+  top: max(calc(var(--u) * 8), calc(var(--safe-t) - var(--offset-y, 0px)));
   display: flex;
   align-items: center;
   gap: calc(var(--u) * 4);
@@ -123,7 +138,7 @@ body {
 }
 
 .hud-left {
-  left: calc(var(--u) * 5);
+  left: max(calc(var(--u) * 5), calc(var(--safe-l) - var(--offset-x, 0px)));
   flex-direction: column;
   align-items: flex-start;
   gap: calc(var(--u) * 3);
@@ -138,7 +153,7 @@ body {
 }
 
 .hud-right {
-  right: calc(var(--u) * 5);
+  right: max(calc(var(--u) * 5), calc(var(--safe-r) - var(--offset-x, 0px)));
   flex-direction: column;
   align-items: flex-end;
   gap: calc(var(--u) * 3);
@@ -201,8 +216,8 @@ body {
 /* Loadout icon rows, bottom-left. */
 .loadout {
   position: absolute;
-  left: calc(var(--u) * 5);
-  bottom: calc(var(--u) * 5);
+  left: max(calc(var(--u) * 5), calc(var(--safe-l) - var(--offset-x, 0px)));
+  bottom: max(calc(var(--u) * 5), calc(var(--safe-b) - var(--offset-y, 0px)));
   display: flex;
   flex-direction: column;
   gap: calc(var(--u) * 3);
@@ -293,6 +308,11 @@ body {
   backdrop-filter: blur(calc(var(--u) * 0.8));
   padding: calc(var(--u) * 8);
   overflow-y: auto;
+  /* `#app` is `touch-action: none`, which would otherwise also swallow drags
+     that start in here — menus can overflow vertically in landscape, so give
+     this one subtree its scroll axis back. `pan-y` still blocks pinch and
+     double-tap zoom. */
+  touch-action: pan-y;
 }
 
 .screen.visible {
@@ -515,7 +535,7 @@ button.btn.primary {
 .blood-cluster {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--u) * 5);
+  bottom: max(calc(var(--u) * 5), calc(var(--safe-b) - var(--offset-y, 0px)));
   transform: translateX(-50%);
   display: flex;
   align-items: flex-end;
@@ -729,4 +749,94 @@ button.btn.primary {
 
 .card.poor .card-cost {
   color: #a33a44;
+}
+
+/* --- Touch layer (coarse pointers only) ---------------------------------- */
+
+/* Hidden entirely on mouse/trackpad machines; the JS side also only builds it
+   when the device reports touch points, so this is belt and braces. */
+.touch-layer {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .touch-layer {
+    display: block;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .touch-layer.disabled {
+    display: none;
+  }
+
+  /* Left half of the play area is joystick territory. Buttons live on the
+     right/bottom edges, outside this zone, so identifiers never contend. */
+  .touch-zone {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    pointer-events: auto;
+    touch-action: none;
+  }
+
+  /* The floating base is positioned in viewport px by JS (touch coords are
+     viewport-relative); sized in --u so it scales with the art. */
+  .joy-base {
+    position: fixed;
+    width: calc(var(--u) * 48);
+    height: calc(var(--u) * 48);
+    margin-left: calc(var(--u) * -24);
+    margin-top: calc(var(--u) * -24);
+    border-radius: 50%;
+    border: var(--u) solid var(--edge-bright);
+    background: rgba(14, 12, 20, 0.35);
+    display: none;
+    pointer-events: none;
+  }
+
+  .joy-base.active {
+    display: block;
+  }
+
+  .joy-nub {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(var(--u) * 16);
+    height: calc(var(--u) * 16);
+    margin-left: calc(var(--u) * -8);
+    margin-top: calc(var(--u) * -8);
+    border-radius: 50%;
+    background: rgba(201, 168, 106, 0.5);
+  }
+
+  /* The pause control owns the top-right corner on touch, so the counter column
+     steps left of its 18u-wide box (14u + 4u inset) with a 4u gutter. Sits 1u
+     below the xp track's bottom border (4u bar + 1u border) instead of under
+     it — the touch layer is prepended, so the HUD would paint over the circle. */
+  .hud-right {
+    right: max(calc(var(--u) * 22), calc(var(--safe-r) - var(--offset-x, 0px)));
+  }
+
+  .touch-pause {
+    position: absolute;
+    top: max(calc(var(--u) * 6), calc(var(--safe-t) - var(--offset-y, 0px)));
+    right: max(calc(var(--u) * 4), calc(var(--safe-r) - var(--offset-x, 0px)));
+    width: calc(var(--u) * 14);
+    height: calc(var(--u) * 14);
+    border-radius: 50%;
+    border: var(--u) solid var(--edge);
+    background: var(--panel);
+    color: var(--ink-dim);
+    font: inherit;
+    font-size: calc(var(--u) * 5);
+    letter-spacing: calc(var(--u) * 0.5);
+    padding: 0;
+    pointer-events: auto;
+    touch-action: none;
+  }
 }

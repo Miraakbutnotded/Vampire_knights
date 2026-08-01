@@ -15,6 +15,21 @@ import type { Camera } from './camera.ts';
 export const VIEW_W = 480;
 export const VIEW_H = 270;
 
+/**
+ * Upscale factor that fits the view inside a buffer of `bufferW`x`bufferH`
+ * device pixels, letterboxing whichever axis doesn't bind.
+ *
+ * The fit is exact rather than snapped to a whole number. Integer scales give
+ * perfectly even pixel widths, but phone aspect ratios make that ruinous: a
+ * 19.5:9 handset offers ~2.98x for a 16:9 view, and flooring that to 2x throws
+ * away a third of the screen. The unevenness a fractional scale introduces is
+ * one device pixel wide, which on the high-density displays where this matters
+ * is far less noticeable than playing in a shrunken box.
+ */
+export function viewportScale(bufferW: number, bufferH: number): number {
+  return Math.min(bufferW / VIEW_W, bufferH / VIEW_H);
+}
+
 /** Entities this far outside the view are not drawn. */
 const CULL_MARGIN = 48;
 
@@ -231,10 +246,7 @@ export class Renderer {
     this.display.width = Math.max(1, Math.round(cssW * dpr));
     this.display.height = Math.max(1, Math.round(cssH * dpr));
 
-    const raw = Math.min(this.display.width / VIEW_W, this.display.height / VIEW_H);
-    // Prefer integer upscales: a 3.4x nearest-neighbour scale gives visibly
-    // uneven pixel widths, which looks worse than a slightly smaller 3x.
-    this.scale = raw >= 1 ? Math.floor(raw) : raw;
+    this.scale = viewportScale(this.display.width, this.display.height);
     this.offsetX = Math.floor((this.display.width - VIEW_W * this.scale) / 2);
     this.offsetY = Math.floor((this.display.height - VIEW_H * this.scale) / 2);
 

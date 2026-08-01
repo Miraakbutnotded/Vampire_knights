@@ -5,3 +5,15 @@ dist/
 .DS_Store
 Thumbs.db
 tsconfig.tsbuildinfo
+
+# Capacitor iOS — the project is committed, build artifacts are not
+ios/App/Pods/
+ios/App/build/
+ios/App/output/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/capacitor-cordova-ios-plugins/
+ios/DerivedData/
+
+# Xcode SPM local state
+ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/

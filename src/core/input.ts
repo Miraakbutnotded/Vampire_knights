@@ -8,6 +8,16 @@ const MOVE_KEYS = {
 } as const;
 
 /**
+ * Anything that contributes movement each frame — the touch joystick
+ * implements this shape. A structural interface rather than an import so
+ * core never depends on the platform layer (isolation gate).
+ */
+export interface AxisSource {
+  readonly axisX: number;
+  readonly axisY: number;
+}
+
+/**
  * Keyboard + gamepad input. Movement is exposed as a normalized axis pair so
  * diagonal movement isn't faster than cardinal.
  *
@@ -23,6 +33,7 @@ export class Input {
   axisY = 0;
 
   private gamepadIndex: number | null = null;
+  private axisSources: AxisSource[] = [];
   /** Previous frame's west-face-button state, for rising-edge detection. */
   private padAbilityHeld = false;
   private detach: () => void;
@@ -52,14 +63,17 @@ export class Input {
 
     target.addEventListener('keydown', onKeyDown);
     target.addEventListener('keyup', onKeyUp);
-    window.addEventListener('blur', onBlur);
-    window.addEventListener('gamepadconnected', onGamepad);
+    // window is absent under headless vitest; the guard costs nothing in the
+    // browser and lets tests construct Input with a bare EventTarget.
+    const win = typeof window === 'undefined' ? null : window;
+    win?.addEventListener('blur', onBlur);
+    win?.addEventListener('gamepadconnected', onGamepad);
 
     this.detach = () => {
       target.removeEventListener('keydown', onKeyDown);
       target.removeEventListener('keyup', onKeyUp);
-      window.removeEventListener('blur', onBlur);
-      window.removeEventListener('gamepadconnected', onGamepad);
+      win?.removeEventListener('blur', onBlur);
+      win?.removeEventListener('gamepadconnected', onGamepad);
     };
   }
 
@@ -85,6 +99,20 @@ export class Input {
     this.pressedThisFrame.add(code);
   }
 
+  /**
+   * Registers a per-frame movement contributor (the touch joystick). Read in
+   * beginFrame() alongside keyboard and gamepad, ahead of the shared
+   * normalize(), so no source can move the player faster than another.
+   * Returns a detach function.
+   */
+  attachAxisSource(source: AxisSource): () => void {
+    this.axisSources.push(source);
+    return () => {
+      const i = this.axisSources.indexOf(source);
+      if (i >= 0) this.axisSources.splice(i, 1);
+    };
+  }
+
   anyPressed(): boolean {
     return this.pressedThisFrame.size > 0;
   }
@@ -105,6 +133,11 @@ export class Input {
     if (pad) {
       x += pad[0];
       y += pad[1];
+    }
+
+    for (const source of this.axisSources) {
+      x += source.axisX;
+      y += source.axisY;
     }
 
     const [nx, ny] = normalize(x, y);

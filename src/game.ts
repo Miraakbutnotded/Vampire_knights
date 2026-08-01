@@ -31,6 +31,9 @@ import type { Ctx } from './gameplay/context.ts';
 import { Hud } from './ui/hud.ts';
 import { Screens } from './ui/screens.ts';
 
+import { TouchControls } from './platform/touch.ts';
+import { shouldAutoPause } from './platform/lifecycle.ts';
+
 import type { MetaService } from './services/meta.ts';
 
 type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'dying' | 'results' | 'sanctum';
@@ -46,10 +49,12 @@ export class Game implements LoopHooks {
   private world = new World();
   private camera = new Camera();
   private fx = new Fx();
-  private bus = new EventBus<GameEvents>();
+  /** Readonly so platform subscribers (audio, haptics) can listen from main.ts. */
+  readonly bus = new EventBus<GameEvents>();
   private rng = new Rng();
   private spawner = new Spawner();
   private input: Input;
+  private touch: TouchControls | null = null;
 
   private renderer: Renderer;
   private hud: Hud;
@@ -96,6 +101,14 @@ export class Game implements LoopHooks {
     this.debugEl.className = 'debug';
 
     uiRoot.append(this.hud.root, this.screens.root, this.debugEl);
+
+    // Touch controls exist only where touch exists; prepended so the HUD's own
+    // buttons (later siblings) stack above the joystick capture zone.
+    if (navigator.maxTouchPoints > 0) {
+      this.touch = new TouchControls(this.input);
+      uiRoot.prepend(this.touch.root);
+      this.input.attachAxisSource(this.touch);
+    }
 
     // A placeholder Run exists from the start so `ctx` is never half-built; it
     // is replaced wholesale when a real run begins.
@@ -304,6 +317,15 @@ export class Game implements LoopHooks {
   }
 
   /**
+   * Platform hook: backgrounding/hiding pauses an active run and touches
+   * nothing else — menus, drafts, results and the sanctum stay as they are.
+   */
+  autoPause(): void {
+    if (!shouldAutoPause(this.state)) return;
+    this.openPause();
+  }
+
+  /**
    * Holds on a frozen world while the player's death strip plays, then shows the
    * results screen. Characters with no `death` art skip straight to results, so
    * this stays correct for any sprite that only declares idle and walk.
@@ -416,6 +438,7 @@ export class Game implements LoopHooks {
   // --- loop hooks ---------------------------------------------------------
 
   beforeFrame(): void {
+    this.touch?.setEnabled(this.state === 'playing');
     this.input.beginFrame();
 
     if (this.input.wasPressed('F3')) {
@@ -682,6 +705,7 @@ export class Game implements LoopHooks {
   }
 
   dispose(): void {
+    this.touch?.dispose();
     this.input.dispose();
     this.bus.clear();
   }
