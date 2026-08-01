@@ -566,6 +566,25 @@
       "bob": 0
     }
   },
+  "structure_tower": {
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "structures/tower.png",
+        "fps": 4
+      }
+    },
+    "placeholder": {
+      "shape": "square",
+      "color": "#7a6f84",
+      "accent": "#1e1a28",
+      "size": 26,
+      "bob": 0
+    }
+  },
   "fx_slash": {
     "origin": [
       0.5,

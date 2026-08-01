@@ -4,8 +4,9 @@ import { EventBus } from '../core/events.ts';
 import type { GameEvents } from '../core/events.ts';
 import { Rng } from '../core/rng.ts';
 import { FIXED_DT } from '../core/loop.ts';
-import { Kind, Team } from '../ecs/components.ts';
+import { Comp, Kind, Team } from '../ecs/components.ts';
 import { World } from '../ecs/world.ts';
+import bastionMap from '../content/maps/bastion.json';
 import { Camera } from '../render/camera.ts';
 import { Fx } from '../render/fx.ts';
 import type { SpriteTable } from '../render/sprites.ts';
@@ -30,7 +31,7 @@ import {
   waveTable,
   weaponStatsAtLevel,
 } from './content.ts';
-import type { MetaMods } from './content.ts';
+import type { MetaMods, StructureDef } from './content.ts';
 import { updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
 import { damageEnemy } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
@@ -1384,7 +1385,8 @@ describe('castle defense', () => {
   });
 
   it('normalizes structure defs and fails soft on unknown ids', () => {
-    expect(STRUCTURE_LIST).toHaveLength(2);
+    // gate, shrine, tower — the count tripwire for structures.json.
+    expect(STRUCTURE_LIST).toHaveLength(3);
 
     const gate = structureDef('gate')!;
     expect(gate).not.toBeNull();
@@ -1819,6 +1821,184 @@ describe('castle defense', () => {
     // regressions without pinning every balance tweak.
     expect(ctx.run.gold).toBeGreaterThan(125);
     expect(ctx.run.gold).toBeLessThan(500);
+  });
+});
+
+describe('watchtowers', () => {
+  /**
+   * A field with nothing on it but the tower, its target and a disarmed player:
+   * every projectile that exists is one the tower fired, so the counts below
+   * mean what they say.
+   */
+  function towerField(): { harness: Harness; ctx: Ctx; def: StructureDef } {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+    // Disarm the player: the tower is then the only projectile source alive.
+    ctx.run.weapons.length = 0;
+    ctx.world.hp[ctx.player] = 1e5;
+    return { harness, ctx, def: structureDef('tower')! };
+  }
+
+  /** A target that stays put, so range and cadence assertions stay honest. */
+  function pinnedEnemy(ctx: Ctx, x: number, y: number, hp = 5000): number {
+    const id = spawnEnemy(ctx, enemyDef('zombie')!, x, y);
+    ctx.world.speed[id] = 0;
+    ctx.world.hp[id] = hp;
+    return id;
+  }
+
+  it('normalizes the watchtower as an armed structure and leaves gate and shrine passive', () => {
+    const tower = structureDef('tower')!;
+    expect(tower.name).toBe('Watchtower');
+    expect(tower.hp).toBe(140);
+    expect(tower.radius).toBe(10);
+    expect(tower.solid).toBe(true);
+    expect(tower.gold).toBe(30);
+    expect(tower.range).toBe(170);
+    expect(tower.shootInterval).toBeCloseTo(1.4);
+    expect(tower.projectileDamage).toBe(14);
+    expect(tower.projectileSpeed).toBe(190);
+    expect(tower.projectileLifetime).toBeCloseTo(1.2);
+    expect(tower.projectileSprite).toBe('proj_bolt');
+    // A bolt must outlive the range it was fired across, or shots at the rim
+    // expire in mid-air.
+    expect(tower.projectileSpeed * tower.projectileLifetime).toBeGreaterThan(tower.range);
+
+    // range is the armed/unarmed switch: the phase-3 pair keeps its old shape.
+    expect(structureDef('gate')!.range).toBe(0);
+    expect(structureDef('shrine')!.range).toBe(0);
+    // ...and still gets safe defaults for the fields their JSON omits, so a
+    // half-written content entry can never divide by zero or fire forever.
+    expect(structureDef('gate')!.shootInterval).toBeGreaterThan(0);
+    expect(structureDef('gate')!.projectileLifetime).toBeGreaterThan(0);
+  });
+
+  it('arms a tower at spawn and leaves the gate a passive wall', () => {
+    const { ctx, def } = towerField();
+    const tower = spawnStructure(ctx, def, 40, 0);
+    const gate = spawnStructure(ctx, structureDef('gate')!, -40, 0);
+
+    expect(ctx.world.has(tower, Comp.Shooter)).toBe(true);
+    expect(ctx.world.has(gate, Comp.Shooter)).toBe(false);
+    // hitCooldown is the fire timer, zeroed by World.create: a fresh tower is
+    // loaded and shoots the first thing that walks into range.
+    expect(ctx.world.hitCooldown[tower]).toBe(0);
+  });
+
+  it('shoots a player-team bolt at an enemy inside its range', () => {
+    const { harness, ctx, def } = towerField();
+    const world = ctx.world;
+    const tower = spawnStructure(ctx, def, 300, 0);
+    pinnedEnemy(ctx, 380, 0);
+
+    harness.run(FIXED_DT * 2);
+
+    const bolts = world.list(Kind.Projectile);
+    expect(bolts).toHaveLength(1);
+    const bolt = bolts[0]!;
+    // Team.Player is the whole point: only player-team projectiles are resolved
+    // against the enemy hash, so an enemy-team bolt could damage nothing.
+    expect(world.team[bolt]).toBe(Team.Player);
+    expect(world.damage[bolt]).toBe(def.projectileDamage);
+    expect(Math.hypot(world.vx[bolt]!, world.vy[bolt]!)).toBeCloseTo(def.projectileSpeed);
+    expect(world.vx[bolt]).toBeGreaterThan(0);
+    // Fired from the crenellations, so it aims down at a target on the ground.
+    expect(world.vy[bolt]).toBeGreaterThan(0);
+    // The shot started the reload, which has been running since (one tick).
+    expect(world.hitCooldown[tower]).toBeLessThanOrEqual(def.shootInterval);
+    expect(world.hitCooldown[tower]).toBeGreaterThan(def.shootInterval - 3 * FIXED_DT);
+  });
+
+  it('holds fire when the nearest enemy is outside its range', () => {
+    const { harness, ctx, def } = towerField();
+    const tower = spawnStructure(ctx, def, 300, 0);
+    pinnedEnemy(ctx, 300 + def.range + 30, 0);
+
+    harness.run(2);
+
+    expect(ctx.world.list(Kind.Projectile)).toHaveLength(0);
+    // Idle time does not bank: the tower stays loaded rather than drifting
+    // negative and owing itself shots.
+    expect(ctx.world.hitCooldown[tower]).toBe(0);
+  });
+
+  it('cannot friendly-fire the wall it guards or the player standing under it', () => {
+    const { harness, ctx, def } = towerField();
+    const world = ctx.world;
+    const gateDef = structureDef('gate')!;
+    spawnStructure(ctx, def, 300, 0);
+    const gate = spawnStructure(ctx, gateDef, 330, 0);
+    const zombie = pinnedEnemy(ctx, 360, 0);
+    const playerHp = world.hp[ctx.player]!;
+
+    harness.run(3);
+
+    // Bolts fly straight over the gate and land on the enemy behind it.
+    expect(world.hp[zombie]).toBeLessThan(5000);
+    expect(world.hp[gate]).toBe(gateDef.hp);
+    expect(world.hp[ctx.player]).toBe(playerHp);
+  });
+
+  it('fires on its own cadence with numbers no passive, level or frenzy can touch', () => {
+    const { harness, ctx, def } = towerField();
+    const world = ctx.world;
+    // Everything that scales the player's own damage, cranked to absurdity.
+    ctx.run.stats.might = 10;
+    ctx.run.frenzyT = 999;
+    // Crits are the one accepted coupling (resolveDamageArea always allows
+    // them); pinned off here so the shot count is exact rather than sampled.
+    ctx.run.stats.critChance = 0;
+
+    spawnStructure(ctx, def, 300, 0);
+    const zombie = pinnedEnemy(ctx, 350, 0);
+
+    harness.run(5);
+
+    // Loaded at t=0, then every 1.4s: four bolts land inside five seconds,
+    // each for exactly the number in structures.json and nothing more.
+    const lost = 5000 - world.hp[zombie]!;
+    expect(lost).toBe(4 * def.projectileDamage);
+  });
+
+  it('stops shooting the moment it falls', () => {
+    const { harness, ctx, def } = towerField();
+    const tower = spawnStructure(ctx, def, 300, 0);
+    pinnedEnemy(ctx, 350, 0);
+
+    harness.run(FIXED_DT * 2);
+    expect(ctx.world.list(Kind.Projectile)).toHaveLength(1);
+
+    damageStructure(ctx, tower, def.hp);
+    harness.run(3);
+
+    // The in-flight bolt resolved or expired and no new one was ever fired.
+    expect(ctx.world.list(Kind.Structure)).toHaveLength(0);
+    expect(ctx.world.list(Kind.Projectile)).toHaveLength(0);
+  });
+
+  it('flanks the bastion gate with two towers covering its approach', () => {
+    const placed = bastionMap.structures as { type: string; x: number; y: number }[];
+    const gate = placed.find((s) => s.type === 'gate')!;
+    const towers = placed.filter((s) => s.type === 'tower');
+    expect(towers).toHaveLength(2);
+
+    const def = structureDef('tower')!;
+    const gateDef = structureDef('gate')!;
+    for (const t of towers) {
+      const d = Math.hypot(t.x - gate.x, t.y - gate.y);
+      // Set back from the gate rather than stacked on it...
+      expect(d).toBeGreaterThan(def.radius + gateDef.radius + 20);
+      // ...but close enough that its range covers the ground an attacker has
+      // to cross to reach the gate.
+      expect(d).toBeLessThan(def.range);
+    }
+    // One either side of the gate line, so the approach is covered from both
+    // flanks instead of leaving a blind arc.
+    expect(towers[0]!.y * towers[1]!.y).toBeLessThan(0);
+    // Payout order is list order, so the gate must still be the first
+    // structure in the map file — the siege reward keeps landing at the wall.
+    expect(placed[0]!.type).toBe('gate');
   });
 });
 

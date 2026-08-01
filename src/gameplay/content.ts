@@ -152,6 +152,19 @@ export interface StructureDef {
   solid: boolean;
   /** Gold paid out when a siege ends with this structure alive. */
   gold: number;
+  /**
+   * Firing radius. Zero — the default — means a passive structure that never
+   * shoots, which is the whole armed/unarmed switch: gates and shrines omit
+   * every field below and behave exactly as they did before towers existed.
+   */
+  range: number;
+  /** Seconds between shots. */
+  shootInterval: number;
+  /** Damage per bolt. Fixed content, never scaled by the player's passives. */
+  projectileDamage: number;
+  projectileSpeed: number;
+  projectileLifetime: number;
+  projectileSprite: string;
 }
 
 function normalizeStructures(): { list: StructureDef[]; byId: Map<string, StructureDef> } {
@@ -178,6 +191,14 @@ function normalizeStructures(): { list: StructureDef[]; byId: Map<string, Struct
       radius: Math.max(1, num('radius', 12)),
       solid: def['solid'] === true,
       gold: Math.max(0, num('gold', 20)),
+      range: Math.max(0, num('range', 0)),
+      // Clamped away from zero even on a passive structure: a half-written
+      // content entry must never divide by zero or fire every tick.
+      shootInterval: Math.max(0.05, num('shootInterval', 1.5)),
+      projectileDamage: Math.max(0, num('projectileDamage', 10)),
+      projectileSpeed: Math.max(1, num('projectileSpeed', 180)),
+      projectileLifetime: Math.max(0.1, num('projectileLifetime', 1.2)),
+      projectileSprite: str('projectileSprite', 'proj_bolt'),
     };
 
     list.push(entry);

@@ -29,6 +29,8 @@
   ],
   "structures": [
     { "type": "gate", "x": -240, "y": 0 },
-    { "type": "shrine", "x": 180, "y": -120 }
+    { "type": "shrine", "x": 180, "y": -120 },
+    { "type": "tower", "x": -190, "y": -76 },
+    { "type": "tower", "x": -190, "y": 76 }
   ]
 }

@@ -14,5 +14,19 @@
     "radius": 10,
     "solid": false,
     "gold": 40
+  },
+  "tower": {
+    "name": "Watchtower",
+    "sprite": "structure_tower",
+    "hp": 140,
+    "radius": 10,
+    "solid": true,
+    "gold": 30,
+    "range": 170,
+    "shootInterval": 1.4,
+    "projectileDamage": 14,
+    "projectileSpeed": 190,
+    "projectileLifetime": 1.2,
+    "projectileSprite": "proj_bolt"
   }
 }
