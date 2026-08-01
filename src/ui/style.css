@@ -691,3 +691,42 @@ button.btn.primary {
   border-color: #5c1024;
   background: #2a0910;
 }
+
+/* --- Meta progression: wallet + locked characters ----------------------- */
+
+.wallet {
+  color: #e8c56a;
+  font-size: calc(var(--u) * 5);
+  letter-spacing: calc(var(--u) * 0.5);
+  margin-bottom: calc(var(--u) * 2);
+}
+
+.card.locked {
+  opacity: 0.55;
+  filter: grayscale(0.8);
+}
+
+.card.locked .card-tag {
+  color: #e8c56a;
+}
+
+/* --- The Sanctum -------------------------------------------------------- */
+
+.sanctum-cards {
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(var(--u) * 320);
+}
+
+.card-cost {
+  color: #e8c56a;
+  font-size: calc(var(--u) * 4);
+}
+
+.card.maxed .card-cost {
+  color: var(--ink-faint);
+}
+
+.card.poor .card-cost {
+  color: #a33a44;
+}

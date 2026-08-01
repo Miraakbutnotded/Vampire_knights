@@ -1,6 +1,8 @@
 import { Loop } from './core/loop.ts';
 import { Game } from './game.ts';
 import { SpriteTable } from './render/sprites.ts';
+import { MetaService } from './services/meta.ts';
+import { LocalStorageAdapter } from './services/storage.ts';
 
 /**
  * Boots the game: load art, build the game, start the loop.
@@ -15,7 +17,11 @@ async function boot(): Promise<void> {
   if (!canvas || !uiRoot) throw new Error('index.html is missing #game or #ui');
 
   const sprites = await SpriteTable.load();
-  const game = new Game(canvas, uiRoot, sprites);
+  // Second async boot step: the wallet and sanctum ranks must exist before the
+  // title screen renders and before the first Run is constructed.
+  const meta = new MetaService(new LocalStorageAdapter());
+  await meta.load();
+  const game = new Game(canvas, uiRoot, sprites, meta);
 
   const loop = new Loop({
     beforeFrame: () => game.beforeFrame(),

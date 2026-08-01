@@ -1,6 +1,6 @@
 import { clamp } from '../core/math.ts';
 import { BLOOD_CONFIG, characterDef, passiveDef, weaponDef } from './content.ts';
-import type { AbilityDef, BaseStats, CharacterDef, PassiveDef, StatMods, WeaponDef } from './content.ts';
+import type { AbilityDef, BaseStats, CharacterDef, MetaMods, PassiveDef, StatMods, WeaponDef } from './content.ts';
 
 /** Weapons and passives are capped separately, as in the genre standard. */
 export const MAX_WEAPON_SLOTS = 6;
@@ -85,6 +85,14 @@ export class Run {
   /** How many revives are still available this run. */
   revivesLeft: number;
 
+  /**
+   * Persistent Sanctum bonuses for this run, immutable once constructed.
+   * recomputeStats() folds them into its accumulator as the first source,
+   * so every existing clamp treats meta exactly like passives. `revives`
+   * is handled separately in the constructor (revivesLeft, not stats).
+   */
+  private readonly metaMods: MetaMods;
+
   // --- blood economy ------------------------------------------------------
   // All timers advance only inside updateBlood on sim dt — never wall clock —
   // so a run stays reproducible from its seed.
@@ -116,11 +124,13 @@ export class Run {
   /** Structures lost this run; difficultyAt turns each into +8% damage/speed. */
   structuresLost = 0;
 
-  constructor(characterId: string) {
+  constructor(characterId: string, metaMods: MetaMods = {}) {
     this.character = characterDef(characterId);
+    this.metaMods = metaMods;
     this.stats = { ...this.character.stats };
     this.xpNeeded = xpForLevel(1);
-    this.revivesLeft = this.character.stats.revives;
+    this.revivesLeft =
+      this.character.stats.revives + Math.max(0, Math.floor(this.metaMods.revives ?? 0));
     this.ability = this.character.ability
       ? { def: this.character.ability, cooldownLeft: 0, activeLeft: 0, burstLeft: 0, burstTimer: 0 }
       : null;
@@ -217,6 +227,15 @@ export class Run {
       critMult: 0,
       bloodGain: 0,
     };
+
+    // First source: persistent Sanctum mods. Seeding the accumulator rather
+    // than adding a separate pass means the clamps below (MIN_COOLDOWN_MUL,
+    // the area/duration floors, the crit clamp) apply to meta bonuses
+    // identically to passives and ability buffs.
+    for (const [key, value] of Object.entries(this.metaMods)) {
+      if (value === undefined || key === 'revives') continue;
+      sum[key as keyof StatMods] += value;
+    }
 
     for (const owned of this.passives) {
       for (const [key, perLevel] of Object.entries(owned.def.perLevel)) {

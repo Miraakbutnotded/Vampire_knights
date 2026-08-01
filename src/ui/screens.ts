@@ -1,19 +1,30 @@
 import { formatTime } from '../core/math.ts';
 import type { Input } from '../core/input.ts';
+import { META_LIST } from '../gameplay/content.ts';
 import type { CharacterDef } from '../gameplay/content.ts';
 import type { Offer } from '../gameplay/upgrades.ts';
 import type { Run } from '../gameplay/run.ts';
 import type { SpriteTable } from '../render/sprites.ts';
 
-export type ScreenName = 'none' | 'title' | 'levelup' | 'pause' | 'results';
+export type ScreenName = 'none' | 'title' | 'levelup' | 'pause' | 'results' | 'sanctum';
 
 export interface ResultsData {
   victory: boolean;
   run: Run;
+  /** Persistent wallet total after this run banked its gold. */
+  walletGold: number;
+}
+
+/** Read-only meta the title screen renders from; owned by MetaService. */
+export interface TitleMeta {
+  gold: number;
+  isUnlocked(character: CharacterDef): boolean;
 }
 
 export interface TitleCallbacks {
   onStart: (characterId: string, mapId: string) => void;
+  onUnlock: (characterId: string) => void;
+  onSanctum: () => void;
 }
 
 export interface PauseCallbacks {
@@ -25,6 +36,17 @@ export interface PauseCallbacks {
 export interface ResultsCallbacks {
   onRetry: () => void;
   onTitle: () => void;
+}
+
+/** Read-only meta the sanctum renders from; owned by MetaService. */
+export interface SanctumMeta {
+  gold: number;
+  rankOf(nodeId: string): number;
+}
+
+export interface SanctumCallbacks {
+  onBuy: (nodeId: string) => void;
+  onBack: () => void;
 }
 
 const NUMBER_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'];
@@ -61,6 +83,7 @@ export class Screens {
   private maps: string[];
   private characters: readonly CharacterDef[] = [];
   private titleCallbacks: TitleCallbacks | null = null;
+  private titleMeta: TitleMeta | null = null;
 
   constructor(
     private sprites: SpriteTable,
@@ -90,8 +113,9 @@ export class Screens {
 
   // --- title --------------------------------------------------------------
 
-  showTitle(characters: readonly CharacterDef[], callbacks: TitleCallbacks): void {
+  showTitle(characters: readonly CharacterDef[], meta: TitleMeta, callbacks: TitleCallbacks): void {
     this.characters = characters;
+    this.titleMeta = meta;
     this.titleCallbacks = callbacks;
     this.renderTitle();
   }
@@ -105,6 +129,7 @@ export class Screens {
     this.root.appendChild(
       el('p', undefined, 'Stay alive for fifteen minutes. Pick up whatever will keep you standing.'),
     );
+    this.root.appendChild(el('div', 'wallet', `VAULT ${this.titleMeta?.gold ?? 0} GOLD`));
 
     const focusables: HTMLElement[] = [];
 
@@ -123,20 +148,31 @@ export class Screens {
     mapPicker.appendChild(mapRow);
     this.root.appendChild(mapPicker);
 
-    // Character picker.
+    // Character picker: locked cards render greyed with their price and route
+    // to the unlock flow instead of starting a run.
     const charPicker = el('div', 'picker');
     charPicker.appendChild(el('div', 'picker-label', 'SURVIVOR'));
     const cards = el('div', 'cards');
     for (let i = 0; i < this.characters.length; i++) {
       const character = this.characters[i]!;
+      const locked = !(this.titleMeta?.isUnlocked(character) ?? true);
       const card = el('button', 'card');
       card.type = 'button';
+      if (locked) card.classList.add('locked');
 
       const head = el('div', 'card-head');
       head.appendChild(this.sprites.iconCanvas(character.sprite, 32));
       const titles = el('div');
       titles.appendChild(el('div', 'card-title', character.name));
-      titles.appendChild(el('div', 'card-tag', `HP ${character.stats.maxHp} · SPD ${Math.round(character.stats.moveSpeed)}`));
+      titles.appendChild(
+        el(
+          'div',
+          'card-tag',
+          locked
+            ? `LOCKED — ${character.unlock!.gold} GOLD`
+            : `HP ${character.stats.maxHp} · SPD ${Math.round(character.stats.moveSpeed)}`,
+        ),
+      );
       head.appendChild(titles);
       card.appendChild(head);
 
@@ -149,11 +185,21 @@ export class Screens {
     charPicker.appendChild(cards);
     this.root.appendChild(charPicker);
 
+    // Sanctum entry — appended after the pickers so the map/character
+    // number-key indices stay stable.
+    const metaRow = el('div', 'button-row');
+    const sanctumBtn = el('button', 'btn', 'THE SANCTUM');
+    sanctumBtn.type = 'button';
+    metaRow.appendChild(sanctumBtn);
+    this.root.appendChild(metaRow);
+    focusables.push(sanctumBtn);
+
     this.root.appendChild(
       el('div', 'hint', 'WASD or arrows to move · ESC to pause · number keys or click to choose'),
     );
 
     const mapCount = this.maps.length;
+    const charCount = this.characters.length;
     this.setChoices(focusables, (index) => {
       if (index < mapCount) {
         this.selectedMap = this.maps[index]!;
@@ -163,8 +209,17 @@ export class Screens {
         this.setFocus(keep);
         return;
       }
-      const character = this.characters[index - mapCount];
-      if (character) this.titleCallbacks?.onStart(character.id, this.selectedMap);
+      if (index < mapCount + charCount) {
+        const character = this.characters[index - mapCount];
+        if (!character) return;
+        if (!(this.titleMeta?.isUnlocked(character) ?? true)) {
+          this.titleCallbacks?.onUnlock(character.id);
+          return;
+        }
+        this.titleCallbacks?.onStart(character.id, this.selectedMap);
+        return;
+      }
+      this.titleCallbacks?.onSanctum();
     });
     // Default focus to the first character rather than the arena buttons, since
     // starting a run is what the player is here to do.
@@ -292,6 +347,7 @@ export class Screens {
     appendResult(summary, 'Level reached', String(run.level));
     appendResult(summary, 'Enemies slain', String(run.kills));
     appendResult(summary, 'Gold collected', String(run.gold));
+    appendResult(summary, 'Sanctum vault', String(data.walletGold));
     this.root.appendChild(summary);
 
     const loadout = run.weapons.map((w) => `${w.def.name} ${w.level}`).join(' · ');
@@ -310,6 +366,75 @@ export class Screens {
       else callbacks.onTitle();
     });
     this.setFocus(0);
+  }
+
+  // --- sanctum ------------------------------------------------------------
+
+  showSanctum(meta: SanctumMeta, callbacks: SanctumCallbacks, focus = 0): void {
+    this.current = 'sanctum';
+    this.root.classList.add('visible');
+    this.root.replaceChildren();
+
+    this.root.appendChild(el('h2', undefined, 'THE SANCTUM'));
+    this.root.appendChild(
+      el('p', undefined, 'Gold spent between nights stays spent. These vows persist.'),
+    );
+    this.root.appendChild(el('div', 'wallet', `VAULT ${meta.gold} GOLD`));
+
+    const cards = el('div', 'cards sanctum-cards');
+    const focusables: HTMLElement[] = [];
+
+    for (const node of META_LIST) {
+      const rank = meta.rankOf(node.id);
+      const maxed = rank >= node.maxRank;
+      const cost = maxed ? null : node.costs[rank]!;
+
+      const card = el('button', 'card');
+      card.type = 'button';
+      if (maxed) card.classList.add('maxed');
+      else if (cost !== null && cost > meta.gold) card.classList.add('poor');
+
+      const head = el('div', 'card-head');
+      const titles = el('div');
+      titles.appendChild(el('div', 'card-title', node.name));
+      titles.appendChild(el('div', 'card-tag', maxed ? 'MAX' : `RANK ${rank}/${node.maxRank}`));
+      head.appendChild(titles);
+      card.appendChild(head);
+
+      card.appendChild(el('div', 'card-body', node.description));
+
+      const pips = el('div', 'card-pips');
+      for (let p = 0; p < node.maxRank; p++) {
+        pips.appendChild(el('span', p < rank ? 'pip on' : 'pip'));
+      }
+      card.appendChild(pips);
+
+      card.appendChild(el('div', 'card-cost', maxed ? 'COMPLETE' : `${cost} GOLD`));
+
+      cards.appendChild(card);
+      focusables.push(card);
+    }
+    this.root.appendChild(cards);
+
+    const row = el('div', 'button-row');
+    const back = el('button', 'btn primary', 'Back to title');
+    back.type = 'button';
+    row.appendChild(back);
+    this.root.appendChild(row);
+    focusables.push(back);
+
+    this.root.appendChild(el('div', 'hint', 'Arrows to move · Enter to buy · ESC to leave'));
+
+    this.setChoices(focusables, (index) => {
+      if (index < META_LIST.length) {
+        // A failed buy (too poor / maxed) re-renders unchanged — the dimmed
+        // cost is its own feedback at v1.
+        callbacks.onBuy(META_LIST[index]!.id);
+        return;
+      }
+      callbacks.onBack();
+    });
+    this.setFocus(focus);
   }
 
   // --- navigation ---------------------------------------------------------

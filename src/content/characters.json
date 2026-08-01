@@ -40,6 +40,7 @@
     "sprite": "player",
     "description": "Frail but quick to learn. Calls the night's swarm to hunt for her.",
     "startingWeapon": "wand",
+    "unlock": { "gold": 2500 },
     "radius": 5,
     "stats": {
       "maxHp": 80,
@@ -77,6 +78,7 @@
     "sprite": "player",
     "description": "Slow and armoured. His vow hardens to iron when it matters.",
     "startingWeapon": "garlic",
+    "unlock": { "gold": 6000 },
     "radius": 6,
     "stats": {
       "maxHp": 140,
@@ -114,6 +116,7 @@
     "sprite": "player",
     "description": "Built to kite. Steps through the mist and leaves it burning behind her.",
     "startingWeapon": "knife",
+    "unlock": { "gold": 4000 },
     "radius": 5,
     "stats": {
       "maxHp": 90,
@@ -151,6 +154,7 @@
     "sprite": "player",
     "description": "The castle's old master. Ground he claims stays claimed, and blood comes easier to him.",
     "startingWeapon": "brazier",
+    "unlock": { "gold": 12000 },
     "radius": 6,
     "stats": {
       "maxHp": 120,

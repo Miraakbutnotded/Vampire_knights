@@ -15,7 +15,7 @@ import { TileMap, availableMaps } from './render/tilemap.ts';
 import type { SpriteTable } from './render/sprites.ts';
 
 import { MAX_QUERY_RESULTS, SpatialHash } from './gameplay/collision.ts';
-import { CHARACTER_LIST, structureDef, waveTable } from './gameplay/content.ts';
+import { CHARACTER_LIST, META_LIST, characterDef, structureDef, waveTable } from './gameplay/content.ts';
 import { updateEnemies, updateEnemyProjectiles } from './gameplay/enemies.ts';
 import { playerAlpha, spawnPlayer, updatePlayer } from './gameplay/player.ts';
 import { updatePickups } from './gameplay/pickups.ts';
@@ -31,7 +31,9 @@ import type { Ctx } from './gameplay/context.ts';
 import { Hud } from './ui/hud.ts';
 import { Screens } from './ui/screens.ts';
 
-type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'results';
+import type { MetaService } from './services/meta.ts';
+
+type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'results' | 'sanctum';
 
 /**
  * Owns the game's state machine and the fixed order that systems run in.
@@ -64,6 +66,10 @@ export class Game implements LoopHooks {
   private debugVisible = false;
   /** Sim time the current siege banner/marker window closes. Frame-side only. */
   private siegeUntil = 0;
+  /** True once this run's summary events have fired — endRun's exactly-once guard. */
+  private runEnded = false;
+  /** Monotonic per-run token passed to bankRun — the service ignores repeats. */
+  private runToken = 0;
   private debugEl: HTMLElement;
   /** Rolling fps, mirrored from the loop for the debug overlay. */
   fps = 0;
@@ -72,6 +78,7 @@ export class Game implements LoopHooks {
     canvas: HTMLCanvasElement,
     uiRoot: HTMLElement,
     private sprites: SpriteTable,
+    private meta: MetaService,
   ) {
     this.input = new Input();
     this.renderer = new Renderer(canvas, sprites);
@@ -131,15 +138,7 @@ export class Game implements LoopHooks {
 
   private wireEvents(): void {
     this.bus.on('player:died', () => {
-      this.state = 'results';
-      this.hud.setVisible(false);
-      this.screens.showResults(
-        { victory: false, run: this.run },
-        {
-          onRetry: () => void this.startRun(this.lastCharacterId, this.lastMapId),
-          onTitle: () => this.openTitle(),
-        },
-      );
+      this.endRun(false);
     });
 
     this.bus.on('boss:spawned', ({ name }) => {
@@ -173,9 +172,43 @@ export class Game implements LoopHooks {
   private openTitle(): void {
     this.state = 'title';
     this.hud.setVisible(false);
-    this.screens.showTitle(CHARACTER_LIST, {
-      onStart: (characterId, mapId) => void this.startRun(characterId, mapId),
-    });
+    this.screens.showTitle(
+      CHARACTER_LIST,
+      { gold: this.meta.gold, isUnlocked: (c) => this.meta.isUnlocked(c) },
+      {
+        onStart: (characterId, mapId) => void this.startRun(characterId, mapId),
+        onUnlock: (characterId) => {
+          const def = characterDef(characterId);
+          if (this.meta.unlockCharacter(def)) {
+            this.bus.emit('character:unlocked', { id: characterId });
+          }
+          // Re-render either way: success shows the unlocked card and the
+          // smaller wallet; failure re-renders unchanged (priced card is
+          // its own "not enough gold" message at v1).
+          this.openTitle();
+        },
+        onSanctum: () => this.openSanctum(),
+      },
+    );
+  }
+
+  private openSanctum(focus = 0): void {
+    this.state = 'sanctum';
+    this.hud.setVisible(false);
+    this.screens.showSanctum(
+      { gold: this.meta.gold, rankOf: (id) => this.meta.rankOf(id) },
+      {
+        onBuy: (nodeId) => {
+          if (this.meta.buyNode(nodeId)) {
+            this.bus.emit('meta:purchased', { nodeId, rank: this.meta.rankOf(nodeId) });
+          }
+          // Re-render with the new wallet/ranks, keeping focus on the node.
+          this.openSanctum(META_LIST.findIndex((n) => n.id === nodeId));
+        },
+        onBack: () => this.openTitle(),
+      },
+      focus,
+    );
   }
 
   async startRun(characterId: string, mapId: string): Promise<void> {
@@ -201,7 +234,7 @@ export class Game implements LoopHooks {
     this.spawner.reset();
     this.rng.reseed((Math.random() * 0xffffffff) >>> 0);
 
-    this.run = new Run(characterId);
+    this.run = new Run(characterId, this.meta.computeMetaMods());
     this.ctx.run = this.run;
     this.ctx.map = map;
     this.ctx.wave = waveTable(map.wavesTable);
@@ -224,6 +257,8 @@ export class Game implements LoopHooks {
     }
     this.hud.setStructurePips(pips);
     this.siegeUntil = 0;
+    this.runEnded = false;
+    this.runToken++;
     this.camera.bounds = map.bounds;
     this.camera.snapTo(map.spawnX, map.spawnY);
 
@@ -266,11 +301,42 @@ export class Game implements LoopHooks {
   }
 
   private declareVictory(): void {
+    this.bus.emit('run:victory', { survivedSeconds: this.run.time, kills: this.run.kills });
+    this.endRun(true);
+  }
+
+  /**
+   * The single funnel for both end-of-run paths (death and victory): emit
+   * the summary event, bank gold into the persistent wallet exactly once,
+   * then show the results screen. Persistence is fire-and-forget inside the
+   * service — nothing here waits on storage.
+   */
+  private endRun(victory: boolean): void {
     this.state = 'results';
     this.hud.setVisible(false);
-    this.bus.emit('run:victory', { survivedSeconds: this.run.time, kills: this.run.kills });
+    // endRun can legitimately fire twice per run (death on the
+    // victory-crossing tick; a second death after the die+level-up
+    // same-tick resume), so the summary emits and the banking share one
+    // exactly-once guard — a 'run:ended' listener must never see two
+    // conflicting summaries for the same run. bankRun's token dedup is
+    // the headless-tested belt to this browser-side brace. The state
+    // transition and showResults stay unconditional so the final screen
+    // always reflects the last transition.
+    let walletTotal = this.meta.gold;
+    if (!this.runEnded) {
+      this.runEnded = true;
+      this.bus.emit('run:ended', {
+        victory,
+        survivedSeconds: this.run.time,
+        kills: this.run.kills,
+        gold: this.run.gold,
+        level: this.run.level,
+      });
+      walletTotal = this.meta.bankRun(this.run.gold, this.runToken);
+      this.bus.emit('meta:goldBanked', { banked: this.run.gold, total: walletTotal });
+    }
     this.screens.showResults(
-      { victory: true, run: this.run },
+      { victory, run: this.run, walletGold: walletTotal },
       {
         onRetry: () => void this.startRun(this.lastCharacterId, this.lastMapId),
         onTitle: () => this.openTitle(),
@@ -294,6 +360,10 @@ export class Game implements LoopHooks {
       if (this.state === 'paused' && this.input.wasPressed('Escape')) {
         this.screens.hide();
         this.state = 'playing';
+        return;
+      }
+      if (this.state === 'sanctum' && this.input.wasPressed('Escape')) {
+        this.openTitle();
         return;
       }
       this.screens.handleInput(this.input);
@@ -394,7 +464,7 @@ export class Game implements LoopHooks {
   render(alpha: number, frameDt: number): void {
     const { world } = this;
 
-    if (this.state === 'title' || this.state === 'loading' || !this.map) {
+    if (this.state === 'title' || this.state === 'loading' || this.state === 'sanctum' || !this.map) {
       // Nothing to draw behind the title screen; a flat wash reads as intentional.
       this.renderer.begin(this.camera);
       this.renderer.present();

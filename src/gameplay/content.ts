@@ -6,6 +6,7 @@ import passivesJson from '../content/passives.json';
 import wavesJson from '../content/waves.json';
 import bloodJson from '../content/blood.json';
 import structuresJson from '../content/structures.json';
+import metaJson from '../content/meta.json';
 
 /**
  * Turns the hand-authored JSON in src/content into typed defs with every
@@ -684,6 +685,8 @@ export interface CharacterDef {
   startingWeapon: string;
   radius: number;
   stats: BaseStats;
+  /** Gold price to unlock in the Sanctum era, or null when the character is free. */
+  unlock: { gold: number } | null;
   /** The character's active ability, or null when the JSON defines none. */
   ability: AbilityDef | null;
 }
@@ -709,6 +712,20 @@ function normalizeCharacters(): { list: CharacterDef[]; byId: Map<string, Charac
       );
     }
 
+    const unlockRaw = def['unlock'];
+    let unlock: { gold: number } | null = null;
+    if (unlockRaw !== undefined) {
+      const goldCost =
+        typeof unlockRaw === 'object' && unlockRaw !== null
+          ? (unlockRaw as Record<string, unknown>)['gold']
+          : undefined;
+      if (typeof goldCost === 'number' && Number.isFinite(goldCost) && goldCost > 0) {
+        unlock = { gold: Math.round(goldCost) };
+      } else {
+        console.warn(`[content] character "${id}" has an invalid unlock block; treating as unlocked`);
+      }
+    }
+
     const entry: CharacterDef = {
       id,
       name: typeof def['name'] === 'string' ? def['name'] : id,
@@ -717,10 +734,20 @@ function normalizeCharacters(): { list: CharacterDef[]; byId: Map<string, Charac
       startingWeapon: weaponData.byId.has(startingWeapon) ? startingWeapon : WEAPON_LIST[0]!.id,
       radius: typeof def['radius'] === 'number' ? def['radius'] : 5,
       stats,
+      unlock,
       ability: normalizeAbility(def['ability'], id),
     };
     list.push(entry);
     byId.set(id, entry);
+  }
+
+  // The first character is the guaranteed free entry point — a paywalled
+  // roster slot 0 would soft-lock a fresh save.
+  if (list[0] && list[0].unlock) {
+    console.warn(`[content] first character "${list[0].id}" must stay free; ignoring its unlock block`);
+    const freed = { ...list[0], unlock: null };
+    list[0] = freed;
+    byId.set(freed.id, freed);
   }
 
   if (list.length === 0) throw new Error('content/characters.json defines no characters');
@@ -1019,6 +1046,92 @@ export function normalizeBlood(raw: Record<string, unknown>): BloodConfig {
 export const BLOOD_CONFIG: BloodConfig = normalizeBlood(
   bloodJson as unknown as Record<string, unknown>,
 );
+
+// --- meta (sanctum) -------------------------------------------------------
+
+/**
+ * Persistent stat mods from the Sanctum tree: every StatMods key plus extra
+ * revives, which Run handles separately (revivesLeft, not derived stats).
+ */
+export interface MetaMods extends Partial<StatMods> {
+  revives?: number;
+}
+
+export interface MetaNodeDef {
+  id: string;
+  index: number;
+  name: string;
+  description: string;
+  /** Gold cost of buying rank r+1 is costs[r]; maxRank = costs.length. */
+  costs: number[];
+  maxRank: number;
+  perRank: MetaMods;
+}
+
+/**
+ * Same fail-soft contract as every other content file: an unknown perRank stat
+ * warns and is dropped; a node with no valid costs warns and is skipped — a
+ * typo costs one upgrade, not the Sanctum.
+ *
+ * Takes the raw record rather than reading the import directly so the fail-soft
+ * paths are reachable from tests; production always passes meta.json.
+ */
+export function normalizeMeta(raw: Record<string, Record<string, unknown>>): {
+  list: MetaNodeDef[];
+  byId: Map<string, MetaNodeDef>;
+} {
+  const list: MetaNodeDef[] = [];
+  const byId = new Map<string, MetaNodeDef>();
+
+  for (const [id, def] of Object.entries(raw)) {
+    const costsRaw = Array.isArray(def['costs']) ? (def['costs'] as unknown[]) : [];
+    const costs: number[] = [];
+    for (const c of costsRaw) {
+      if (typeof c === 'number' && Number.isFinite(c) && c > 0) costs.push(Math.round(c));
+      else console.warn(`[content] meta node "${id}" has a non-positive cost; dropping it`);
+    }
+    if (costs.length === 0) {
+      console.warn(`[content] meta node "${id}" has no valid costs; node skipped`);
+      continue;
+    }
+
+    const perRankRaw = (def['perRank'] ?? {}) as Record<string, unknown>;
+    const perRank: MetaMods = {};
+    for (const key of Object.keys(perRankRaw)) {
+      const known = key === 'revives' || STAT_MOD_KEYS.includes(key as keyof StatMods);
+      if (!known) {
+        console.warn(
+          `[content] meta node "${id}" sets unknown stat "${key}"; it will have no effect. ` +
+            `Valid: revives, ${STAT_MOD_KEYS.join(', ')}`,
+        );
+        continue;
+      }
+      const v = perRankRaw[key];
+      if (typeof v === 'number' && Number.isFinite(v)) perRank[key as keyof MetaMods] = v;
+    }
+
+    const entry: MetaNodeDef = {
+      id,
+      index: list.length,
+      name: typeof def['name'] === 'string' ? def['name'] : id,
+      description: typeof def['description'] === 'string' ? def['description'] : '',
+      costs,
+      maxRank: costs.length,
+      perRank,
+    };
+    list.push(entry);
+    byId.set(id, entry);
+  }
+
+  return { list, byId };
+}
+
+const metaData = normalizeMeta(metaJson as unknown as Record<string, Record<string, unknown>>);
+export const META_LIST: readonly MetaNodeDef[] = metaData.list;
+
+export function metaNodeDef(id: string): MetaNodeDef | null {
+  return metaData.byId.get(id) ?? null;
+}
 
 // --- shared ---------------------------------------------------------------
 

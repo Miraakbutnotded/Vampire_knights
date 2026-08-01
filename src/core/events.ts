@@ -49,4 +49,8 @@ export interface GameEvents {
   'structure:destroyed': { name: string; remaining: number; index: number };
   'siege:started': { duration: number };
   'siege:defended': { gold: number };
+  'run:ended': { victory: boolean; survivedSeconds: number; kills: number; gold: number; level: number };
+  'meta:goldBanked': { banked: number; total: number };
+  'meta:purchased': { nodeId: string; rank: number };
+  'character:unlocked': { id: string };
 }

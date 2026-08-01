@@ -16,16 +16,21 @@ import { MAX_QUERY_RESULTS, SpatialHash } from './collision.ts';
 import {
   BLOOD_CONFIG,
   CHARACTER_LIST,
+  META_LIST,
   STRUCTURE_LIST,
   WEAPON_LIST,
+  characterDef,
   enemyDef,
+  metaNodeDef,
   normalizeAbility,
   normalizeBlood,
+  normalizeMeta,
   structureDef,
   structureDefByIndex,
   waveTable,
   weaponStatsAtLevel,
 } from './content.ts';
+import type { MetaMods } from './content.ts';
 import { updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
 import { damageEnemy } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
@@ -125,9 +130,9 @@ interface Harness {
   levelUpsTaken: number;
 }
 
-function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345): Harness {
+function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345, metaMods: MetaMods = {}): Harness {
   const world = new World();
-  const run = new Run(characterId);
+  const run = new Run(characterId, metaMods);
   const ctx: Ctx = {
     world,
     run,
@@ -1808,5 +1813,98 @@ describe('castle defense', () => {
       if (world.isAlive(sid)) aliveStructures++;
     }
     expect(ctx.run.structuresLost + aliveStructures).toBe(2);
+
+    // Phase 4 balance tripwire: a full seeded run banked ~253 gold when this
+    // band was calibrated. Half-to-double catches order-of-magnitude economy
+    // regressions without pinning every balance tweak.
+    expect(ctx.run.gold).toBeGreaterThan(125);
+    expect(ctx.run.gold).toBeLessThan(500);
+  });
+});
+
+describe('meta progression', () => {
+  it('normalizes the 10-node sanctum tree with derived max ranks', () => {
+    expect(META_LIST.length).toBe(10);
+    const bloodthirst = metaNodeDef('bloodthirst')!;
+    expect(bloodthirst.maxRank).toBe(5);
+    expect(bloodthirst.costs).toEqual([100, 250, 600, 1400, 3000]);
+    expect(bloodthirst.perRank).toEqual({ might: 0.05 });
+    expect(metaNodeDef('second_wind')!.perRank).toEqual({ revives: 1 });
+    expect(metaNodeDef('second_wind')!.maxRank).toBe(1);
+    expect(metaNodeDef('nonsense')).toBeNull();
+  });
+
+  it('prices the full tree at the designed total sink', () => {
+    const total = META_LIST.reduce((sum, node) => sum + node.costs.reduce((a, b) => a + b, 0), 0);
+    // The design table sums to 35,150 (its "~42k" prose was arithmetic-off);
+    // character unlocks add another 24,500 on top.
+    expect(total).toBe(35150);
+  });
+
+  it('drops unknown perRank stats and cost-less nodes with a warning', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { list } = normalizeMeta({
+      good: { costs: [100], perRank: { might: 0.1, banana: 3 } },
+      broken: { perRank: { might: 0.1 } },
+    });
+    expect(list).toHaveLength(1);
+    expect(list[0]!.perRank).toEqual({ might: 0.1 });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('seeds recomputeStats from metaMods with the existing clamps intact', () => {
+    const run = new Run('wanderer', { might: 0.15, armor: 2, maxHpMul: 0.2 });
+    expect(run.stats.might).toBeCloseTo(1.25); // 1.1 base + 0.15 meta
+    expect(run.stats.armor).toBe(2);
+    expect(run.stats.maxHp).toBe(120); // round(100 * 1.2)
+    // The MIN_COOLDOWN_MUL floor holds against absurd meta stacking.
+    expect(new Run('wanderer', { cooldown: -10 }).stats.cooldown).toBe(0.35);
+  });
+
+  it('keeps meta mods applied when passives recompute stats', () => {
+    const run = new Run('wanderer', { might: 0.15 });
+    run.addPassive('bloodthirst');
+    expect(run.stats.might).toBeCloseTo(1.25);    // meta survived the recompute
+    expect(run.stats.bloodGain).toBeCloseTo(1.1); // passive applied on top
+  });
+
+  it('grants extra revives from meta without touching derived stats', () => {
+    const run = new Run('wanderer', { revives: 1 });
+    expect(run.revivesLeft).toBe(1);   // wanderer base is 0
+    expect(run.stats.revives).toBe(0); // stats keep the base value
+  });
+
+  it('defaults to no meta mods — Run(id) is identical to Run(id, {})', () => {
+    const plain = new Run('wanderer');
+    const empty = new Run('wanderer', {});
+    expect(empty.stats).toEqual(plain.stats);
+    expect(empty.revivesLeft).toBe(plain.revivesLeft);
+  });
+
+  it('applies meta greed to banked run gold deterministically', () => {
+    const goldAfter = (mods: MetaMods): number => {
+      const harness = makeHarness('wanderer', 4141, mods);
+      const { ctx } = harness;
+      ctx.world.hp[ctx.player] = 1e9;
+      ctx.run.stats.maxHp = 1e9;
+      harness.run(180);
+      return ctx.run.gold;
+    };
+    const base = goldAfter({});
+    const greedy = goldAfter({ greed: 1 });
+    expect(base).toBeGreaterThan(0);
+    expect(greedy).toBeGreaterThan(base);
+    // Same seed + same mods ⇒ same wallet: greed multiplies payouts without
+    // perturbing the sim, so any drift here is a determinism leak.
+    expect(goldAfter({ greed: 1 })).toBe(greedy);
+  });
+
+  it('parses unlock costs, defaults to free, and keeps the first character free', () => {
+    expect(characterDef('wanderer').unlock).toBeNull();
+    expect(characterDef('acolyte').unlock).toEqual({ gold: 2500 });
+    expect(characterDef('outrider').unlock).toEqual({ gold: 4000 });
+    expect(characterDef('warden_knight').unlock).toEqual({ gold: 6000 });
+    expect(characterDef('dragos').unlock).toEqual({ gold: 12000 });
   });
 });

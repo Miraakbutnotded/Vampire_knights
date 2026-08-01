@@ -1,0 +1,62 @@
+{
+  "bloodthirst": {
+    "name": "Bloodthirst",
+    "description": "+5% might per rank. The hunger sharpens the blade.",
+    "costs": [100, 250, 600, 1400, 3000],
+    "perRank": { "might": 0.05 }
+  },
+  "vitality": {
+    "name": "Vitality",
+    "description": "+10% max health per rank.",
+    "costs": [150, 400, 1000],
+    "perRank": { "maxHpMul": 0.1 }
+  },
+  "iron_skin": {
+    "name": "Iron Skin",
+    "description": "+1 armor per rank.",
+    "costs": [200, 500, 1200],
+    "perRank": { "armor": 1 }
+  },
+  "swiftness": {
+    "name": "Swiftness",
+    "description": "+3% move speed per rank.",
+    "costs": [150, 400, 1000],
+    "perRank": { "moveSpeedMul": 0.03 }
+  },
+  "haste": {
+    "name": "Haste",
+    "description": "Weapons cool 2.5% faster per rank.",
+    "costs": [250, 600, 1500, 3500],
+    "perRank": { "cooldown": -0.025 }
+  },
+  "greed": {
+    "name": "Greed",
+    "description": "+10% gold from every source per rank.",
+    "costs": [100, 250, 600, 1400, 3000],
+    "perRank": { "greed": 0.1 }
+  },
+  "scholar": {
+    "name": "Scholar",
+    "description": "+8% experience per rank.",
+    "costs": [120, 300, 700, 1600, 3200],
+    "perRank": { "growth": 0.08 }
+  },
+  "magnetism": {
+    "name": "Magnetism",
+    "description": "+15% pickup range per rank.",
+    "costs": [80, 200, 500],
+    "perRank": { "magnetMul": 0.15 }
+  },
+  "fortune": {
+    "name": "Fortune",
+    "description": "+10% luck per rank.",
+    "costs": [200, 500, 1200],
+    "perRank": { "luck": 0.1 }
+  },
+  "second_wind": {
+    "name": "Second Wind",
+    "description": "Rise once more each night.",
+    "costs": [5000],
+    "perRank": { "revives": 1 }
+  }
+}
