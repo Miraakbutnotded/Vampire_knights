@@ -26,4 +26,5 @@ and the hunter faction, coins and ground need them.
 | `#d94a5e` | fresh blood — HP/blood bar |
 | `#ff8c42` | torch orange — hunter faction |
 | `#d4a15a` | tarnished gold — coins/UI |
+| `#8a6a34` | deep gold shadow — the shading step for gold |
 | `#26332a` | crypt moss — ground |

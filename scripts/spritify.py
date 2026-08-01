@@ -186,21 +186,33 @@ def quantise(rgba: bytearray, palette: list[tuple[int, int, int]]) -> None:
         rgba[o:o + 3] = bytes(hit)
 
 
-def outline(size: int, rgba: bytearray, colour: tuple[int, int, int]) -> None:
-    """Re-draw the mandatory 1px silhouette outline that downsampling softens."""
-    edge = []
+def outline(size: int, rgba: bytearray, colour: tuple[int, int, int]) -> int:
+    """Draw the mandatory 1px silhouette keyline into the empty ring around the subject.
+
+    The obvious implementation recolours the subject's own perimeter pixels, and
+    it ruins small round shapes: a 9px coin has about two pixels of arc per
+    octant to describe its curvature with, so spending them on black collapses
+    the disc into a rounded square. Growing outward instead costs the subject
+    nothing at any size. A subject already touching the frame simply loses the
+    keyline on that side, which is why downsample() leaves a margin.
+
+    Returns the number of pixels drawn, so callers can see when a cramped frame
+    swallowed part of the keyline.
+    """
+    ring = []
     for y in range(size):
         for x in range(size):
-            if rgba[(y * size + x) * 4 + 3] == 0:
+            if rgba[(y * size + x) * 4 + 3] != 0:
                 continue
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 nx, ny = x + dx, y + dy
-                if not (0 <= nx < size and 0 <= ny < size) or rgba[(ny * size + nx) * 4 + 3] == 0:
-                    edge.append((x, y))
+                if 0 <= nx < size and 0 <= ny < size and rgba[(ny * size + nx) * 4 + 3] != 0:
+                    ring.append((x, y))
                     break
-    for x, y in edge:
+    for x, y in ring:
         o = (y * size + x) * 4
-        rgba[o:o + 3] = bytes(colour)
+        rgba[o:o + 4] = bytes((*colour, 255))
+    return len(ring)
 
 
 def upscale(size: int, rgba: bytearray, factor: int) -> tuple[int, bytearray]:
