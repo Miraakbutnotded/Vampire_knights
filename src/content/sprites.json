@@ -7,6 +7,42 @@
     },
     "placeholder": { "shape": "capsule", "color": "#f2d9a8", "accent": "#3a2b4d", "size": 20 }
   },
+  "morrigan": {
+    "origin": [0.5, 0.85],
+    "anims": {
+      "idle": { "src": "player/morrigan_idle.png", "fps": 6 },
+      "walk": { "src": "player/morrigan_walk.png", "fps": 10 },
+      "death": { "src": "player/morrigan_death.png", "fps": 8 }
+    },
+    "placeholder": { "shape": "capsule", "color": "#6b4a8f", "accent": "#241733", "size": 20 }
+  },
+  "aldric": {
+    "origin": [0.5, 0.85],
+    "anims": {
+      "idle": { "src": "player/aldric_idle.png", "fps": 6 },
+      "walk": { "src": "player/aldric_walk.png", "fps": 10 },
+      "death": { "src": "player/aldric_death.png", "fps": 8 }
+    },
+    "placeholder": { "shape": "capsule", "color": "#d9cfc0", "accent": "#6e1423", "size": 20 }
+  },
+  "vespera": {
+    "origin": [0.5, 0.85],
+    "anims": {
+      "idle": { "src": "player/vespera_idle.png", "fps": 6 },
+      "walk": { "src": "player/vespera_walk.png", "fps": 10 },
+      "death": { "src": "player/vespera_death.png", "fps": 8 }
+    },
+    "placeholder": { "shape": "capsule", "color": "#b8c4d4", "accent": "#241733", "size": 20 }
+  },
+  "dragos": {
+    "origin": [0.5, 0.85],
+    "anims": {
+      "idle": { "src": "player/dragos_idle.png", "fps": 6 },
+      "walk": { "src": "player/dragos_walk.png", "fps": 10 },
+      "death": { "src": "player/dragos_death.png", "fps": 8 }
+    },
+    "placeholder": { "shape": "capsule", "color": "#8a93a6", "accent": "#3d0f1a", "size": 20 }
+  },
 
   "bat": {
     "origin": [0.5, 0.6],

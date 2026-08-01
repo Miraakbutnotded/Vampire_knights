@@ -5,7 +5,7 @@ import { Rng } from './core/rng.ts';
 import { lerp } from './core/math.ts';
 import type { LoopHooks } from './core/loop.ts';
 
-import { Comp, Kind } from './ecs/components.ts';
+import { AnimState, Comp, Kind } from './ecs/components.ts';
 import { World } from './ecs/world.ts';
 
 import { Camera } from './render/camera.ts';
@@ -33,7 +33,7 @@ import { Screens } from './ui/screens.ts';
 
 import type { MetaService } from './services/meta.ts';
 
-type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'results' | 'sanctum';
+type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'dying' | 'results' | 'sanctum';
 
 /**
  * Owns the game's state machine and the fixed order that systems run in.
@@ -70,6 +70,9 @@ export class Game implements LoopHooks {
   private runEnded = false;
   /** Monotonic per-run token passed to bankRun — the service ignores repeats. */
   private runToken = 0;
+  /** Seconds elapsed into the death animation, while state is 'dying'. */
+  private deathTimer = 0;
+  private deathDuration = 0;
   private debugEl: HTMLElement;
   /** Rolling fps, mirrored from the loop for the debug overlay. */
   fps = 0;
@@ -137,9 +140,7 @@ export class Game implements LoopHooks {
   }
 
   private wireEvents(): void {
-    this.bus.on('player:died', () => {
-      this.endRun(false);
-    });
+    this.bus.on('player:died', () => this.beginDeath());
 
     this.bus.on('boss:spawned', ({ name }) => {
       this.hud.showBanner(`${name.toUpperCase()} APPROACHES`);
@@ -233,6 +234,8 @@ export class Game implements LoopHooks {
     this.fx.clear();
     this.spawner.reset();
     this.rng.reseed((Math.random() * 0xffffffff) >>> 0);
+    this.deathTimer = 0;
+    this.deathDuration = 0;
 
     this.run = new Run(characterId, this.meta.computeMetaMods());
     this.ctx.run = this.run;
@@ -300,6 +303,61 @@ export class Game implements LoopHooks {
     });
   }
 
+  /**
+   * Holds on a frozen world while the player's death strip plays, then shows the
+   * results screen. Characters with no `death` art skip straight to results, so
+   * this stays correct for any sprite that only declares idle and walk.
+   */
+  private beginDeath(): void {
+    const id = this.ctx.player;
+    this.ctx.bloodIntent = null;
+    this.ctx.abilityQueued = false;
+    // Bank and emit the summary at the moment of death — the animation only
+    // delays the results screen, never the reward. settleRun is idempotent,
+    // so the endRun that follows (immediately or at strip end) is safe.
+    this.settleRun(false);
+
+    if (id < 0 || !this.world.isAlive(id)) {
+      this.showDefeat();
+      return;
+    }
+
+    const spriteId = this.world.spriteId[id]!;
+    // SpriteTable.anim falls back to Idle for states with no art of their own,
+    // so an identical strip means this character has no death animation.
+    const death = this.sprites.anim(spriteId, AnimState.Death);
+    if (death === this.sprites.anim(spriteId, AnimState.Idle)) {
+      this.showDefeat();
+      return;
+    }
+
+    this.state = 'dying';
+    this.deathTimer = 0;
+    this.deathDuration = death.duration;
+    this.world.animState[id] = AnimState.Death;
+    this.world.animTime[id] = 0;
+    // The blink would strobe the whole death animation.
+    this.world.iframe[id] = 0;
+    // Nothing moves from here on, so collapse prev onto current and the
+    // renderer's prev->current lerp can't jitter against a stale snapshot.
+    this.world.snapshotPositions();
+  }
+
+  /** Advances only the death strip and the fx pool; the simulation stays frozen. */
+  private updateDying(dt: number): void {
+    const id = this.ctx.player;
+    if (id >= 0 && this.world.isAlive(id)) {
+      this.world.animTime[id] = this.world.animTime[id]! + dt;
+    }
+    this.fx.update(dt);
+    this.deathTimer += dt;
+    if (this.deathTimer >= this.deathDuration) this.showDefeat();
+  }
+
+  private showDefeat(): void {
+    this.endRun(false);
+  }
+
   private declareVictory(): void {
     this.bus.emit('run:victory', { survivedSeconds: this.run.time, kills: this.run.kills });
     this.endRun(true);
@@ -311,18 +369,14 @@ export class Game implements LoopHooks {
    * then show the results screen. Persistence is fire-and-forget inside the
    * service — nothing here waits on storage.
    */
-  private endRun(victory: boolean): void {
-    this.state = 'results';
-    this.hud.setVisible(false);
-    // endRun can legitimately fire twice per run (death on the
+  private settleRun(victory: boolean): number {
+    // The settle can legitimately be reached twice per run (death on the
     // victory-crossing tick; a second death after the die+level-up
-    // same-tick resume), so the summary emits and the banking share one
+    // same-tick resume; death-animation end after beginDeath already
+    // settled), so the summary emit and the banking share one
     // exactly-once guard — a 'run:ended' listener must never see two
     // conflicting summaries for the same run. bankRun's token dedup is
-    // the headless-tested belt to this browser-side brace. The state
-    // transition and showResults stay unconditional so the final screen
-    // always reflects the last transition.
-    let walletTotal = this.meta.gold;
+    // the headless-tested belt to this browser-side brace.
     if (!this.runEnded) {
       this.runEnded = true;
       this.bus.emit('run:ended', {
@@ -332,9 +386,19 @@ export class Game implements LoopHooks {
         gold: this.run.gold,
         level: this.run.level,
       });
-      walletTotal = this.meta.bankRun(this.run.gold, this.runToken);
+      const walletTotal = this.meta.bankRun(this.run.gold, this.runToken);
       this.bus.emit('meta:goldBanked', { banked: this.run.gold, total: walletTotal });
+      return walletTotal;
     }
+    return this.meta.gold;
+  }
+
+  private endRun(victory: boolean): void {
+    this.state = 'results';
+    this.hud.setVisible(false);
+    // The state transition and showResults stay unconditional so the final
+    // screen always reflects the last transition.
+    const walletTotal = this.settleRun(victory);
     this.screens.showResults(
       { victory, run: this.run, walletGold: walletTotal },
       {
@@ -390,6 +454,10 @@ export class Game implements LoopHooks {
   }
 
   update(dt: number): void {
+    if (this.state === 'dying') {
+      this.updateDying(dt);
+      return;
+    }
     if (this.state !== 'playing') return;
     this.tick(dt);
   }
