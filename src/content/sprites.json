@@ -526,7 +526,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "weapons/slash.png",
+        "src": "fx/slash.png",
         "fps": 14
       }
     },
@@ -604,7 +604,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "weapons/tome.png",
+        "src": "pickups/orb_tome.png",
         "fps": 8
       }
     },
@@ -642,7 +642,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "weapons/strike.png",
+        "src": "fx/strike.png",
         "fps": 16
       }
     },
@@ -681,7 +681,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "weapons/star.png",
+        "src": "fx/star.png",
         "fps": 12
       }
     },
@@ -832,7 +832,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "tiles/tree.png",
+        "src": "props/tree.png",
         "fps": 3
       }
     },
@@ -851,7 +851,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "tiles/rock.png",
+        "src": "props/rock.png",
         "fps": 1
       }
     },
@@ -871,7 +871,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "tiles/grave.png",
+        "src": "props/grave.png",
         "fps": 1
       }
     },
@@ -891,7 +891,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "tiles/bush.png",
+        "src": "props/bush.png",
         "fps": 4
       }
     },
