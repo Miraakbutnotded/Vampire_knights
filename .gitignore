@@ -5,6 +5,7 @@ dist/
 .DS_Store
 Thumbs.db
 tsconfig.tsbuildinfo
+__pycache__/
 
 # Capacitor iOS — the project is committed, build artifacts are not
 ios/App/Pods/

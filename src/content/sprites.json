@@ -125,6 +125,33 @@
       "size": 20
     }
   },
+  "valen": {
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "player/valen_idle.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "player/valen_walk.png",
+        "fps": 10
+      },
+      "death": {
+        "src": "player/valen_death.png",
+        "fps": 8,
+        "loop": false
+      }
+    },
+    "placeholder": {
+      "shape": "capsule",
+      "color": "#867797",
+      "accent": "#802331",
+      "size": 20
+    }
+  },
   "bat": {
     "origin": [
       0.5,
@@ -136,7 +163,7 @@
         "fps": 10
       },
       "walk": {
-        "src": "enemies/bat_fly.png",
+        "src": "enemies/bat_walk.png",
         "fps": 12
       }
     },
@@ -201,6 +228,10 @@
       "idle": {
         "src": "enemies/ghost.png",
         "fps": 7
+      },
+      "walk": {
+        "src": "enemies/ghost_walk.png",
+        "fps": 8
       }
     },
     "placeholder": {
@@ -220,6 +251,10 @@
       "idle": {
         "src": "enemies/slime.png",
         "fps": 8
+      },
+      "walk": {
+        "src": "enemies/slime_walk.png",
+        "fps": 8
       }
     },
     "placeholder": {
@@ -237,6 +272,10 @@
     "anims": {
       "idle": {
         "src": "enemies/wisp.png",
+        "fps": 12
+      },
+      "walk": {
+        "src": "enemies/wisp_walk.png",
         "fps": 12
       }
     },
@@ -257,6 +296,10 @@
       "idle": {
         "src": "enemies/swarmling.png",
         "fps": 10
+      },
+      "walk": {
+        "src": "enemies/swarmling_walk.png",
+        "fps": 12
       }
     },
     "placeholder": {
@@ -320,6 +363,10 @@
       "idle": {
         "src": "enemies/warden.png",
         "fps": 5
+      },
+      "walk": {
+        "src": "enemies/warden_walk.png",
+        "fps": 6
       }
     },
     "placeholder": {
@@ -910,7 +957,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "tiles/flower.png",
+        "src": "props/flower.png",
         "fps": 4
       }
     },
@@ -929,7 +976,7 @@
     ],
     "anims": {
       "idle": {
-        "src": "tiles/puddle.png",
+        "src": "props/puddle.png",
         "fps": 1
       }
     },

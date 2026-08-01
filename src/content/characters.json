@@ -1,7 +1,7 @@
 {
   "wanderer": {
     "name": "Ser Valen, the Bloodsworn",
-    "sprite": "player",
+    "sprite": "valen",
     "description": "The oath keeps him standing. A balanced knight with a ring of spectral blades.",
     "startingWeapon": "whip",
     "radius": 5,
