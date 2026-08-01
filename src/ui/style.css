@@ -12,22 +12,68 @@
 
 :root {
   --scale: 3;
-  --ink: #f4efe4;
-  --ink-dim: #a79f8f;
-  --ink-faint: #6d6759;
-  --panel: rgba(14, 12, 20, 0.92);
-  --panel-solid: #14121a;
-  --edge: #3d3547;
-  --edge-bright: #6b5f7d;
-  --hp: #e8536b;
-  --hp-dark: #4a1220;
-  --xp: #6fc9e8;
-  --xp-dark: #143543;
-  --gold: #ffd23f;
-  --accent: #c9a86a;
-  --danger: #ff6b8a;
+
+  /* Every colour below is an anchor from the canonical palette
+     (`docs/art/palette.md`, median-cut from the shipped character sprites) or a
+     straight alpha of one, so the interface speaks the same colour language as
+     the art instead of an invented UI palette. */
+
+  /* Structure — the deep violet ramp. */
+  --void: #040109; /* void black: outlines, carved inner edges */
+  --crypt: #110c1a; /* crypt shadow */
+  --night: #221e39; /* night violet */
+  --wine: #311d35; /* wine shadow: emptied blood vessels */
+
+  /* Ink — cool greys, all comfortably legible over the violets. */
+  --ink: #d1d8e2; /* cold highlight */
+  --ink-dim: #aab7c9; /* moonlit steel */
+  --ink-faint: #99999a; /* grave grey */
+
+  /* Surfaces. */
+  --panel: rgba(17, 12, 26, 0.92); /* crypt shadow, translucent */
+  --panel-solid: #1a0d39; /* deep indigo */
+  --panel-raised: #34264f; /* royal violet dark: hover/pressed surface */
+
+  /* Edges climb the violet ramp: recessed, resting, catchlight. */
+  --edge-dark: #221e39; /* night violet */
+  --edge: #443569; /* royal violet */
+  --edge-bright: #867797; /* pale violet */
+
+  /* Meters and accents. */
+  --hp: #d94a5e; /* fresh blood */
+  --hp-dark: #802331; /* dried blood */
+  --xp: #aab7c9; /* moonlit steel: spectral, reads cool beside the blood */
+  --xp-dark: #221e39; /* night violet */
+  --gold: #d4a15a; /* tarnished gold: coins, the primary action */
+  --accent: #d94a5e; /* fresh blood: the interactive accent */
+  --accent-deep: #802331; /* dried blood */
+  --danger: #d94a5e; /* fresh blood */
 
   --u: calc(var(--scale) * 1px);
+
+  /* Gothic edge treatment, built from box-shadow alone — there are no UI image
+     assets yet and every layer here scales with `--u`. `--frame` stacks a void
+     hairline outside the violet border and another just inside it (void /
+     violet / void, the way a pixel-art frame is drawn), then a pale-violet
+     catchlight along the top lip and a void shade along the bottom. `--lift` is
+     the separate hard drop that seats a panel above the world; `--glow-*` are
+     the hover/focus halos. Composed as `box-shadow: var(--frame), var(--lift)` —
+     earlier layers paint on top, so the void hairline always stays crisp. */
+  --frame:
+    0 0 0 var(--u) var(--void),
+    inset 0 0 0 var(--u) var(--void),
+    inset 0 var(--u) 0 rgba(134, 119, 151, 0.28),
+    inset 0 calc(var(--u) * -1) 0 rgba(4, 1, 9, 0.6);
+  --lift: 0 calc(var(--u) * 3) 0 rgba(4, 1, 9, 0.45);
+  --glow-accent:
+    0 0 0 calc(var(--u) * 2) rgba(217, 74, 94, 0.55),
+    0 0 calc(var(--u) * 8) var(--u) rgba(217, 74, 94, 0.3);
+  --glow-gold:
+    0 0 0 calc(var(--u) * 2) rgba(212, 161, 90, 0.5),
+    0 0 calc(var(--u) * 8) var(--u) rgba(212, 161, 90, 0.28);
+  --glow-focus:
+    0 0 0 calc(var(--u) * 2) rgba(170, 183, 201, 0.85),
+    0 0 calc(var(--u) * 9) var(--u) rgba(170, 183, 201, 0.35);
 
   /* Device notch/home-indicator insets. `env()` resolves to 0px on desktop and
      on any browser without the keyword, so every `max()` below falls back to
@@ -48,7 +94,7 @@ body {
   padding: 0;
   height: 100%;
   overflow: hidden;
-  background: #05060a;
+  background: var(--void);
   /* No text selection or long-press menus while playing. */
   user-select: none;
   -webkit-user-select: none;
@@ -111,13 +157,19 @@ body {
   right: 0;
   height: calc(var(--u) * 4);
   background: var(--xp-dark);
-  border-bottom: var(--u) solid #0a0e12;
+  border-bottom: var(--u) solid var(--void);
+  box-shadow: inset 0 var(--u) 0 rgba(4, 1, 9, 0.65);
 }
 
+/* Two stacked gradients everywhere a meter fills: a cold-highlight sheen across
+   the top third for the bevel, then the colour ramp itself. Keeps the bar
+   readable as a lit cylinder without needing a sprite. */
 .xp-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(180deg, #a8e8ff 0%, var(--xp) 55%, #3f9cbd 100%);
+  background:
+    linear-gradient(180deg, rgba(209, 216, 226, 0.5) 0%, rgba(209, 216, 226, 0) 45%),
+    linear-gradient(180deg, var(--xp) 0%, #867797 60%, #555073 100%);
   transition: width 90ms linear;
 }
 
@@ -134,7 +186,7 @@ body {
   gap: calc(var(--u) * 4);
   font-size: calc(var(--u) * 7);
   line-height: 1;
-  text-shadow: 0 var(--u) 0 rgba(0, 0, 0, 0.75);
+  text-shadow: 0 var(--u) 0 rgba(4, 1, 9, 0.85);
 }
 
 .hud-left {
@@ -164,13 +216,18 @@ body {
   width: calc(var(--u) * 78);
   height: calc(var(--u) * 8);
   background: var(--hp-dark);
-  border: var(--u) solid #0a0508;
+  border: var(--u) solid var(--void);
+  box-shadow:
+    0 0 0 var(--u) var(--void),
+    inset 0 var(--u) 0 rgba(4, 1, 9, 0.55);
 }
 
 .hp-fill {
   height: 100%;
   width: 100%;
-  background: linear-gradient(180deg, #ff8fa3 0%, var(--hp) 55%, #a02338 100%);
+  background:
+    linear-gradient(180deg, rgba(209, 216, 226, 0.38) 0%, rgba(209, 216, 226, 0) 42%),
+    linear-gradient(180deg, var(--hp) 0%, var(--hp) 55%, var(--hp-dark) 100%);
   transition: width 120ms ease-out;
 }
 
@@ -234,6 +291,7 @@ body {
   height: calc(var(--u) * 16);
   background: var(--panel);
   border: var(--u) solid var(--edge);
+  box-shadow: var(--frame);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -260,6 +318,7 @@ body {
   width: calc(var(--u) * 1.5);
   height: calc(var(--u) * 1.5);
   background: var(--edge-bright);
+  box-shadow: 0 0 0 calc(var(--u) * 0.5) var(--void);
 }
 
 .slot .pip.on {
@@ -267,7 +326,10 @@ body {
 }
 
 .slot.maxed {
-  border-color: var(--accent);
+  border-color: var(--gold);
+  box-shadow:
+    var(--frame),
+    0 0 calc(var(--u) * 5) rgba(212, 161, 90, 0.45);
 }
 
 /* Passive slots have no art yet, so they show an initial instead. */
@@ -285,7 +347,9 @@ body {
   font-size: calc(var(--u) * 9);
   letter-spacing: calc(var(--u) * 0.6);
   color: var(--danger);
-  text-shadow: 0 var(--u) 0 rgba(0, 0, 0, 0.8);
+  text-shadow:
+    0 var(--u) 0 rgba(4, 1, 9, 0.9),
+    0 0 calc(var(--u) * 7) rgba(217, 74, 94, 0.6);
   opacity: 0;
   transition: opacity 250ms ease-out;
 }
@@ -304,7 +368,11 @@ body {
   align-items: center;
   justify-content: center;
   gap: calc(var(--u) * 6);
-  background: rgba(6, 5, 10, 0.82);
+  /* Void black wash with a deep-indigo bloom behind the content, so menus read
+     as a crypt interior rather than a flat grey scrim. */
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(26, 13, 57, 0.85) 0%, rgba(4, 1, 9, 0.9) 70%),
+    rgba(4, 1, 9, 0.84);
   backdrop-filter: blur(calc(var(--u) * 0.8));
   padding: calc(var(--u) * 8);
   overflow-y: auto;
@@ -325,6 +393,10 @@ body {
   letter-spacing: calc(var(--u) * 1);
   font-weight: 700;
   text-align: center;
+  color: var(--ink);
+  text-shadow:
+    0 var(--u) 0 var(--void),
+    0 0 calc(var(--u) * 12) rgba(68, 53, 105, 0.95);
 }
 
 .screen h2 {
@@ -334,6 +406,9 @@ body {
   font-weight: 700;
   color: var(--accent);
   text-align: center;
+  text-shadow:
+    0 var(--u) 0 var(--void),
+    0 0 calc(var(--u) * 8) rgba(217, 74, 94, 0.45);
 }
 
 .screen p {
@@ -363,8 +438,9 @@ body {
   position: relative;
   width: calc(var(--u) * 84);
   min-height: calc(var(--u) * 62);
-  background: var(--panel-solid);
+  background: linear-gradient(180deg, var(--panel-solid) 0%, var(--crypt) 100%);
   border: var(--u) solid var(--edge);
+  box-shadow: var(--frame), var(--lift);
   padding: calc(var(--u) * 5);
   display: flex;
   flex-direction: column;
@@ -373,19 +449,30 @@ body {
   text-align: left;
   color: inherit;
   font: inherit;
-  transition: border-color 110ms, transform 110ms, background 110ms;
+  transition: border-color 110ms, transform 110ms, background 110ms, box-shadow 110ms;
 }
 
+/* These menus are driven by keyboard and gamepad as much as by the mouse, so
+   the selected card does not merely tint — it gains a blood-red rim, a halo and
+   a hard lift, readable at a glance from across the room. */
 .card:hover,
 .card.focused {
   border-color: var(--accent);
-  background: #1c1826;
+  background: linear-gradient(180deg, var(--panel-raised) 0%, var(--panel-solid) 100%);
   transform: translateY(calc(var(--u) * -1));
+  box-shadow:
+    var(--frame),
+    var(--glow-accent),
+    inset 0 0 calc(var(--u) * 10) rgba(217, 74, 94, 0.18),
+    0 calc(var(--u) * 4) 0 rgba(4, 1, 9, 0.55);
 }
 
+/* Tab focus adds a moonlit-steel ring on top of the accent halo, so a card that
+   is both selected and keyboard-focused still reads as focused. */
 .card:focus-visible {
-  outline: calc(var(--u) * 1) solid var(--xp);
+  outline: calc(var(--u) * 2) solid var(--xp);
   outline-offset: calc(var(--u) * 1);
+  box-shadow: var(--frame), var(--glow-accent), var(--glow-focus);
 }
 
 .card .card-head {
@@ -438,6 +525,7 @@ body {
   width: calc(var(--u) * 4);
   height: calc(var(--u) * 2);
   background: var(--edge);
+  box-shadow: 0 0 0 calc(var(--u) * 0.5) var(--void);
 }
 
 .card .card-pips .pip.on {
@@ -461,23 +549,62 @@ button.btn {
   font: inherit;
   font-size: calc(var(--u) * 7);
   padding: calc(var(--u) * 3) calc(var(--u) * 8);
-  background: var(--panel-solid);
+  background: linear-gradient(180deg, var(--panel-solid) 0%, var(--crypt) 100%);
   color: var(--ink);
   border: var(--u) solid var(--edge);
+  box-shadow: var(--frame), var(--lift);
   cursor: pointer;
   letter-spacing: calc(var(--u) * 0.3);
-  transition: border-color 110ms, background 110ms;
+  transition: border-color 110ms, background 110ms, box-shadow 110ms, transform 110ms, color 110ms;
 }
 
 button.btn:hover,
 button.btn.focused {
   border-color: var(--accent);
-  background: #1c1826;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--panel-raised) 0%, var(--panel-solid) 100%);
+  transform: translateY(calc(var(--u) * -1));
+  box-shadow:
+    var(--frame),
+    var(--glow-accent),
+    0 calc(var(--u) * 4) 0 rgba(4, 1, 9, 0.55);
+}
+
+button.btn:focus-visible {
+  outline: calc(var(--u) * 2) solid var(--xp);
+  outline-offset: calc(var(--u) * 1);
+  box-shadow: var(--frame), var(--glow-accent), var(--glow-focus);
 }
 
 button.btn.primary {
-  border-color: var(--accent);
+  border-color: var(--gold);
   color: var(--gold);
+  box-shadow:
+    var(--frame),
+    0 0 0 var(--u) rgba(212, 161, 90, 0.28),
+    var(--lift);
+}
+
+button.btn.primary:hover,
+button.btn.primary.focused {
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow:
+    var(--frame),
+    var(--glow-gold),
+    0 calc(var(--u) * 4) 0 rgba(4, 1, 9, 0.55);
+}
+
+/* Nothing sets `disabled` today, but the rule keeps a dead control from ever
+   looking pressable if one ever does. */
+button.btn:disabled,
+button.btn[disabled] {
+  cursor: default;
+  color: var(--ink-faint);
+  border-color: var(--edge-dark);
+  background: var(--crypt);
+  transform: none;
+  box-shadow: var(--frame);
 }
 
 /* Stat summary table on the results screen. */
@@ -548,8 +675,12 @@ button.btn.primary {
   height: calc(var(--u) * 22);
   border-radius: 50%;
   overflow: hidden;
-  background: #2a0a10;
-  border: var(--u) solid #0a0508;
+  background: var(--wine);
+  border: var(--u) solid var(--void);
+  box-shadow:
+    0 0 0 var(--u) var(--void),
+    inset 0 calc(var(--u) * 2) calc(var(--u) * 3) rgba(4, 1, 9, 0.7),
+    var(--lift);
 }
 
 .blood-fill {
@@ -558,7 +689,9 @@ button.btn.primary {
   right: 0;
   bottom: 0;
   height: 0%;
-  background: linear-gradient(180deg, #d94a5e 0%, #8b1e2d 100%);
+  background:
+    linear-gradient(180deg, rgba(209, 216, 226, 0.32) 0%, rgba(209, 216, 226, 0) 40%),
+    linear-gradient(180deg, var(--hp) 0%, var(--hp-dark) 100%);
   transition: height 120ms ease-out;
 }
 
@@ -568,6 +701,7 @@ button.btn.primary {
   border-radius: 50%;
   border: var(--u) solid var(--edge);
   background: var(--panel);
+  box-shadow: var(--frame);
   color: var(--ink-faint);
   font: inherit;
   font-size: calc(var(--u) * 4);
@@ -583,17 +717,20 @@ button.btn.primary {
 /* Below the threshold the buttons read as disabled; at/above they pulse. */
 .blood-cluster.ready .blood-btn {
   color: var(--ink);
-  border-color: #d94a5e;
+  border-color: var(--danger);
+  background: linear-gradient(180deg, var(--panel-raised) 0%, var(--crypt) 100%);
   animation: blood-pulse 1.2s ease-in-out infinite;
 }
 
+/* The pulse animates box-shadow outright, so each stop has to restate `--frame`
+   or the carved edge would blink out for the length of the animation. */
 @keyframes blood-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(217, 74, 94, 0);
+    box-shadow: var(--frame), 0 0 0 0 rgba(217, 74, 94, 0);
   }
   50% {
-    box-shadow: 0 0 0 calc(var(--u) * 2) rgba(217, 74, 94, 0.35);
+    box-shadow: var(--frame), 0 0 0 calc(var(--u) * 2) rgba(217, 74, 94, 0.45);
   }
 }
 
@@ -617,6 +754,7 @@ button.btn.primary {
   border-radius: 50%;
   border: var(--u) solid var(--edge);
   background: var(--panel);
+  box-shadow: var(--frame);
   color: var(--ink-faint);
   font: inherit;
   font-size: calc(var(--u) * 3.5);
@@ -655,27 +793,29 @@ button.btn.primary {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: conic-gradient(rgba(0, 0, 0, 0.65) var(--cd, 0%), transparent 0);
+  background: conic-gradient(rgba(4, 1, 9, 0.72) var(--cd, 0%), transparent 0);
   pointer-events: none;
 }
 
 .ability-btn.ready {
   color: var(--ink);
-  border-color: #d4a15a;
+  border-color: var(--gold);
+  background: linear-gradient(180deg, var(--panel-raised) 0%, var(--crypt) 100%);
   animation: ability-pulse 1.2s ease-in-out infinite;
 }
 
 .ability-btn.active {
-  border-color: #d94a5e;
+  border-color: var(--accent);
+  box-shadow: var(--frame), var(--glow-accent);
 }
 
 @keyframes ability-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(212, 161, 90, 0);
+    box-shadow: var(--frame), 0 0 0 0 rgba(212, 161, 90, 0);
   }
   50% {
-    box-shadow: 0 0 0 calc(var(--u) * 2) rgba(212, 161, 90, 0.35);
+    box-shadow: var(--frame), 0 0 0 calc(var(--u) * 2) rgba(212, 161, 90, 0.45);
   }
 }
 
@@ -697,28 +837,39 @@ button.btn.primary {
   width: calc(var(--u) * 24);
   height: calc(var(--u) * 4);
   background: var(--panel);
-  border: var(--u) solid #0a0508;
+  border: var(--u) solid var(--void);
+  box-shadow:
+    0 0 0 var(--u) var(--void),
+    inset 0 var(--u) 0 rgba(4, 1, 9, 0.5);
   overflow: hidden;
 }
 
 .structure-pip-fill {
   height: 100%;
   width: 100%;
-  background: #c9a86a;
+  background:
+    linear-gradient(180deg, rgba(209, 216, 226, 0.32) 0%, rgba(209, 216, 226, 0) 50%),
+    var(--gold);
 }
 
+/* A fallen structure keeps its silhouette but drops to dried blood over wine
+   shadow, so the row still reads as "3 of 5 standing" at a glance. */
 .structure-pip.lost {
-  border-color: #5c1024;
-  background: #2a0910;
+  border-color: var(--hp-dark);
+  background: var(--wine);
+  box-shadow:
+    0 0 0 var(--u) var(--void),
+    inset 0 0 calc(var(--u) * 3) rgba(128, 35, 49, 0.7);
 }
 
 /* --- Meta progression: wallet + locked characters ----------------------- */
 
 .wallet {
-  color: #e8c56a;
+  color: var(--gold);
   font-size: calc(var(--u) * 5);
   letter-spacing: calc(var(--u) * 0.5);
   margin-bottom: calc(var(--u) * 2);
+  text-shadow: 0 var(--u) 0 var(--void);
 }
 
 .card.locked {
@@ -726,8 +877,11 @@ button.btn.primary {
   filter: grayscale(0.8);
 }
 
+/* The unlock price, not the usual blood-red descriptor. It still passes through
+   the card's grayscale filter — that desaturation is what marks the card as
+   locked — but starting from gold keeps it warmer than the greyed-out art. */
 .card.locked .card-tag {
-  color: #e8c56a;
+  color: var(--gold);
 }
 
 /* --- The Sanctum -------------------------------------------------------- */
@@ -739,16 +893,19 @@ button.btn.primary {
 }
 
 .card-cost {
-  color: #e8c56a;
+  color: var(--gold);
   font-size: calc(var(--u) * 4);
 }
 
+/* Three affordability states, kept apart by hue rather than by brightness alone:
+   gold = buyable, grave grey = nothing left to buy, blood red = short on coin.
+   Dried blood was tried here and came out illegible on the indigo panel. */
 .card.maxed .card-cost {
   color: var(--ink-faint);
 }
 
 .card.poor .card-cost {
-  color: #a33a44;
+  color: var(--danger);
 }
 
 /* --- Touch layer (coarse pointers only) ---------------------------------- */
@@ -793,7 +950,10 @@ button.btn.primary {
     margin-top: calc(var(--u) * -24);
     border-radius: 50%;
     border: var(--u) solid var(--edge-bright);
-    background: rgba(14, 12, 20, 0.35);
+    background: rgba(17, 12, 26, 0.35);
+    box-shadow:
+      0 0 0 var(--u) rgba(4, 1, 9, 0.6),
+      inset 0 0 calc(var(--u) * 6) rgba(4, 1, 9, 0.45);
     display: none;
     pointer-events: none;
   }
@@ -811,7 +971,8 @@ button.btn.primary {
     margin-left: calc(var(--u) * -8);
     margin-top: calc(var(--u) * -8);
     border-radius: 50%;
-    background: rgba(201, 168, 106, 0.5);
+    background: rgba(212, 161, 90, 0.5);
+    box-shadow: 0 0 0 calc(var(--u) * 0.5) rgba(4, 1, 9, 0.55);
   }
 
   /* The pause control owns the top-right corner on touch, so the counter column
@@ -831,6 +992,7 @@ button.btn.primary {
     border-radius: 50%;
     border: var(--u) solid var(--edge);
     background: var(--panel);
+    box-shadow: var(--frame);
     color: var(--ink-dim);
     font: inherit;
     font-size: calc(var(--u) * 5);
