@@ -338,13 +338,18 @@ export class Game implements LoopHooks {
     this.world.animTime[id] = 0;
     // The blink would strobe the whole death animation.
     this.world.iframe[id] = 0;
-    // Nothing moves from here on, so collapse prev onto current and the
-    // renderer's prev->current lerp can't jitter against a stale snapshot.
-    this.world.snapshotPositions();
+    // The prev->current collapse belongs in updateDying, not here: this runs
+    // mid-tick, and everything after it (projectiles, pickups, hazards) still
+    // moves before the tick ends.
   }
 
   /** Advances only the death strip and the fx pool; the simulation stays frozen. */
   private updateDying(dt: number): void {
+    // First dying step, i.e. the killing tick has fully finished. Nothing moves
+    // from here on, so collapse prev onto current once and the renderer's
+    // prev->current lerp can't jitter as alpha sweeps against a frozen world.
+    if (this.deathTimer === 0) this.world.snapshotPositions();
+
     const id = this.ctx.player;
     if (id >= 0 && this.world.isAlive(id)) {
       this.world.animTime[id] = this.world.animTime[id]! + dt;
@@ -520,6 +525,14 @@ export class Game implements LoopHooks {
 
     // State changes are deferred to the end of the tick so systems always run
     // against a consistent world.
+    //
+    // A death mid-tick has already moved us to 'dying', and it outranks both
+    // deferrals: a level-up draft would resume play at 0 hp on resolve, and a
+    // victory on the killing tick would contradict the 'run:ended' summary
+    // settleRun already emitted with victory:false. Banked level-ups are
+    // simply dropped — the run is over.
+    if (this.state !== 'playing') return;
+
     if (this.run.pendingLevelUps > 0) {
       this.openLevelUp();
       return;
