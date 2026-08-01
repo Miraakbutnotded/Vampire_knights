@@ -16,7 +16,7 @@
       "duration": 1,
       "amount": 0,
       "cooldown": 1,
-      "magnet": 30,
+      "magnet": 56,
       "growth": 1,
       "greed": 1,
       "luck": 1,
@@ -31,16 +31,24 @@
       "sprite": "fx_slash",
       "kind": "nova",
       "cooldown": 18,
-      "params": { "count": 10, "damage": 40, "speed": 150, "pierce": 3, "knockback": 200, "lifetime": 0.6 }
+      "params": {
+        "count": 10,
+        "damage": 40,
+        "speed": 150,
+        "pierce": 3,
+        "knockback": 200,
+        "lifetime": 0.6
+      }
     }
   },
-
   "acolyte": {
     "name": "Lady Morrigan of the Mist",
     "sprite": "morrigan",
     "description": "Frail but quick to learn. Calls the night's swarm to hunt for her.",
     "startingWeapon": "wand",
-    "unlock": { "gold": 2500 },
+    "unlock": {
+      "gold": 2500
+    },
     "radius": 5,
     "stats": {
       "maxHp": 80,
@@ -53,7 +61,7 @@
       "duration": 1,
       "amount": 0,
       "cooldown": 0.95,
-      "magnet": 34,
+      "magnet": 64,
       "growth": 1.3,
       "greed": 1,
       "luck": 1.1,
@@ -69,16 +77,24 @@
       "kind": "volley",
       "cooldown": 20,
       "duration": 2.4,
-      "params": { "count": 12, "damage": 14, "speed": 160, "turnRate": 7, "pierce": 1, "lifetime": 3 }
+      "params": {
+        "count": 12,
+        "damage": 14,
+        "speed": 160,
+        "turnRate": 7,
+        "pierce": 1,
+        "lifetime": 3
+      }
     }
   },
-
   "warden_knight": {
     "name": "Ser Aldric the Sworn",
     "sprite": "aldric",
     "description": "Slow and armoured. His vow hardens to iron when it matters.",
     "startingWeapon": "garlic",
-    "unlock": { "gold": 6000 },
+    "unlock": {
+      "gold": 6000
+    },
     "radius": 6,
     "stats": {
       "maxHp": 140,
@@ -91,7 +107,7 @@
       "duration": 1,
       "amount": 0,
       "cooldown": 1.05,
-      "magnet": 26,
+      "magnet": 48,
       "growth": 0.9,
       "greed": 1,
       "luck": 0.9,
@@ -106,17 +122,22 @@
       "kind": "buff",
       "cooldown": 25,
       "duration": 5,
-      "params": { "heal": 20 },
-      "mods": { "armor": 10 }
+      "params": {
+        "heal": 20
+      },
+      "mods": {
+        "armor": 10
+      }
     }
   },
-
   "outrider": {
     "name": "Vespera, the Pale Outrider",
     "sprite": "vespera",
     "description": "Built to kite. Steps through the mist and leaves it burning behind her.",
     "startingWeapon": "knife",
-    "unlock": { "gold": 4000 },
+    "unlock": {
+      "gold": 4000
+    },
     "radius": 5,
     "stats": {
       "maxHp": 90,
@@ -129,7 +150,7 @@
       "duration": 1,
       "amount": 1,
       "cooldown": 1,
-      "magnet": 40,
+      "magnet": 74,
       "growth": 1,
       "greed": 1.1,
       "luck": 1,
@@ -145,16 +166,24 @@
       "kind": "dash",
       "cooldown": 12,
       "duration": 0.6,
-      "params": { "distance": 80, "trailCount": 3, "damage": 6, "radius": 18, "interval": 0.5, "lifetime": 2.5 }
+      "params": {
+        "distance": 80,
+        "trailCount": 3,
+        "damage": 6,
+        "radius": 18,
+        "interval": 0.5,
+        "lifetime": 2.5
+      }
     }
   },
-
   "dragos": {
     "name": "Castellan Dragos",
     "sprite": "dragos",
     "description": "The castle's old master. Ground he claims stays claimed, and blood comes easier to him.",
     "startingWeapon": "brazier",
-    "unlock": { "gold": 12000 },
+    "unlock": {
+      "gold": 12000
+    },
     "radius": 6,
     "stats": {
       "maxHp": 120,
@@ -167,7 +196,7 @@
       "duration": 1.2,
       "amount": 0,
       "cooldown": 1,
-      "magnet": 30,
+      "magnet": 56,
       "growth": 1,
       "greed": 1,
       "luck": 1,
@@ -183,7 +212,13 @@
       "sprite": "hazard_unhallowed",
       "kind": "zone",
       "cooldown": 22,
-      "params": { "radius": 55, "damage": 12, "interval": 0.4, "knockback": 120, "lifetime": 6 }
+      "params": {
+        "radius": 55,
+        "damage": 12,
+        "interval": 0.4,
+        "knockback": 120,
+        "lifetime": 6
+      }
     }
   }
 }

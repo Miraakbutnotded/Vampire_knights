@@ -22,6 +22,14 @@ const GEM_MERGE_RADIUS = 26;
 const MAGNET_SPEED = 210;
 const MAGNET_ACCEL = 9;
 
+/**
+ * Share of the magnet stat that reaches anything other than experience.
+ * Chosen so gold keeps the pull it had before gems were given a wider one,
+ * which keeps the run economy — and the Sanctum's price list — where it was
+ * balanced.
+ */
+const SPOILS_MAGNET_RATIO = 0.55;
+
 /** Chests always grant at least this many upgrades, sometimes more. */
 const CHEST_MIN_UPGRADES = 1;
 const CHEST_MAX_UPGRADES = 3;
@@ -145,7 +153,12 @@ export function updatePickups(ctx: Ctx, dt: number): void {
 
     if (!world.has(id, Comp.Magnetic)) continue;
 
-    const attracted = world.aiPhase[id]! > 0 || d2 <= magnetRange * magnetRange;
+    // Experience is the flow resource — you should never break your route to
+    // step on a gem — so the magnet stat is its range. Gold and consumables
+    // are rewards worth walking to, the same reasoning that exempts chests
+    // entirely, and they keep the tighter classic radius.
+    const range = world.defIndex[id] === PickupKind.Gem ? magnetRange : magnetRange * SPOILS_MAGNET_RATIO;
+    const attracted = world.aiPhase[id]! > 0 || d2 <= range * range;
     if (!attracted) {
       // Idle drift decay, so a gem knocked loose by a death settles.
       world.vx[id] = damp(world.vx[id]!, 0, 6, dt);

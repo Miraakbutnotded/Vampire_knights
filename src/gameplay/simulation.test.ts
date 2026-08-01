@@ -35,7 +35,7 @@ import type { MetaMods, StructureDef } from './content.ts';
 import { updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
 import { damageEnemy } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
-import { PickupKind, spawnBloodVial, updatePickups } from './pickups.ts';
+import { PickupKind, spawnBloodVial, spawnCoin, spawnGem, updatePickups } from './pickups.ts';
 import { Run, xpForLevel } from './run.ts';
 import { Spawner, difficultyAt } from './spawner.ts';
 import { damageStructure, spawnStructure, updateStructures } from './structures.ts';
@@ -2086,5 +2086,48 @@ describe('meta progression', () => {
     expect(characterDef('outrider').unlock).toEqual({ gold: 4000 });
     expect(characterDef('warden_knight').unlock).toEqual({ gold: 6000 });
     expect(characterDef('dragos').unlock).toEqual({ gold: 12000 });
+  });
+});
+
+describe('pickup magnetism', () => {
+  it('pulls experience from further out than it pulls spoils', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const { world } = ctx;
+    const px = world.x[ctx.player]!;
+    const py = world.y[ctx.player]!;
+    const magnet = ctx.run.stats.magnet;
+
+    // A ring that experience should reach across but gold should not: outside
+    // the spoils share of the magnet, comfortably inside the full range.
+    const ring = magnet * 0.8;
+    expect(ring).toBeGreaterThan(magnet * 0.55);
+    expect(ring).toBeLessThan(magnet);
+
+    const gem = spawnGem(ctx, px + ring, py, 1);
+    const coin = spawnCoin(ctx, px, py + ring, 1);
+    expect(gem).toBeGreaterThanOrEqual(0);
+    expect(coin).toBeGreaterThanOrEqual(0);
+
+    updatePickups(ctx, FIXED_DT);
+
+    // Attraction latches through aiPhase, so it reports intent rather than a
+    // position that a single tick has barely moved.
+    expect(world.aiPhase[gem]).toBe(1);
+    expect(world.aiPhase[coin]).toBe(0);
+  });
+
+  it('still collects gold the player walks onto', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const { world } = ctx;
+    const before = ctx.run.gold;
+    const coin = spawnCoin(ctx, world.x[ctx.player]!, world.y[ctx.player]!, 7);
+    expect(coin).toBeGreaterThanOrEqual(0);
+
+    updatePickups(ctx, FIXED_DT);
+
+    expect(ctx.run.gold).toBe(before + 7);
+    expect(world.isAlive(coin)).toBe(false);
   });
 });
