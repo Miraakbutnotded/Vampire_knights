@@ -1,4 +1,5 @@
 import { MAX_ENTITIES } from '../ecs/world.ts';
+import { FlashSheetCache } from './flash-sheet.ts';
 import { frameIndex } from './sprites.ts';
 import type { SpriteTable } from './sprites.ts';
 import type { Camera } from './camera.ts';
@@ -92,7 +93,12 @@ class DrawList {
     this.count++;
   }
 
-  flush(ctx: CanvasRenderingContext2D, sprites: SpriteTable, flashCanvas: FlashCache): void {
+  flush(
+    ctx: CanvasRenderingContext2D,
+    sprites: SpriteTable,
+    flashSheets: FlashSheetCache,
+    flashScratch: FlashCache,
+  ): void {
     const n = this.count;
     if (n === 0) return;
 
@@ -125,6 +131,16 @@ class DrawList {
 
       const needsTransform = rot !== 0 || flip;
 
+      // The baked sheet is the whole strip, sampled with the same sx as the
+      // strip itself. Resolved before the transform branch so both draw paths
+      // share one lookup, and so the fallback decision is made once.
+      const sheet =
+        flash > 0 ? flashSheets.get(anim.source, anim.frameW * anim.frames, anim.frameH) : null;
+      // Strength rides on globalAlpha instead of being mixed into the sheet, so
+      // one sheet serves every strength. Entity alpha still multiplies it.
+      const flashAlpha = sheet ? alpha * (flash < 1 ? flash : 1) : 0;
+      let alphaDirty = alpha < 1;
+
       if (alpha < 1) ctx.globalAlpha = alpha;
 
       if (needsTransform) {
@@ -133,30 +149,42 @@ class DrawList {
         if (rot !== 0) ctx.rotate(rot);
         if (flip) ctx.scale(-1, 1);
         ctx.drawImage(anim.source, sx, 0, w, h, ox, oy, dw, dh);
-        if (flash > 0) {
-          const silhouette = flashCanvas.get(anim.source, sx, w, h, flash);
+        if (sheet) {
+          ctx.globalAlpha = flashAlpha;
+          ctx.drawImage(sheet, sx, 0, w, h, ox, oy, dw, dh);
+        } else if (flash > 0) {
+          const silhouette = flashScratch.get(anim.source, sx, w, h, flash);
           if (silhouette) ctx.drawImage(silhouette, ox, oy, dw, dh);
         }
+        // restore() also rolls globalAlpha back to whatever it was before save().
         ctx.restore();
       } else {
         const dx = this.x[i]! + ox;
         const dy = this.y[i]! + oy;
         ctx.drawImage(anim.source, sx, 0, w, h, dx, dy, dw, dh);
-        if (flash > 0) {
-          const silhouette = flashCanvas.get(anim.source, sx, w, h, flash);
+        if (sheet) {
+          ctx.globalAlpha = flashAlpha;
+          ctx.drawImage(sheet, sx, 0, w, h, dx, dy, dw, dh);
+          alphaDirty = true;
+        } else if (flash > 0) {
+          const silhouette = flashScratch.get(anim.source, sx, w, h, flash);
           if (silhouette) ctx.drawImage(silhouette, dx, dy, dw, dh);
         }
       }
 
-      if (alpha < 1) ctx.globalAlpha = 1;
+      if (alphaDirty) ctx.globalAlpha = 1;
     }
   }
 }
 
 /**
- * Hit flashes are drawn by compositing a white copy of the sprite frame over
- * itself. Building that copy costs a scratch canvas, so keep one and reuse it
- * — there is at most one flash draw in flight at a time.
+ * Fallback flash path: builds the white copy on a shared scratch canvas, one
+ * frame at a time, at draw time.
+ *
+ * FlashSheetCache handles every flash in practice; this only runs for a strip
+ * it refused (its caps, or a canvas it could not create), and exists so a
+ * refusal costs performance rather than the effect. Fail-soft, like a missing
+ * PNG becoming a placeholder rather than a crash.
  */
 class FlashCache {
   private canvas = document.createElement('canvas');
@@ -207,7 +235,19 @@ export class Renderer {
   private displayCtx: CanvasRenderingContext2D;
 
   private drawList = new DrawList();
-  private flashCache = new FlashCache();
+  private flashSheets = new FlashSheetCache();
+  private flashScratch = new FlashCache();
+
+  /**
+   * True when the display canvas may no longer show what the buffer holds, so a
+   * caller that would otherwise skip a frozen frame has to repaint.
+   *
+   * Two causes, both outside the frame loop: assigning canvas.width on resize
+   * clears the canvas, and a WKWebView can drop a canvas's backing store while
+   * the app is suspended. The buffer itself is never resized, so it survives
+   * both — the display canvas is the thing that needs painting again.
+   */
+  private stale = true;
 
   /** Upscale factor and letterbox offsets, recomputed on resize. */
   private scale = 1;
@@ -233,7 +273,27 @@ export class Renderer {
     this.ctx.imageSmoothingEnabled = false;
 
     this.resize();
-    window.addEventListener('resize', () => this.resize());
+    window.addEventListener('resize', this.onResize);
+    document.addEventListener('visibilitychange', this.onVisibility);
+  }
+
+  private readonly onResize = (): void => this.resize();
+  private readonly onVisibility = (): void => this.invalidate();
+
+  /** Drops the listeners this took on the window and document (HMR dispose). */
+  dispose(): void {
+    window.removeEventListener('resize', this.onResize);
+    document.removeEventListener('visibilitychange', this.onVisibility);
+  }
+
+  /** True while the display canvas needs painting again. See `stale`. */
+  get needsRepaint(): boolean {
+    return this.stale;
+  }
+
+  /** Marks the display canvas as needing a repaint. */
+  invalidate(): void {
+    this.stale = true;
   }
 
   resize(): void {
@@ -251,6 +311,8 @@ export class Renderer {
     this.offsetY = Math.floor((this.display.height - VIEW_H * this.scale) / 2);
 
     this.displayCtx.imageSmoothingEnabled = false;
+    // Assigning canvas.width above cleared the display canvas.
+    this.stale = true;
   }
 
   /** Clears the buffer and applies the camera transform. */
@@ -330,7 +392,7 @@ export class Renderer {
 
   /** Draws every queued sprite in depth order. Call once, after all queue() calls. */
   flushSprites(): void {
-    this.drawList.flush(this.ctx, this.sprites, this.flashCache);
+    this.drawList.flush(this.ctx, this.sprites, this.flashSheets, this.flashScratch);
   }
 
   /** Blits the buffer to the visible canvas. Call last. */
@@ -356,6 +418,8 @@ export class Renderer {
       VIEW_W * this.scale,
       VIEW_H * this.scale,
     );
+
+    this.stale = false;
   }
 
   /**

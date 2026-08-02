@@ -1,69 +1,13 @@
 import { fxRng } from '../core/rng.ts';
 import { TAU } from '../core/math.ts';
+import { PixelFont, pixelTextWidth } from './pixel-font.ts';
 import type { Renderer } from './renderer.ts';
 
 const MAX_PARTICLES = 768;
 const MAX_NUMBERS = 160;
 
-/**
- * A 3x5 pixel font, drawn as filled rects.
- *
- * Canvas `fillText` at this resolution renders anti-aliased glyphs that look
- * blurry next to nearest-neighbour sprites, and a webfont would be an external
- * dependency. Five rows of three bits per glyph avoids both.
- */
-const GLYPHS: Record<string, number[]> = {
-  '0': [0b111, 0b101, 0b101, 0b101, 0b111],
-  '1': [0b010, 0b110, 0b010, 0b010, 0b111],
-  '2': [0b111, 0b001, 0b111, 0b100, 0b111],
-  '3': [0b111, 0b001, 0b111, 0b001, 0b111],
-  '4': [0b101, 0b101, 0b111, 0b001, 0b001],
-  '5': [0b111, 0b100, 0b111, 0b001, 0b111],
-  '6': [0b111, 0b100, 0b111, 0b101, 0b111],
-  '7': [0b111, 0b001, 0b001, 0b001, 0b001],
-  '8': [0b111, 0b101, 0b111, 0b101, 0b111],
-  '9': [0b111, 0b101, 0b111, 0b001, 0b001],
-  '+': [0b000, 0b010, 0b111, 0b010, 0b000],
-  '-': [0b000, 0b000, 0b111, 0b000, 0b000],
-  '!': [0b010, 0b010, 0b010, 0b000, 0b010],
-  '%': [0b101, 0b001, 0b010, 0b100, 0b101],
-};
-
-const GLYPH_W = 3;
-const GLYPH_H = 5;
-const GLYPH_GAP = 1;
-
-/** Draws `text` with the pixel font, left-aligned at (x, y). Unknown chars are skipped. */
-export function drawPixelText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  color: string,
-  scale = 1,
-): void {
-  ctx.fillStyle = color;
-  let cursor = x;
-  for (const char of text) {
-    const glyph = GLYPHS[char];
-    if (glyph) {
-      for (let row = 0; row < GLYPH_H; row++) {
-        const bits = glyph[row]!;
-        for (let col = 0; col < GLYPH_W; col++) {
-          // Bit 2 is the leftmost column.
-          if (bits & (1 << (GLYPH_W - 1 - col))) {
-            ctx.fillRect(cursor + col * scale, y + row * scale, scale, scale);
-          }
-        }
-      }
-    }
-    cursor += (GLYPH_W + GLYPH_GAP) * scale;
-  }
-}
-
-export function pixelTextWidth(text: string, scale = 1): number {
-  return text.length * (GLYPH_W + GLYPH_GAP) * scale - GLYPH_GAP * scale;
-}
+/** One literal, so every number's shadow shares a single baked atlas. */
+const SHADOW = 'rgba(0,0,0,0.65)';
 
 export const ParticleShape = {
   Square: 0,
@@ -105,6 +49,13 @@ export class Fx {
   private nText: string[] = new Array(MAX_NUMBERS).fill('');
   private nColor: string[] = new Array(MAX_NUMBERS).fill('#ffffff');
   private numberCount = 0;
+
+  /**
+   * Owned here rather than shared at module scope, for the same reason nothing
+   * else in this engine is a singleton. Its atlases are baked lazily, so
+   * constructing an Fx in a headless test still touches no DOM.
+   */
+  private readonly font = new PixelFont();
 
   particle(
     x: number,
@@ -306,8 +257,8 @@ export class Fx {
       const x = Math.round(this.nx[i]! - pixelTextWidth(text, scale) / 2);
       const y = Math.round(this.ny[i]!);
       // Cheap 1px drop shadow keeps numbers readable over bright sprites.
-      drawPixelText(ctx, text, x + 1, y + 1, 'rgba(0,0,0,0.65)', scale);
-      drawPixelText(ctx, text, x, y, this.nColor[i]!, scale);
+      this.font.draw(ctx, text, x + 1, y + 1, SHADOW, scale);
+      this.font.draw(ctx, text, x, y, this.nColor[i]!, scale);
     }
     ctx.globalAlpha = 1;
   }

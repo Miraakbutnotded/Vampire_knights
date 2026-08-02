@@ -82,6 +82,8 @@ export class Game implements LoopHooks {
   private debugEl: HTMLElement;
   /** Rolling fps, mirrored from the loop for the debug overlay. */
   fps = 0;
+  /** State the last painted frame was drawn for; null until the first paint. */
+  private paintedState: State | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -606,11 +608,31 @@ export class Game implements LoopHooks {
   render(alpha: number, frameDt: number): void {
     const { world } = this;
 
+    // Frame-side bookkeeping, not drawing, so both run even on a frozen frame:
+    // the CSS variables have to track a resize whatever the game is doing, and
+    // the debug overlay is most useful when its fps keeps moving while the
+    // world does not.
+    this.syncUiMetrics();
+    if (this.debugVisible) this.updateDebug();
+
+    // `update` only advances the world in 'playing' and 'dying' — 'dying' keeps
+    // the death strip and the fx pool moving, everything else freezes the sim,
+    // the fx pool and the camera alike. A repaint in those states reproduces the
+    // pixels already on the display canvas, so skip it and let the DOM screens
+    // draw themselves over a still frame.
+    //
+    // Three things still force one: the state having just changed (the first
+    // frozen frame is a real frame and nobody has drawn it yet), the renderer
+    // having lost the display canvas to a resize or a suspend, and — implicitly
+    // — every frame of an active run.
+    const animating = this.state === 'playing' || this.state === 'dying';
+    if (!animating && this.state === this.paintedState && !this.renderer.needsRepaint) return;
+    this.paintedState = this.state;
+
     if (this.state === 'title' || this.state === 'loading' || this.state === 'sanctum' || !this.map) {
       // Nothing to draw behind the title screen; a flat wash reads as intentional.
       this.renderer.begin(this.camera);
       this.renderer.present();
-      this.syncUiMetrics();
       return;
     }
 
@@ -652,14 +674,12 @@ export class Game implements LoopHooks {
     this.fx.drawNumbers(this.renderer);
     this.renderer.present();
 
-    this.syncUiMetrics();
-
+    // Frozen with the world it describes: a paused HUD showing the numbers the
+    // paused battlefield behind it shows is the correct reading of a pause.
     if (this.state !== 'results') {
       const hp = this.ctx.player >= 0 ? world.hp[this.ctx.player]! : 0;
       this.hud.update(this.run, hp, frameDt);
     }
-
-    if (this.debugVisible) this.updateDebug();
   }
 
   /** Queues every live entity of a kind, interpolated between ticks. */
@@ -748,6 +768,7 @@ export class Game implements LoopHooks {
   dispose(): void {
     this.touch?.dispose();
     this.input.dispose();
+    this.renderer.dispose();
     this.bus.clear();
   }
 }
