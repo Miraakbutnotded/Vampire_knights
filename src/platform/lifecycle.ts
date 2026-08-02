@@ -4,13 +4,21 @@
  * Capacitor App 'pause' event. autoPause is idempotent (guarded by
  * shouldAutoPause), so double-firing on native is harmless.
  *
- * Resume is deliberately not handled: the game returns to the pause screen
- * and the *player* resumes. Loop's frameDt clamp already prevents a
- * catch-up tick burst after a long background.
+ * Resume never unpauses the run: the game returns to the pause screen and the
+ * *player* resumes. Loop's frameDt clamp already prevents a catch-up tick burst
+ * after a long background. It does, however, notify the game via onResumed,
+ * which is what lets a suspended app notice the calendar moved — an iOS player
+ * who never kills the app would otherwise never see a new day, because boot and
+ * the title screen are the only other places rollover is evaluated.
  */
 
 export interface AutoPausable {
   autoPause(): void;
+}
+
+export interface Resumable {
+  /** The app came back to the foreground. Must not resume gameplay itself. */
+  onResumed(): void;
 }
 
 /** The subset of Document the wiring needs — a hand-rolled fake in tests. */
@@ -25,10 +33,14 @@ export function shouldAutoPause(state: string): boolean {
   return state === 'playing';
 }
 
-/** visibilitychange → autoPause. Returns a detach function (HMR dispose). */
-export function wireLifecycle(game: AutoPausable, doc: VisibilityHost): () => void {
+/** visibilitychange → autoPause / onResumed. Returns a detach (HMR dispose). */
+export function wireLifecycle(
+  game: AutoPausable & Resumable,
+  doc: VisibilityHost,
+): () => void {
   const onVisibility = () => {
     if (doc.visibilityState === 'hidden') game.autoPause();
+    else game.onResumed();
   };
   doc.addEventListener('visibilitychange', onVisibility);
   return () => doc.removeEventListener('visibilitychange', onVisibility);

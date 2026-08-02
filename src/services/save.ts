@@ -1,20 +1,39 @@
+import { defaultDaily, migrateDaily } from './daily.ts';
+import type { DailySave } from './daily.ts';
 import type { StorageAdapter } from './storage.ts';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const SAVE_KEY = 'vk-save';
 export const SAVE_BACKUP_KEY = 'vk-save.bak';
 
-/** Everything Vampire Knights persists between runs. Version 1 (Phase 4). */
+/**
+ * Everything Vampire Knights persists between runs.
+ *
+ * Version 1 (Phase 4) added `sanctum`; version 2 added `daily`.
+ *
+ * **Adding a field here is not enough.** encodeSave() below builds an explicit
+ * literal rather than spreading, so a field added to this interface and not to
+ * that literal typechecks, round-trips through migrate() as "missing →
+ * default", and silently never persists. Add it to both.
+ */
 export interface SaveData {
   version: number;
   gold: number;
   unlockedCharacters: string[];
   /** Sanctum node ranks by node id; absent key = rank 0. */
   sanctum: Record<string, number>;
+  /** Tonight's Oaths: the day floor, its progress, and what it has paid. */
+  daily: DailySave;
 }
 
 export function defaultSave(): SaveData {
-  return { version: SAVE_VERSION, gold: 0, unlockedCharacters: [], sanctum: {} };
+  return {
+    version: SAVE_VERSION,
+    gold: 0,
+    unlockedCharacters: [],
+    sanctum: {},
+    daily: defaultDaily(),
+  };
 }
 
 /** FNV-1a over the payload string — a corruption tripwire, not security. */
@@ -34,6 +53,7 @@ export function encodeSave(data: SaveData): string {
     gold: data.gold,
     unlockedCharacters: data.unlockedCharacters,
     sanctum: data.sanctum,
+    daily: data.daily,
   });
   return JSON.stringify({ payload, checksum: checksum(payload) });
 }
@@ -85,7 +105,10 @@ export function migrate(raw: unknown): SaveData | null {
   for (const [id, rank] of Object.entries(sanctumRaw)) {
     if (typeof rank === 'number' && Number.isInteger(rank) && rank > 0) sanctum[id] = rank;
   }
-  return { version: SAVE_VERSION, gold, unlockedCharacters, sanctum };
+  // Unconditional, not version-gated: a v1 save simply has no `daily` and falls
+  // to defaults, the same way a v0 save had no `sanctum`.
+  const daily = migrateDaily(rec['daily']);
+  return { version: SAVE_VERSION, gold, unlockedCharacters, sanctum, daily };
 }
 
 /**

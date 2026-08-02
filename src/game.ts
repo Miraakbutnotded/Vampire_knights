@@ -35,6 +35,8 @@ import { Screens } from './ui/screens.ts';
 import { TouchControls } from './platform/touch.ts';
 import { shouldAutoPause } from './platform/lifecycle.ts';
 
+import { attachDailyTally, dailyDelta, dailySet, emptyTally } from './services/daily.ts';
+import type { DailyTally } from './services/daily.ts';
 import type { MetaService } from './services/meta.ts';
 import type { RunSummary, TelemetryService } from './services/telemetry.ts';
 
@@ -77,6 +79,19 @@ export class Game implements LoopHooks {
   private runEnded = false;
   /** Monotonic per-run token passed to bankRun — the service ignores repeats. */
   private runToken = 0;
+  /**
+   * The daily day index this run started on, captured in startRun and frozen
+   * for its duration. A run that starts at 23:59 and ends at 00:02 therefore
+   * credits the day it started on, and the player never watches a bar reset.
+   */
+  private runDay = 0;
+  /** Bus signals the dailies count, accumulated while a run is open. */
+  private dailyTally: DailyTally | null = null;
+  /** How many structures this map raised, and how many of them fell. */
+  private structuresSpawned = 0;
+  private structuresLost = 0;
+  /** Gold the dailies paid out on this run's settle — shown on the results screen. */
+  private dailyGold = 0;
   /** Seconds elapsed into the death animation, while state is 'dying'. */
   private deathTimer = 0;
   private deathDuration = 0;
@@ -207,24 +222,63 @@ export class Game implements LoopHooks {
     });
 
     this.bus.on('structure:destroyed', ({ name, remaining, index }) => {
+      this.structuresLost++;
       this.hud.destroyStructurePip(index);
       this.hud.showBanner(
         remaining > 0 ? `THE ${name.toUpperCase()} HAS FALLEN` : 'EVERY WALL HAS FALLEN',
       );
     });
+
+    // Daily tally. Every signal it counts already existed; gameplay emits
+    // nothing extra for the oaths. The run-level numbers (kills, gold, level,
+    // time) are read straight off `run` at settle instead.
+    this.dailyTally = attachDailyTally(this.bus);
   }
 
   // --- state transitions --------------------------------------------------
+
+  /**
+   * The app came back to the foreground. Rollover is checked here because boot
+   * and openTitle are the only other places it happens, and an iOS player who
+   * leaves the app suspended for days hits neither. Never resumes gameplay —
+   * the player does that from the pause screen.
+   */
+  onResumed(): void {
+    if (this.meta.rollDaily(Date.now()) && this.state === 'title') this.openTitle();
+  }
+
+  /** Today's oaths as the title screen wants them: label, bar, done flag. */
+  private dailyRows(): { label: string; progress: number; target: number; done: boolean }[] {
+    const daily = this.meta.dailyState;
+    // day 0 means rollover has never run — nothing honest to show yet.
+    if (daily.day <= 0) return [];
+    return dailySet(daily.day).map((def) => {
+      const raw = daily.progress[def.id] ?? 0;
+      return {
+        label: def.label,
+        progress: Math.min(raw, def.target),
+        target: def.target,
+        done: raw >= def.target,
+      };
+    });
+  }
 
   private openTitle(): void {
     // Quitting mid-run is a real signal, and it is the one ending no other
     // path records. A no-op when no run is open, which is every other way in.
     this.telemetry.abandonRun(this.runSummary());
+    // Second of the three rollover points. Before the render, so a day that
+    // turned over while the results screen was up shows the new set here.
+    this.meta.rollDaily(Date.now());
     this.setState('title');
     this.hud.setVisible(false);
     this.screens.showTitle(
       CHARACTER_LIST,
-      { gold: this.meta.gold, isUnlocked: (c) => this.meta.isUnlocked(c) },
+      {
+        gold: this.meta.gold,
+        isUnlocked: (c) => this.meta.isUnlocked(c),
+        daily: this.dailyRows(),
+      },
       {
         onStart: (characterId, mapId) => void this.startRun(characterId, mapId),
         onUnlock: (characterId) => {
@@ -315,9 +369,16 @@ export class Game implements LoopHooks {
       }
     }
     this.hud.setStructurePips(pips);
+    this.structuresSpawned = pips.length;
+    this.structuresLost = 0;
     this.siegeUntil = 0;
     this.runEnded = false;
     this.runToken++;
+    // Frozen here for the whole run: rollover is evaluated at boot, on the
+    // title screen and on resume — never mid-run.
+    this.runDay = this.meta.dailyState.day;
+    this.dailyTally?.reset();
+    this.dailyGold = 0;
     this.telemetry.beginRun(characterId, mapId, seed);
     this.camera.bounds = map.bounds;
     this.camera.snapTo(map.spawnX, map.spawnY);
@@ -469,14 +530,36 @@ export class Game implements LoopHooks {
       // Emitting first would spend the quota on the disposable data before the
       // load-bearing data asked for it. Nothing between here and the emit reads
       // the wallet, so the event order the rest of the game sees is unchanged.
-      const walletTotal = this.meta.bankRun(this.run.gold, this.runToken);
+      this.meta.bankRun(this.run.gold, this.runToken);
+      // Folded before the emit for the same storage reason: both writes chain
+      // through the one pending promise, and settling the dailies here means a
+      // single persist covers the wallet and the oath record together.
+      const payout = this.meta.commitDailyRun(
+        dailyDelta(this.dailyTally?.tally() ?? emptyTally(), {
+          kills: this.run.kills,
+          level: this.run.level,
+          gold: this.run.gold,
+          survivedSeconds: this.run.time,
+          structuresSpawned: this.structuresSpawned,
+          structuresLost: this.structuresLost,
+        }),
+        this.runDay,
+        this.runToken,
+      );
+      this.dailyGold = payout.gold;
+      const walletTotal = this.meta.gold;
       this.bus.emit('run:ended', {
         victory,
         survivedSeconds: this.run.time,
         kills: this.run.kills,
         gold: this.run.gold,
         level: this.run.level,
+        mapId: this.lastMapId,
+        structuresSpawned: this.structuresSpawned,
+        structuresLost: this.structuresLost,
       });
+      // The banked figure stays the run's own gold: the oath payout is a
+      // separate line on the results screen, not a bigger-looking run.
       this.bus.emit('meta:goldBanked', { banked: this.run.gold, total: walletTotal });
       return walletTotal;
     }
@@ -490,7 +573,7 @@ export class Game implements LoopHooks {
     // screen always reflects the last transition.
     const walletTotal = this.settleRun(victory);
     this.screens.showResults(
-      { victory, run: this.run, walletGold: walletTotal },
+      { victory, run: this.run, walletGold: walletTotal, dailyGold: this.dailyGold },
       {
         onRetry: () => void this.startRun(this.lastCharacterId, this.lastMapId),
         onTitle: () => this.openTitle(),

@@ -2,8 +2,16 @@ import { describe, expect, it } from 'vitest';
 
 import { characterDef } from '../gameplay/content.ts';
 import {
+  DAILY_BONUS_GOLD,
+  DAILY_OBJECTIVE_GOLD,
+  DAY_MS,
+  dailySet,
+  defaultDaily,
+} from './daily.ts';
+import {
   SAVE_BACKUP_KEY,
   SAVE_KEY,
+  SAVE_VERSION,
   SaveStore,
   checksum,
   decodeSave,
@@ -36,12 +44,33 @@ describe('storage adapters', () => {
 describe('save codec', () => {
   it('round-trips SaveData through encode/decode', () => {
     const data: SaveData = {
-      version: 1,
+      version: SAVE_VERSION,
       gold: 1234,
       unlockedCharacters: ['acolyte'],
       sanctum: { greed: 2, haste: 1 },
+      daily: { day: 20447, progress: { kills: 120 }, claimed: ['gold'], bonusClaimed: false },
     };
     expect(decodeSave(encodeSave(data))).toEqual(data);
+  });
+
+  /**
+   * encodeSave builds an explicit literal rather than spreading `data`, so a
+   * field added to SaveData but not to that literal typechecks, round-trips
+   * through migrate() as "missing → default", and silently never persists.
+   * This asserts against the encoded bytes so the omission cannot hide.
+   */
+  it('writes every SaveData field into the payload, not just the ones it started with', () => {
+    const data: SaveData = {
+      ...defaultSave(),
+      gold: 9,
+      daily: { day: 20447, progress: { kills: 3 }, claimed: [], bonusClaimed: true },
+    };
+    const payload = JSON.parse(JSON.parse(encodeSave(data)).payload as string) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(payload).sort()).toEqual(Object.keys(data).sort());
+    expect(payload['daily']).toEqual(data.daily);
   });
 
   it('rejects tampered or malformed slots via the checksum', () => {
@@ -55,25 +84,67 @@ describe('save codec', () => {
     expect(checksum('a')).not.toBe(checksum('b'));
   });
 
-  it('migrates a version-less v0 save to v1 defaults', () => {
+  it('migrates a version-less v0 save to current defaults', () => {
     expect(migrate({ gold: 500 })).toEqual({
-      version: 1,
+      version: SAVE_VERSION,
       gold: 500,
       unlockedCharacters: [],
       sanctum: {},
+      daily: defaultDaily(),
     });
     // Garbage fields sanitize instead of poisoning the state: negative gold
     // clamps, fractional ranks drop, non-strings fall out of the unlock list.
     expect(migrate({ gold: -5, sanctum: { greed: 1.5, haste: 2 }, unlockedCharacters: ['a', 7] })).toEqual({
-      version: 1,
+      version: SAVE_VERSION,
       gold: 0,
       unlockedCharacters: ['a'],
       sanctum: { haste: 2 },
+      daily: defaultDaily(),
+    });
+  });
+
+  /**
+   * The v1 → v2 step, and the reason migrate() still branches on nothing: a
+   * real v1 save has no `daily` at all, and the absent field falls to defaults
+   * exactly the way `sanctum` did on v0 → v1.
+   */
+  it('migrates a real v1 save forward, adopting a fresh daily record', () => {
+    const v1 = { version: 1, gold: 3200, unlockedCharacters: ['acolyte'], sanctum: { greed: 2 } };
+    expect(migrate(v1)).toEqual({
+      version: 2,
+      gold: 3200,
+      unlockedCharacters: ['acolyte'],
+      sanctum: { greed: 2 },
+      daily: { day: 0, progress: {}, claimed: [], bonusClaimed: false },
+    });
+    // day 0 reads as "never rolled": the first rollover adopts the observed day
+    // without paying out for the set it replaces.
+    expect(migrate(v1)!.daily.day).toBe(0);
+  });
+
+  it('sanitizes a hand-edited daily record on the way in', () => {
+    const migrated = migrate({
+      version: 2,
+      gold: 0,
+      daily: {
+        day: -4,
+        progress: { kills: 10, madeUpObjective: 1e9, gold: -1 },
+        claimed: ['level', 'level', 'notAnObjective'],
+        bonusClaimed: 'yes',
+      },
+    });
+    expect(migrated!.daily).toEqual({
+      day: 0,
+      progress: { kills: 10 },
+      claimed: ['level'],
+      bonusClaimed: false,
     });
   });
 
   it('rejects saves from the future and non-objects', () => {
-    expect(migrate({ version: 2, gold: 10 })).toBeNull();
+    // The guard is what makes a downgraded build fall to the backup slot
+    // instead of mangling a newer save.
+    expect(migrate({ version: SAVE_VERSION + 1, gold: 10 })).toBeNull();
     expect(migrate('gold')).toBeNull();
     expect(migrate(null)).toBeNull();
   });
@@ -218,5 +289,123 @@ describe('meta service — character unlocks', () => {
     await rebooted.load();
     expect(rebooted.isUnlocked(characterDef('acolyte'))).toBe(true);
     expect(rebooted.gold).toBe(0);
+  });
+});
+
+describe('meta service — daily objectives', () => {
+  const TZ = 0; // judged in UTC so the host's own timezone never leaks in
+  const at = (day: number, hour = 12): number => day * DAY_MS + hour * 3_600_000;
+
+  const loaded = async (adapter = new MemoryStorageAdapter()) => {
+    const meta = new MetaService(adapter);
+    await meta.load();
+    return meta;
+  };
+
+  it('starts never-rolled and adopts the observed day on the first roll', async () => {
+    const meta = await loaded();
+    expect(meta.dailyState.day).toBe(0);
+    expect(meta.rollDaily(at(20447), TZ)).toBe(true);
+    expect(meta.dailyState.day).toBe(20447);
+    // Same day again is a no-op, and must not re-roll the set out from under a
+    // player mid-session.
+    expect(meta.rollDaily(at(20447, 23), TZ)).toBe(false);
+    expect(meta.rollDaily(at(20448), TZ)).toBe(true);
+  });
+
+  it('persists a roll, and only when it actually rolled', async () => {
+    const adapter = new MemoryStorageAdapter();
+    const meta = await loaded(adapter);
+    meta.rollDaily(at(20447), TZ);
+    await meta.flush();
+    const before = await adapter.get(SAVE_KEY);
+    meta.rollDaily(at(20447, 20), TZ); // no change
+    await meta.flush();
+    expect(await adapter.get(SAVE_KEY)).toBe(before);
+
+    const rebooted = await loaded(adapter);
+    expect(rebooted.dailyState.day).toBe(20447);
+  });
+
+  it('pays a completed objective into the wallet and persists once', async () => {
+    const adapter = new MemoryStorageAdapter();
+    const meta = await loaded(adapter);
+    meta.rollDaily(at(20447), TZ);
+    const [first] = dailySet(meta.dailyState.day);
+    const payout = meta.commitDailyRun({ [first!.id]: first!.target }, 20447, 1);
+    expect(payout.completed).toEqual([first!.id]);
+    expect(payout.gold).toBe(DAILY_OBJECTIVE_GOLD);
+    expect(meta.gold).toBe(DAILY_OBJECTIVE_GOLD);
+    await meta.flush();
+
+    const rebooted = await loaded(adapter);
+    expect(rebooted.gold).toBe(DAILY_OBJECTIVE_GOLD);
+    expect(rebooted.dailyState.claimed).toEqual([first!.id]);
+  });
+
+  it('ignores a run token that already committed, exactly like bankRun', async () => {
+    const meta = await loaded();
+    meta.rollDaily(at(20447), TZ);
+    const [first] = dailySet(meta.dailyState.day);
+    const delta = { [first!.id]: first!.target };
+    expect(meta.commitDailyRun(delta, 20447, 3).gold).toBe(DAILY_OBJECTIVE_GOLD);
+    const repeat = meta.commitDailyRun(delta, 20447, 3);
+    expect(repeat).toEqual({ completed: [], gold: 0 });
+    expect(meta.gold).toBe(DAILY_OBJECTIVE_GOLD);
+    // A genuinely new run still folds — progress is not frozen by the guard.
+    expect(meta.commitDailyRun(delta, 20447, 4).gold).toBe(0); // already claimed
+    expect(meta.dailyState.progress[first!.id]).toBe(first!.target * 2);
+  });
+
+  /**
+   * Unreachable by construction — Game freezes runDay for the duration of a run
+   * and rollover is never evaluated during one — so this pins the branch rather
+   * than inviting someone to delete it.
+   */
+  it('discards a run that started on a different day than the one now stored', async () => {
+    const meta = await loaded();
+    meta.rollDaily(at(20447), TZ);
+    const [first] = dailySet(meta.dailyState.day);
+    const stale = meta.commitDailyRun({ [first!.id]: first!.target }, 20446, 1);
+    expect(stale).toEqual({ completed: [], gold: 0 });
+    expect(meta.gold).toBe(0);
+    expect(meta.dailyState.progress).toEqual({});
+  });
+
+  it('pays the all-three bonus once the day is cleared', async () => {
+    const meta = await loaded();
+    meta.rollDaily(at(20447), TZ);
+    const set = dailySet(meta.dailyState.day);
+    const delta = Object.fromEntries(set.map((def) => [def.id, def.target]));
+    const payout = meta.commitDailyRun(delta, 20447, 1);
+    expect(payout.completed.sort()).toEqual(set.map((d) => d.id).sort());
+    expect(payout.gold).toBe(3 * DAILY_OBJECTIVE_GOLD + DAILY_BONUS_GOLD);
+    expect(meta.dailyState.bonusClaimed).toBe(true);
+  });
+
+  it('wipes progress on the next roll, so yesterday cannot be banked twice', async () => {
+    const meta = await loaded();
+    meta.rollDaily(at(20447), TZ);
+    const [first] = dailySet(meta.dailyState.day);
+    meta.commitDailyRun({ [first!.id]: first!.target }, 20447, 1);
+    const banked = meta.gold;
+    meta.rollDaily(at(20448), TZ);
+    expect(meta.dailyState).toEqual({
+      day: 20448,
+      progress: {},
+      claimed: [],
+      bonusClaimed: false,
+    });
+    expect(meta.gold).toBe(banked);
+  });
+
+  it('exposes daily state read-only — callers cannot fold progress by hand', async () => {
+    const meta = await loaded();
+    meta.rollDaily(at(20447), TZ);
+    const snapshot = meta.dailyState;
+    meta.commitDailyRun({ kills: 50 }, 20447, 1);
+    // Replaced, never mutated: the old reference is still yesterday's truth.
+    expect(snapshot.progress).toEqual({});
+    expect(meta.dailyState.progress['kills']).toBe(50);
   });
 });

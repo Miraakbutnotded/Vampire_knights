@@ -674,6 +674,42 @@ button.btn[disabled] {
   letter-spacing: calc(var(--u) * 0.4);
 }
 
+/* Tonight's Oaths — a read-only block under the wallet. Reuses .picker and the
+   .pip look from the card meters; it contains no focusables by design. */
+.oaths {
+  gap: calc(var(--u) * 2);
+  margin-bottom: calc(var(--u) * 2);
+}
+
+.oaths .oath {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 2.5);
+  font-size: calc(var(--u) * 4.5);
+  color: var(--ink-faint);
+}
+
+.oaths .oath.done {
+  color: var(--ink);
+}
+
+.oaths .pip {
+  flex: none;
+  width: calc(var(--u) * 3);
+  height: calc(var(--u) * 3);
+  background: var(--edge);
+  box-shadow: 0 0 0 calc(var(--u) * 0.5) var(--void);
+}
+
+.oaths .pip.on {
+  background: var(--accent);
+}
+
+.oaths .oath-count {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Debug overlay */
 
 .debug {

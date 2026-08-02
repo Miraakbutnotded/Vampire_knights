@@ -1,5 +1,7 @@
 import { META_LIST, metaNodeDef } from '../gameplay/content.ts';
 import type { CharacterDef, MetaMods } from '../gameplay/content.ts';
+import { foldDaily, rolloverDaily } from './daily.ts';
+import type { DailyPayout, DailySave } from './daily.ts';
 import { SaveStore, defaultSave } from './save.ts';
 import type { SaveData } from './save.ts';
 import type { StorageAdapter } from './storage.ts';
@@ -18,6 +20,8 @@ export class MetaService {
   private data: SaveData = defaultSave();
   /** Last banked run token — bankRun's exactly-once guard (session-scoped, never persisted). */
   private lastBankedToken = 0;
+  /** Last daily-committed run token — the same guard, for the same reason. */
+  private lastDailyToken = 0;
   /** Serialized write chain; flush() awaits it (tests + future lifecycle hooks). */
   private pending: Promise<void> = Promise.resolve();
 
@@ -52,6 +56,59 @@ export class MetaService {
       this.persist();
     }
     return this.data.gold;
+  }
+
+  /** Today's oath record. Replaced on every change, so this is safe to hold. */
+  get dailyState(): Readonly<DailySave> {
+    return this.data.daily;
+  }
+
+  /**
+   * Advances the daily set if the local day has moved forward. Persists only
+   * when it actually rolled; returns whether it did.
+   *
+   * Evaluated at exactly three points, none of them during a run — boot,
+   * openTitle, and resume from background. Freezing the day for the duration of
+   * a run is what stops a run that starts at 23:59 and ends at 00:02 from
+   * watching its own progress bar reset.
+   */
+  rollDaily(now: number, tzOffsetMinutes?: number): boolean {
+    const { state, rolled } = rolloverDaily(this.data.daily, now, tzOffsetMinutes);
+    if (!rolled) return false;
+    this.data = { ...this.data, daily: state };
+    this.persist();
+    return true;
+  }
+
+  /**
+   * Folds one finished run into the day, pays whatever it completed, and
+   * persists once.
+   *
+   * Guarded on `runToken` exactly like bankRun: Game passes a counter
+   * incremented in startRun, and a token that has already committed is ignored,
+   * so the browser-side double-settle paths cannot pay a daily twice.
+   *
+   * `runDay` is the day the run *started* on. A mismatch is unreachable by
+   * construction — rollover never runs mid-run — so the discard is a pinned
+   * invariant rather than an expected path.
+   */
+  commitDailyRun(
+    delta: Record<string, number>,
+    runDay: number,
+    runToken: number,
+  ): DailyPayout {
+    if (runToken === this.lastDailyToken) return { completed: [], gold: 0 };
+    this.lastDailyToken = runToken;
+    if (runDay !== this.data.daily.day) return { completed: [], gold: 0 };
+
+    const folded = foldDaily(this.data.daily, delta);
+    this.data = {
+      ...this.data,
+      gold: this.data.gold + folded.gold,
+      daily: folded.state,
+    };
+    this.persist();
+    return { completed: folded.completed, gold: folded.gold };
   }
 
   rankOf(nodeId: string): number {

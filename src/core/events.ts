@@ -97,7 +97,25 @@ export interface GameEvents {
   'structure:destroyed': { name: string; remaining: number; index: number };
   'siege:started': { duration: number };
   'siege:defended': { gold: number };
-  'run:ended': { victory: boolean; survivedSeconds: number; kills: number; gold: number; level: number };
+  /**
+   * Widened rather than shadowed by a sibling, on the same argument as
+   * 'player:died' above: there is exactly one emit site (settleRun) and the
+   * map, its structures and their fate are all in scope there, so the summary
+   * can never desynchronise from the run. Existing subscribers destructure the
+   * fields they want and ignore the rest.
+   */
+  'run:ended': {
+    victory: boolean;
+    survivedSeconds: number;
+    kills: number;
+    gold: number;
+    level: number;
+    mapId: string;
+    /** Structures this map actually raised; 0 on maps with none. */
+    structuresSpawned: number;
+    /** How many of them fell. `spawned > 0 && lost === 0` is a clean hold. */
+    structuresLost: number;
+  };
   'meta:goldBanked': { banked: number; total: number };
   'meta:purchased': { nodeId: string; rank: number };
   'character:unlocked': { id: string };

@@ -13,12 +13,25 @@ export interface ResultsData {
   run: Run;
   /** Persistent wallet total after this run banked its gold. */
   walletGold: number;
+  /** Gold the daily oaths paid on this run's settle; 0 when none completed. */
+  dailyGold: number;
+}
+
+/** One row of "Tonight's Oaths". Rendered flat — see renderTitle. */
+export interface TitleDailyRow {
+  label: string;
+  /** Already clamped to `target` by the caller. */
+  progress: number;
+  target: number;
+  done: boolean;
 }
 
 /** Read-only meta the title screen renders from; owned by MetaService. */
 export interface TitleMeta {
   gold: number;
   isUnlocked(character: CharacterDef): boolean;
+  /** Today's three oaths, in set order. Empty before the first rollover. */
+  daily: TitleDailyRow[];
 }
 
 export interface TitleCallbacks {
@@ -130,6 +143,29 @@ export class Screens {
       el('p', undefined, 'Stay alive for fifteen minutes. Pick up whatever will keep you standing.'),
     );
     this.root.appendChild(el('div', 'wallet', `VAULT ${this.titleMeta?.gold ?? 0} GOLD`));
+
+    // Tonight's Oaths, under the wallet where it reads as an extension of it.
+    //
+    // **Zero focusables, deliberately.** `focusables` below is one flat array
+    // and handleInput maps Digit1..9 straight onto its indices, while each
+    // character card renders its own number as `maps.length + i + 1`. Anything
+    // interactive here would shift every number key on the screen by one.
+    const oaths = this.titleMeta?.daily ?? [];
+    if (oaths.length > 0) {
+      const panel = el('div', 'picker oaths');
+      panel.appendChild(el('div', 'picker-label', "TONIGHT'S OATHS"));
+      for (const oath of oaths) {
+        const row = el('div', 'oath');
+        const pip = el('div', 'pip');
+        if (oath.done) pip.classList.add('on');
+        row.appendChild(pip);
+        row.appendChild(el('div', 'oath-label', oath.label));
+        row.appendChild(el('div', 'oath-count', `${oath.progress}/${oath.target}`));
+        if (oath.done) row.classList.add('done');
+        panel.appendChild(row);
+      }
+      this.root.appendChild(panel);
+    }
 
     const focusables: HTMLElement[] = [];
 
@@ -347,6 +383,9 @@ export class Screens {
     appendResult(summary, 'Level reached', String(run.level));
     appendResult(summary, 'Enemies slain', String(run.kills));
     appendResult(summary, 'Gold collected', String(run.gold));
+    // Only when it paid: a permanent "Oaths kept 0" line would read as a
+    // reprimand on every run that did not happen to close one.
+    if (data.dailyGold > 0) appendResult(summary, 'Oaths kept', `+${data.dailyGold}`);
     appendResult(summary, 'Sanctum vault', String(data.walletGold));
     this.root.appendChild(summary);
 

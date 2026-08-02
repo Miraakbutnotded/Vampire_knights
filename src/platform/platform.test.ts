@@ -167,19 +167,41 @@ describe('lifecycle', () => {
   it('hiding the document calls autoPause exactly once per hide', () => {
     const doc = new FakeDoc();
     let calls = 0;
-    wireLifecycle({ autoPause: () => calls++ }, doc);
+    wireLifecycle({ autoPause: () => calls++, onResumed: () => {} }, doc);
     doc.flip('hidden');
     expect(calls).toBe(1);
     doc.flip('visible');
     expect(calls).toBe(1); // resume never auto-unpauses — the player does
   });
 
+  /**
+   * Without this the daily set would never roll for an iOS player who leaves
+   * the app suspended for days: boot and openTitle are the only other rollover
+   * points, and a long-lived backgrounded app hits neither.
+   */
+  it('returning to visible calls onResumed, without ever unpausing the run', () => {
+    const doc = new FakeDoc();
+    let paused = 0;
+    let resumed = 0;
+    wireLifecycle({ autoPause: () => paused++, onResumed: () => resumed++ }, doc);
+    doc.flip('hidden');
+    expect(resumed).toBe(0);
+    doc.flip('visible');
+    expect(resumed).toBe(1);
+    expect(paused).toBe(1);
+    doc.flip('hidden');
+    doc.flip('visible');
+    expect(resumed).toBe(2);
+    expect(paused).toBe(2);
+  });
+
   it('the returned detach stops further calls', () => {
     const doc = new FakeDoc();
     let calls = 0;
-    const detach = wireLifecycle({ autoPause: () => calls++ }, doc);
+    const detach = wireLifecycle({ autoPause: () => calls++, onResumed: () => calls++ }, doc);
     detach();
     doc.flip('hidden');
+    doc.flip('visible');
     expect(calls).toBe(0);
   });
 

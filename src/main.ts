@@ -40,6 +40,9 @@ async function boot(): Promise<void> {
   // Both read the same backing store and neither depends on the other, so they
   // load together rather than adding a third serial step to boot.
   await Promise.all([meta.load(), telemetry.load()]);
+  // First of the three rollover points, and it must precede the Game: the
+  // constructor opens the title screen, which renders today's oaths.
+  meta.rollDaily(Date.now());
   const game = new Game(canvas, uiRoot, sprites, meta, telemetry);
 
   if (import.meta.env.DEV) window.vkTelemetry = telemetry;
