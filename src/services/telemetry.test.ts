@@ -13,7 +13,7 @@ import {
   encodeTelemetry,
   migrateTelemetry,
 } from './telemetry.ts';
-import type { RunRecord, RunSummary, TelemetryDoc } from './telemetry.ts';
+import type { PickRecord, RunRecord, RunSummary, TelemetryDoc } from './telemetry.ts';
 
 // The module's own source, read the same way isolation.test.ts reads the
 // engine: Vite inlines it at transform time, so the no-network and no-PII
@@ -33,7 +33,100 @@ const telemetryCode = telemetrySource
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/(^|[^:])\/\/.*$/gm, '$1');
 
+/** What "stays on device" forbids, in telemetry.ts and in everything it pulls in. */
+const TRANSPORT = ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', 'EventSource'];
+
+// The closure walk below needs every module telemetry.ts can reach, keyed the
+// way an import resolves rather than the way the glob spells it: './save.ts'
+// becomes 'services/save.ts', '../core/events.ts' becomes 'core/events.ts'.
+const rawSources = import.meta.glob(['./*.ts', '../core/**/*.ts'], {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
+
+const SOURCES: Record<string, string> = {};
+for (const [key, source] of Object.entries(rawSources)) {
+  SOURCES[key.replace(/^\.\//, 'services/').replace(/^\.\.\//, '')] = source;
+}
+
+const sourceOf = (file: string): string => SOURCES[file] ?? '';
+
+/** Every module-specifier form, matching isolation.test.ts's gate exactly. */
+const SPECIFIER_RE = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
+
+function resolveSpecifier(from: string, spec: string): string {
+  const parts = from.split('/').slice(0, -1);
+  for (const segment of spec.split('/')) {
+    if (segment === '.') continue;
+    else if (segment === '..') parts.pop();
+    else parts.push(segment);
+  }
+  return parts.join('/');
+}
+
+/**
+ * Breadth-first walk of the import graph from one module. `missing` names any
+ * edge that resolved outside the globbed directories — which is the shape check
+ * and the reachability check in one.
+ */
+function closureFrom(entry: string): { reached: string[]; missing: string[] } {
+  const reached: string[] = [];
+  const missing: string[] = [];
+  const queue = [entry];
+  const seen = new Set(queue);
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    const source = SOURCES[file];
+    if (source === undefined) {
+      missing.push(file);
+      continue;
+    }
+    reached.push(file);
+    for (const match of source.matchAll(SPECIFIER_RE)) {
+      const spec = match[1]!;
+      if (!spec.startsWith('.')) continue; // npm packages are not src modules
+      const next = resolveSpecifier(file, spec);
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return { reached, missing };
+}
+
 const SUMMARY: RunSummary = { survivedSeconds: 61.25, kills: 40, gold: 12, level: 5 };
+
+/**
+ * A pick wide enough that a full ring of runs cannot fit under the byte
+ * backstop: ~165 bytes each, 60 to a run, 50 runs — comfortably past 256KB.
+ */
+const FAT_ID = 'x'.repeat(40);
+const fatPick = (index: number): PickRecord => ({
+  kind: 'weapon',
+  id: FAT_ID,
+  level: 1,
+  isNew: true,
+  atLevel: index + 2,
+  offered: [FAT_ID],
+});
+
+/** Rejects any value past a ceiling, the way a full origin quota does. */
+class QuotaStorageAdapter extends MemoryStorageAdapter {
+  rejections = 0;
+
+  constructor(private readonly limit: number) {
+    super();
+  }
+
+  override async set(key: string, value: string): Promise<void> {
+    if (value.length > this.limit) {
+      this.rejections++;
+      throw new Error('QuotaExceededError');
+    }
+    return super.set(key, value);
+  }
+}
 
 function aRecord(over: Partial<RunRecord> = {}): RunRecord {
   return {
@@ -253,6 +346,57 @@ describe('telemetry service — bounds', () => {
     expect(t.records[t.records.length - 1]!.seed).toBe(MAX_RECORDS - 1);
     expect(decodeTelemetry(stored)!.records.length).toBe(t.records.length);
   });
+
+  it('invalidates the memoised summary when the byte backstop trims the log', async () => {
+    // The frame order this reproduces: the loop runs render() — and with it the
+    // F3 read-out — synchronously, so summary() is always asked before the
+    // write chained by the run that just closed drains and trims. A trim that
+    // did not move the memo key would leave the overlay quoting records that
+    // are no longer in the log, for the rest of the session.
+    const t = await loaded(new MemoryStorageAdapter());
+    for (let i = 0; i < MAX_RECORDS; i++) {
+      t.beginRun('wanderer', 'meadow', i);
+      for (let p = 0; p < MAX_PICKS_PER_RUN; p++) {
+        t.recordPick(fatPick(p));
+      }
+      t.finishRun(false, SUMMARY);
+    }
+
+    const duringFrame = t.summary();
+    expect(duringFrame.join('\n')).toContain(`runs ${MAX_RECORDS}`);
+    expect(t.records.length).toBe(MAX_RECORDS); // nothing has trimmed yet
+
+    await t.flush();
+    const kept = t.records.length;
+    expect(kept).toBeLessThan(MAX_RECORDS);
+
+    const afterTrim = t.summary();
+    expect(afterTrim).not.toBe(duringFrame);
+    expect(afterTrim.join('\n')).toContain(`runs ${kept}`);
+    // The take-rate denominator is drawn from the same list, so it moves too.
+    expect(afterTrim.join('\n')).toContain(`of ${kept * MAX_PICKS_PER_RUN}`);
+  });
+
+  it('sheds half the log and retries once when the adapter rejects the write', async () => {
+    // Telemetry shares an origin quota with the wallet. A write that fails for
+    // size must not re-offer the same payload on every future run.
+    const adapter = new QuotaStorageAdapter(120_000);
+    const t = await loaded(adapter);
+    for (let i = 0; i < MAX_RECORDS; i++) {
+      t.beginRun('wanderer', 'meadow', i);
+      for (let p = 0; p < MAX_PICKS_PER_RUN; p++) t.recordPick(fatPick(p));
+      t.finishRun(false, SUMMARY);
+    }
+    await t.flush();
+
+    expect(adapter.rejections).toBeGreaterThan(0);
+    const stored = await adapter.get(TELEMETRY_KEY);
+    expect(stored).not.toBeNull();
+    // Memory and storage still agree, and the newest run is the one kept.
+    expect(decodeTelemetry(stored!)!.records.length).toBe(t.records.length);
+    expect(t.records[t.records.length - 1]!.seed).toBe(MAX_RECORDS - 1);
+    expect(t.summary().join('\n')).toContain(`runs ${t.records.length}`);
+  });
 });
 
 describe('telemetry service — persistence', () => {
@@ -373,13 +517,30 @@ describe('telemetry service — reading it back', () => {
 
 describe('telemetry stays on device', () => {
   it('has no transport: no fetch, XHR, beacon or websocket anywhere in the module', () => {
-    for (const banned of ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', 'EventSource']) {
+    for (const banned of TRANSPORT) {
       expect(telemetrySource, `telemetry.ts must not reference ${banned}`).not.toContain(banned);
     }
-    // Nothing it imports can smuggle one in either: its only edges are the
-    // storage contract, the save checksum and core event types.
-    const specifiers = Array.from(telemetrySource.matchAll(/from\s*['"]([^'"]+)['"]/g), (m) => m[1]);
-    expect(specifiers.every((s) => s!.startsWith('./') || s!.startsWith('../core/'))).toBe(true);
+  });
+
+  it('has none anywhere in its import closure either', () => {
+    // The shape of telemetry.ts's own edges says nothing about what those
+    // modules contain, so walk them: every module reachable from telemetry.ts,
+    // transitively, gets the same scan. The walk also asserts the closure never
+    // leaves services/ and core/ — an edge that resolved outside the glob below
+    // would be an unreachable module, and `reached` would name it.
+    const { reached, missing } = closureFrom('services/telemetry.ts');
+
+    // The walk is real, not a vacuous pass over one file.
+    expect(missing, 'closure reached a module outside services/ and core/').toEqual([]);
+    expect(reached).toContain('services/save.ts');
+    expect(reached).toContain('services/storage.ts');
+    expect(reached.length).toBeGreaterThan(2);
+
+    for (const file of reached) {
+      for (const banned of TRANSPORT) {
+        expect(sourceOf(file), `${file} must not reference ${banned}`).not.toContain(banned);
+      }
+    }
   });
 
   it('collects no identifier that could join two installs', () => {

@@ -10,6 +10,7 @@ import { World } from './ecs/world.ts';
 
 import { Camera } from './render/camera.ts';
 import { Fx } from './render/fx.ts';
+import { FrameGate } from './render/repaint.ts';
 import { Renderer, VIEW_H, VIEW_W } from './render/renderer.ts';
 import { TileMap, availableMaps } from './render/tilemap.ts';
 import type { SpriteTable } from './render/sprites.ts';
@@ -82,8 +83,8 @@ export class Game implements LoopHooks {
   private debugEl: HTMLElement;
   /** Rolling fps, mirrored from the loop for the debug overlay. */
   fps = 0;
-  /** State the last painted frame was drawn for; null until the first paint. */
-  private paintedState: State | null = null;
+  /** Decides which frames actually get drawn. See render(). */
+  private readonly frame = new FrameGate();
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -215,7 +216,7 @@ export class Game implements LoopHooks {
     // Quitting mid-run is a real signal, and it is the one ending no other
     // path records. A no-op when no run is open, which is every other way in.
     this.telemetry.abandonRun(this.runSummary());
-    this.state = 'title';
+    this.setState('title');
     this.hud.setVisible(false);
     this.screens.showTitle(
       CHARACTER_LIST,
@@ -238,7 +239,7 @@ export class Game implements LoopHooks {
   }
 
   private openSanctum(focus = 0): void {
-    this.state = 'sanctum';
+    this.setState('sanctum');
     this.hud.setVisible(false);
     this.screens.showSanctum(
       { gold: this.meta.gold, rankOf: (id) => this.meta.rankOf(id) },
@@ -261,7 +262,7 @@ export class Game implements LoopHooks {
     // while `this.run` is still the old one, so its final numbers are real
     // rather than the zeroes beginRun would fall back to.
     this.telemetry.abandonRun(this.runSummary());
-    this.state = 'loading';
+    this.setState('loading');
     this.screens.hide();
     this.lastCharacterId = characterId;
     this.lastMapId = mapId;
@@ -318,11 +319,23 @@ export class Game implements LoopHooks {
     this.camera.snapTo(map.spawnX, map.spawnY);
 
     this.hud.setVisible(true);
-    this.state = 'playing';
+    this.setState('playing');
+  }
+
+  /**
+   * The single way into a state. Every entry — including re-entering the one
+   * already current, which a chained level-up draft does — invalidates the
+   * painted frame, so render() draws exactly one frame for it and the HUD
+   * behind a menu never lags a pick behind the menu. Assigning `this.state`
+   * directly would skip that frame; repaint.test.ts holds the funnel shut.
+   */
+  private setState(next: State): void {
+    this.state = next;
+    this.frame.enter();
   }
 
   private openLevelUp(): void {
-    this.state = 'levelup';
+    this.setState('levelup');
     // Drop any intent latched on the way in: updateBlood is frozen while a menu
     // is up, so it would otherwise fire the instant play resumes — long after
     // the press, and possibly on a bar the player has since read differently.
@@ -336,20 +349,20 @@ export class Game implements LoopHooks {
       if (this.run.pendingLevelUps > 0) this.openLevelUp();
       else {
         this.screens.hide();
-        this.state = 'playing';
+        this.setState('playing');
       }
     });
   }
 
   private openPause(): void {
-    this.state = 'paused';
+    this.setState('paused');
     // Same reason as the level-up draft: no spend may survive the pause.
     this.ctx.bloodIntent = null;
     this.ctx.abilityQueued = false;
     this.screens.showPause(this.run, {
       onResume: () => {
         this.screens.hide();
-        this.state = 'playing';
+        this.setState('playing');
       },
       onRestart: () => void this.startRun(this.lastCharacterId, this.lastMapId),
       onQuit: () => this.openTitle(),
@@ -393,7 +406,7 @@ export class Game implements LoopHooks {
       return;
     }
 
-    this.state = 'dying';
+    this.setState('dying');
     this.deathTimer = 0;
     this.deathDuration = death.duration;
     this.world.animState[id] = AnimState.Death;
@@ -446,6 +459,13 @@ export class Game implements LoopHooks {
     // the headless-tested belt to this browser-side brace.
     if (!this.runEnded) {
       this.runEnded = true;
+      // Banking runs before the emit, and the reason is storage rather than
+      // gameplay: the wallet and the telemetry log share one origin quota, and
+      // 'run:ended' is what closes the telemetry record and chains its write.
+      // Emitting first would spend the quota on the disposable data before the
+      // load-bearing data asked for it. Nothing between here and the emit reads
+      // the wallet, so the event order the rest of the game sees is unchanged.
+      const walletTotal = this.meta.bankRun(this.run.gold, this.runToken);
       this.bus.emit('run:ended', {
         victory,
         survivedSeconds: this.run.time,
@@ -453,7 +473,6 @@ export class Game implements LoopHooks {
         gold: this.run.gold,
         level: this.run.level,
       });
-      const walletTotal = this.meta.bankRun(this.run.gold, this.runToken);
       this.bus.emit('meta:goldBanked', { banked: this.run.gold, total: walletTotal });
       return walletTotal;
     }
@@ -461,7 +480,7 @@ export class Game implements LoopHooks {
   }
 
   private endRun(victory: boolean): void {
-    this.state = 'results';
+    this.setState('results');
     this.hud.setVisible(false);
     // The state transition and showResults stay unconditional so the final
     // screen always reflects the last transition.
@@ -491,7 +510,7 @@ export class Game implements LoopHooks {
       // player can't escape a level-up draft without picking.
       if (this.state === 'paused' && this.input.wasPressed('Escape')) {
         this.screens.hide();
-        this.state = 'playing';
+        this.setState('playing');
         return;
       }
       if (this.state === 'sanctum' && this.input.wasPressed('Escape')) {
@@ -615,19 +634,10 @@ export class Game implements LoopHooks {
     this.syncUiMetrics();
     if (this.debugVisible) this.updateDebug();
 
-    // `update` only advances the world in 'playing' and 'dying' — 'dying' keeps
-    // the death strip and the fx pool moving, everything else freezes the sim,
-    // the fx pool and the camera alike. A repaint in those states reproduces the
-    // pixels already on the display canvas, so skip it and let the DOM screens
-    // draw themselves over a still frame.
-    //
-    // Three things still force one: the state having just changed (the first
-    // frozen frame is a real frame and nobody has drawn it yet), the renderer
-    // having lost the display canvas to a resize or a suspend, and — implicitly
-    // — every frame of an active run.
-    const animating = this.state === 'playing' || this.state === 'dying';
-    if (!animating && this.state === this.paintedState && !this.renderer.needsRepaint) return;
-    this.paintedState = this.state;
+    // Frozen states reproduce the pixels already on the display canvas, so they
+    // are drawn once on entry and then skipped — the whole rule, and why an
+    // entry has to go through setState, lives in render/repaint.ts.
+    if (!this.frame.claim(this.state, this.renderer.needsRepaint)) return;
 
     if (this.state === 'title' || this.state === 'loading' || this.state === 'sanctum' || !this.map) {
       // Nothing to draw behind the title screen; a flat wash reads as intentional.

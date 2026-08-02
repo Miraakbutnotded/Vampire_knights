@@ -165,6 +165,47 @@ describe('atlas and fill paths agree', () => {
   });
 });
 
+describe('draw-call cost', () => {
+  /** Counts calls rather than expanding them: the draw-call claim, not the pixel one. */
+  function callCounter(): { ctx: CanvasRenderingContext2D; counts: { fills: number; draws: number } } {
+    const counts = { fills: 0, draws: 0 };
+    const ctx = {
+      fillRect: () => void counts.fills++,
+      set fillStyle(_value: string) {},
+      drawImage: () => void counts.draws++,
+    };
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, counts };
+  }
+
+  const litPixels = (rows: readonly number[]): number =>
+    rows.reduce((n, row) => n + row.toString(2).replace(/0/g, '').length, 0);
+
+  it('spends one drawImage per glyph where the fill path spends one per lit pixel', () => {
+    // The densest glyph in the table, so the ratio below is the worst case the
+    // atlas was built for rather than an average over friendly characters.
+    const densest = GLYPH_ROWS.reduce(
+      (best, rows, i) => (litPixels(rows) > litPixels(GLYPH_ROWS[best]!) ? i : best),
+      0,
+    );
+    const perGlyph = litPixels(GLYPH_ROWS[densest]!);
+    expect(perGlyph).toBeGreaterThan(1);
+    expect(perGlyph).toBeLessThanOrEqual(GLYPH_W * GLYPH_H);
+
+    const text = GLYPH_CHARS[densest]!.repeat(8);
+    const fills = callCounter();
+    const atlas = callCounter();
+    new PixelFont(() => null).draw(fills.ctx, text, 0, 0, '#fff4e0', 2);
+    new PixelFont(() => FAKE_ATLAS).draw(atlas.ctx, text, 0, 0, '#fff4e0', 2);
+
+    // One blit per glyph, and nothing else, against one fill per lit pixel.
+    expect(atlas.counts.draws).toBe(text.length);
+    expect(atlas.counts.fills).toBe(0);
+    expect(fills.counts.draws).toBe(0);
+    expect(fills.counts.fills).toBe(perGlyph * text.length);
+    expect(fills.counts.fills / atlas.counts.draws).toBe(perGlyph);
+  });
+});
+
 describe('atlas cache', () => {
   it('bakes a colour once and reuses it', () => {
     let bakes = 0;

@@ -223,7 +223,7 @@ export class TelemetryService {
   private current: RunRecord | null = null;
   /** Serialized write chain, exactly like MetaService.persist(). */
   private pending: Promise<void> = Promise.resolve();
-  /** Bumped whenever a run closes — the memo key for summary(). */
+  /** Bumped whenever the log changes — a load, a run closing, a trim. */
   private revision = 0;
   private memo: { revision: number; lines: string[] } | null = null;
 
@@ -308,7 +308,7 @@ export class TelemetryService {
   /**
    * Three lines that answer both questions at a glance, for the F3 overlay.
    * Memoised against `revision` because updateDebug runs every frame while the
-   * overlay is visible: this recomputes when a run closes, never per frame.
+   * overlay is visible: this recomputes when the log changes, never per frame.
    */
   summary(): string[] {
     if (this.memo && this.memo.revision === this.revision) return this.memo.lines;
@@ -339,9 +339,26 @@ export class TelemetryService {
     run.level = summary.level;
 
     this.list.push(run);
-    if (this.list.length > MAX_RECORDS) this.list = this.list.slice(-MAX_RECORDS);
+    this.trimTo(MAX_RECORDS);
     this.revision++;
     this.persist();
+  }
+
+  /**
+   * Drops the oldest records down to `count` — the only place the log shrinks,
+   * which is why the memo key moves with it.
+   *
+   * summary() is read from render(), and the loop runs beforeFrame → update →
+   * render → afterFrame synchronously, so a microtask cannot drain mid-frame:
+   * the overlay always reads before the write chained by the run that just
+   * closed gets to trim. A trim that left `revision` alone would therefore
+   * leave the F3 read-out quoting records the byte backstop had already
+   * dropped, for the rest of the session.
+   */
+  private trimTo(count: number): void {
+    if (this.list.length <= count) return;
+    this.list = this.list.slice(-count);
+    this.revision++;
   }
 
   private persist(): void {
@@ -350,19 +367,37 @@ export class TelemetryService {
   }
 
   private async write(): Promise<void> {
+    try {
+      await this.adapter.set(TELEMETRY_KEY, this.encodeWithinBudget());
+    } catch (error) {
+      // A failed write must not take the game down. The likeliest cause is a
+      // full origin quota — shared with the wallet, which is load-bearing where
+      // this is disposable — so shed half the log and try once. Re-offering the
+      // same payload every run would leave the quota pinned by the data that
+      // matters least. One retry only: a second failure is not about size.
+      console.error('[telemetry] write failed:', error);
+      if (this.list.length <= 1) return;
+      this.trimTo(this.list.length >> 1);
+      try {
+        await this.adapter.set(TELEMETRY_KEY, this.encodeWithinBudget());
+      } catch (retryError) {
+        console.error('[telemetry] write failed after shedding half the log:', retryError);
+      }
+    }
+  }
+
+  /**
+   * Encodes the log, dropping the oldest records until it fits the byte
+   * backstop. The trim is in-memory too, so what is readable this session is
+   * exactly what a reboot would load.
+   */
+  private encodeWithinBudget(): string {
     let encoded = encodeTelemetry({ version: TELEMETRY_VERSION, records: this.list });
-    // The byte backstop trims the in-memory log too, so what is readable this
-    // session is exactly what a reboot would load.
     while (encoded.length > MAX_BYTES && this.list.length > 1) {
-      this.list = this.list.slice(1);
+      this.trimTo(this.list.length - 1);
       encoded = encodeTelemetry({ version: TELEMETRY_VERSION, records: this.list });
     }
-    try {
-      await this.adapter.set(TELEMETRY_KEY, encoded);
-    } catch (error) {
-      // A failed write must not take the game down; the next run retries.
-      console.error('[telemetry] write failed:', error);
-    }
+    return encoded;
   }
 
   private computeSummary(): string[] {

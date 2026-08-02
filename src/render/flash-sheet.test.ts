@@ -39,6 +39,21 @@ describe('flash sheet cache', () => {
     expect(cache.pixels).toBe(64 * 16);
   });
 
+  it('costs one bake for a whole crowd flashing for a whole second', () => {
+    // The per-frame claim, measured: before the cache every flashing sprite
+    // paid a clear, a blit, two composite switches and a fill on every frame.
+    const { cache, calls } = tracked();
+    const idle = strip('idle');
+    let hits = 0;
+    for (let frame = 0; frame < 60; frame++) {
+      for (let sprite = 0; sprite < 8; sprite++) {
+        if (cache.get(idle, 64, 16) !== null) hits++;
+      }
+    }
+    expect(hits).toBe(60 * 8);
+    expect(calls.length).toBe(1);
+  });
+
   it('keeps distinct strips distinct', () => {
     const { cache, calls } = tracked();
     const idle = cache.get(strip('idle'), 64, 16);
