@@ -121,8 +121,20 @@ arrays that silently drop overflow (768 particles, 160 numbers). Don't replace w
 In-world text uses the hand-built 3×5 pixel font in `fx.ts` (canvas `fillText` is blurry at 480×270);
 all other text is DOM.
 
-UI is DOM over canvas. Everything is sized in `calc(var(--u) * N)` (`--u` derives from `--scale`,
-published by `Game.syncUiMetrics()` only when the viewport changes) so UI scales with the art.
+UI is DOM over canvas, and it is sized in **two** units, both published by `Game.syncUiMetrics()`
+only when the viewport changes. `--u` (from `--scale`) is one game pixel; `--ui` (from `--ui-scale`,
+computed by `uiScale()` in `src/ui/metrics.ts`) is one chrome unit — the same number clamped to
+`[2, 4.5]`, with the floor raised to 3 on touch. Inside the band they are identical, so a desktop
+window renders the same either way; they part company only on a phone (chrome pinned to 3 while the
+art sits near 1.5) and above 2160px wide (art keeps growing, chrome stops).
+
+**`--u` is an allowlist of exactly one rule, `.xp-track`** — the four-game-pixel band that frames the
+world. Everything else, hairlines and icon canvases included, is chrome and uses `--ui` through the
+semantic tokens in `:root` (`--text-*`, `--hair`, `--edge-inset`, `--pad-*`). `src/ui/metrics.test.ts`
+fails the build on any other rule spending `--u`, so a new world-anchored element joins the allowlist
+deliberately. Touch styling hangs off a `.coarse` class the constructor writes from
+`navigator.maxTouchPoints` — never `@media (pointer: coarse)`, which is a second source of truth that
+disagrees with the JS on hybrid laptops.
 
 ### Content pipeline (`src/gameplay/content.ts`)
 

@@ -382,8 +382,10 @@ A few decisions worth knowing before you extend it:
 - **Spatial hash broadphase**, rebuilt twice per tick — once before enemies move for crowd separation
   and contact damage, once after so weapons resolve against where enemies actually are.
 - **UI is DOM over canvas.** Text stays crisp instead of being upscaled with the sprites, and the whole
-  interface restyles from `ui/style.css`. `--scale` is published each frame so UI sized in
-  `calc(var(--scale) * Npx)` grows with the art.
+  interface restyles from `ui/style.css`. Two scales are published: `--scale` (one game pixel, for
+  the rare rule that has to agree with the art) and `--ui-scale` (the chrome unit everything else is
+  sized in — the art scale clamped so controls stay thumb-sized on a phone and the furniture stops
+  growing on a 4K monitor). Inside the band they are the same number.
 - **Entity destruction is deferred** to the end of the tick. Systems may read a dead entity safely, but
   none tolerate the id lists compacting underneath them.
 

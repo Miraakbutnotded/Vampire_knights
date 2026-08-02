@@ -30,6 +30,7 @@ import { updateHazards, updatePlayerProjectiles, updateWeapons } from './gamepla
 import type { Ctx } from './gameplay/context.ts';
 
 import { Hud } from './ui/hud.ts';
+import { uiScale } from './ui/metrics.ts';
 import { Screens } from './ui/screens.ts';
 
 import { TouchControls } from './platform/touch.ts';
@@ -119,6 +120,16 @@ export class Game implements LoopHooks {
   private deathTimer = 0;
   private deathDuration = 0;
   private debugEl: HTMLElement;
+  /**
+   * Whether this machine is driven by a thumb. Resolved once, in the
+   * constructor, and then treated as the single answer: it decides whether the
+   * joystick is built, how the coach words its lines, which floor the chrome
+   * unit takes, and — through the `.coarse` class on the root element — every
+   * touch rule in the stylesheet. It used to be asked twice, once here and once
+   * as `@media (pointer: coarse)` in the CSS, and a hybrid touch laptop is
+   * where those two answers come apart.
+   */
+  private readonly coarse: boolean;
   /** Rolling fps, mirrored from the loop for the debug overlay. */
   fps = 0;
   /** Decides which frames actually get drawn. See render(). */
@@ -135,6 +146,13 @@ export class Game implements LoopHooks {
     // gameplay system can see it.
     private telemetry: TelemetryService,
   ) {
+    this.coarse = navigator.maxTouchPoints > 0;
+    // Published before anything is measured or drawn so the stylesheet's touch
+    // rules are already in force on the first frame. Left in place by dispose():
+    // it describes the device, not this Game, and clearing it would make the
+    // interface flinch on every hot reload.
+    document.documentElement.classList.toggle('coarse', this.coarse);
+
     this.input = new Input();
     this.renderer = new Renderer(canvas, sprites);
     this.hud = new Hud(sprites);
@@ -153,7 +171,7 @@ export class Game implements LoopHooks {
 
     // Touch controls exist only where touch exists; prepended so the HUD's own
     // buttons (later siblings) stack above the joystick capture zone.
-    if (navigator.maxTouchPoints > 0) {
+    if (this.coarse) {
       this.touch = new TouchControls(this.input);
       uiRoot.prepend(this.touch.root);
       this.input.attachAxisSource(this.touch);
@@ -162,7 +180,7 @@ export class Game implements LoopHooks {
     // Built from the loaded save — main.ts awaits meta.load() before it
     // constructs the Game — so a returning player's coach starts out silent.
     // Touch decides the wording, on the same test the joystick is built on.
-    this.coach = new CoachDirector(meta.coachState.seen, navigator.maxTouchPoints > 0);
+    this.coach = new CoachDirector(meta.coachState.seen, this.coarse);
 
     // A placeholder Run exists from the start so `ctx` is never half-built; it
     // is replaced wholesale when a real run begins.
@@ -913,21 +931,31 @@ export class Game implements LoopHooks {
 
   /**
    * Publishes the renderer's letterbox geometry as CSS variables, so the DOM UI
-   * covers exactly the play area and its text scales with the art.
+   * covers exactly the play area, plus the two scales it is sized in: `--scale`
+   * for the art and `--ui-scale` for the chrome. They are the same number on
+   * any ordinary desktop window and part company only at the clamps — see
+   * `src/ui/metrics.ts`.
    */
   private lastMetrics = '';
 
   private syncUiMetrics(): void {
     const { scale, offsetX, offsetY } = this.renderer.viewportMetrics();
+    // The same two numbers Renderer.resize() measures itself from. Read here
+    // rather than back-derived from `scale` because the chrome unit must be
+    // independent of device pixel ratio, and `scale` has already been divided
+    // through by it.
+    const cssW = window.innerWidth;
+    const cssH = window.innerHeight;
     // Writing custom properties on the root element invalidates style for the
     // whole UI subtree, so only touch them when the viewport actually changed —
     // otherwise this forces a recalc on every single frame.
-    const signature = `${scale}|${offsetX}|${offsetY}`;
+    const signature = `${scale}|${offsetX}|${offsetY}|${cssW}|${cssH}`;
     if (signature === this.lastMetrics) return;
     this.lastMetrics = signature;
 
     const style = document.documentElement.style;
     style.setProperty('--scale', String(Math.max(1, scale)));
+    style.setProperty('--ui-scale', String(uiScale(cssW, cssH, this.coarse)));
     style.setProperty('--offset-x', `${offsetX}px`);
     style.setProperty('--offset-y', `${offsetY}px`);
     style.setProperty('--play-w', `${VIEW_W * scale}px`);

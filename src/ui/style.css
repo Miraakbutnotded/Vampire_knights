@@ -5,13 +5,37 @@
  * being nearest-neighbour upscaled with the sprites, and the whole interface is
  * restyleable from this one file without touching gameplay code.
  *
- * `--scale` is written from the renderer each frame and equals how many CSS
- * pixels one game pixel occupies, so UI sized in `calc(var(--scale) * Npx)`
- * grows and shrinks in lockstep with the art.
+ * There are two scales here, and the difference between them is the whole
+ * reason this file has a header:
+ *
+ *   `--scale` is the ART scale: how many CSS pixels one game pixel occupies,
+ *   published by the renderer. `--u` is one game pixel. Anything sized in it
+ *   agrees with the sprites at every window size.
+ *
+ *   `--ui-scale` is the CHROME scale: the same number, clamped to a band that
+ *   keeps controls thumb-sized on a phone and stops the furniture from growing
+ *   without limit on a 4K monitor (see `src/ui/metrics.ts` for the arithmetic
+ *   and the reasoning). `--ui` is one chrome unit. Everything in this file is
+ *   sized in it.
+ *
+ * Inside the band the two are numerically identical, so a desktop window looks
+ * exactly as it did when the interface was sized in game pixels; the chrome
+ * only departs from the art at the clamps.
+ *
+ * ART-BOUND ALLOWLIST. `--u` may appear in exactly one rule, `.xp-track`: it is
+ * a four-game-pixel band that forms the top frame of the world, so it has to
+ * keep agreeing with the buffer rather than with a finger. A test in
+ * `src/ui/metrics.test.ts` enforces that. Everything else — including the icon
+ * canvases and every hairline — is chrome, because the rule for telling them
+ * apart is "would changing this put the element out of agreement with a sprite
+ * or a world position?", and nothing else in here answers yes. Something that
+ * genuinely needs world anchoring later (an objective marker, a damage
+ * vignette) joins the allowlist in a diff that says so.
  */
 
 :root {
   --scale: 3;
+  --ui-scale: 3;
 
   /* Every colour below is an anchor from the canonical palette
      (`docs/art/palette.md`, median-cut from the shipped character sprites) or a
@@ -49,31 +73,57 @@
   --accent-deep: #802331; /* dried blood */
   --danger: #d94a5e; /* fresh blood */
 
+  /* One game pixel. Art-bound rules only — see the allowlist in the header. */
   --u: calc(var(--scale) * 1px);
+  /* One chrome unit. Everything else. */
+  --ui: calc(var(--ui-scale) * 1px);
+
+  /* Type scale. Each step is named for what it is rather than for its
+     multiplier, so a rule states intent — `font-size: var(--text-base)` — and a
+     reader does not have to re-derive arithmetic to see whether a number is
+     deliberate. The comment on each line is its physical size on a phone, where
+     the chrome unit is pinned to 3 and one CSS pixel is one point. */
+  --text-xs: calc(var(--ui) * 4); /* 12pt — card cost, blood button labels */
+  --text-sm: calc(var(--ui) * 4.5); /* 13.5pt — card tag, oath row, debug */
+  --text-base: calc(var(--ui) * 5); /* 15pt — body copy, hints, hp readout */
+  --text-md: calc(var(--ui) * 6); /* 18pt — stat rows, level chip, results */
+  --text-lg: calc(var(--ui) * 7); /* 21pt — card titles, buttons */
+  --text-xl: calc(var(--ui) * 10); /* 30pt — h2 */
+  --text-2xl: calc(var(--ui) * 12); /* 36pt — the clock */
+  --text-3xl: calc(var(--ui) * 20); /* 60pt — h1 */
+
+  /* The one-unit carved hairline the whole frame idiom is drawn from. */
+  --hair: var(--ui);
+
+  /* Spacing constants that more than one rule has to agree on. */
+  --edge-inset: calc(var(--ui) * 5); /* every screen-edge anchor */
+  --pad-panel: calc(var(--ui) * 5); /* inside a card or panel */
+  --pad-screen: calc(var(--ui) * 8); /* inside a full-screen menu */
 
   /* Gothic edge treatment, built from box-shadow alone — there are no UI image
-     assets yet and every layer here scales with `--u`. `--frame` stacks a void
-     hairline outside the violet border and another just inside it (void /
-     violet / void, the way a pixel-art frame is drawn), then a pale-violet
-     catchlight along the top lip and a void shade along the bottom. `--lift` is
-     the separate hard drop that seats a panel above the world; `--glow-*` are
-     the hover/focus halos. Composed as `box-shadow: var(--frame), var(--lift)` —
-     earlier layers paint on top, so the void hairline always stays crisp. */
+     assets yet and every layer here scales with the chrome unit. `--frame`
+     stacks a void hairline outside the violet border and another just inside it
+     (void / violet / void, the way a pixel-art frame is drawn), then a
+     pale-violet catchlight along the top lip and a void shade along the bottom.
+     `--lift` is the separate hard drop that seats a panel above the world;
+     `--glow-*` are the hover/focus halos. Composed as
+     `box-shadow: var(--frame), var(--lift)` — earlier layers paint on top, so
+     the void hairline always stays crisp. */
   --frame:
-    0 0 0 var(--u) var(--void),
-    inset 0 0 0 var(--u) var(--void),
-    inset 0 var(--u) 0 rgba(134, 119, 151, 0.28),
-    inset 0 calc(var(--u) * -1) 0 rgba(4, 1, 9, 0.6);
-  --lift: 0 calc(var(--u) * 3) 0 rgba(4, 1, 9, 0.45);
+    0 0 0 var(--hair) var(--void),
+    inset 0 0 0 var(--hair) var(--void),
+    inset 0 var(--hair) 0 rgba(134, 119, 151, 0.28),
+    inset 0 calc(var(--ui) * -1) 0 rgba(4, 1, 9, 0.6);
+  --lift: 0 calc(var(--ui) * 3) 0 rgba(4, 1, 9, 0.45);
   --glow-accent:
-    0 0 0 calc(var(--u) * 2) rgba(217, 74, 94, 0.55),
-    0 0 calc(var(--u) * 8) var(--u) rgba(217, 74, 94, 0.3);
+    0 0 0 calc(var(--ui) * 2) rgba(217, 74, 94, 0.55),
+    0 0 calc(var(--ui) * 8) var(--ui) rgba(217, 74, 94, 0.3);
   --glow-gold:
-    0 0 0 calc(var(--u) * 2) rgba(212, 161, 90, 0.5),
-    0 0 calc(var(--u) * 8) var(--u) rgba(212, 161, 90, 0.28);
+    0 0 0 calc(var(--ui) * 2) rgba(212, 161, 90, 0.5),
+    0 0 calc(var(--ui) * 8) var(--ui) rgba(212, 161, 90, 0.28);
   --glow-focus:
-    0 0 0 calc(var(--u) * 2) rgba(170, 183, 201, 0.85),
-    0 0 calc(var(--u) * 9) var(--u) rgba(170, 183, 201, 0.35);
+    0 0 0 calc(var(--ui) * 2) rgba(170, 183, 201, 0.85),
+    0 0 calc(var(--ui) * 9) var(--ui) rgba(170, 183, 201, 0.35);
 
   /* Device notch/home-indicator insets. `env()` resolves to 0px on desktop and
      on any browser without the keyword, so every `max()` below falls back to
@@ -156,7 +206,13 @@ body {
   display: block;
 }
 
-/* Experience bar spans the very top edge. */
+/* Experience bar spans the very top edge.
+ *
+ * The whole art-bound allowlist. This is a four-game-pixel band with a
+ * one-game-pixel border sitting directly on the top edge of the world, read as
+ * the frame the arena is drawn inside — so it is measured in `--u` and tracks
+ * the sprites, not the chrome. Every other rule in this file uses `--ui`;
+ * `src/ui/metrics.test.ts` fails the build if that stops being true. */
 .xp-track {
   position: absolute;
   top: 0;
@@ -187,20 +243,20 @@ body {
    which is exactly the desktop/wide-window behaviour. */
 .hud-row {
   position: absolute;
-  top: max(calc(var(--u) * 8), calc(var(--safe-t) - var(--offset-y, 0px)));
+  top: max(calc(var(--ui) * 8), calc(var(--safe-t) - var(--offset-y, 0px)));
   display: flex;
   align-items: center;
-  gap: calc(var(--u) * 4);
-  font-size: calc(var(--u) * 7);
+  gap: calc(var(--ui) * 4);
+  font-size: var(--text-lg);
   line-height: 1;
-  text-shadow: 0 var(--u) 0 rgba(4, 1, 9, 0.85);
+  text-shadow: 0 var(--ui) 0 rgba(4, 1, 9, 0.85);
 }
 
 .hud-left {
-  left: max(calc(var(--u) * 5), calc(var(--safe-l) - var(--offset-x, 0px)));
+  left: max(var(--edge-inset), calc(var(--safe-l) - var(--offset-x, 0px)));
   flex-direction: column;
   align-items: flex-start;
-  gap: calc(var(--u) * 3);
+  gap: calc(var(--ui) * 3);
 }
 
 .hud-center {
@@ -208,25 +264,25 @@ body {
   transform: translateX(-50%);
   flex-direction: column;
   align-items: center;
-  gap: calc(var(--u) * 2);
+  gap: calc(var(--ui) * 2);
 }
 
 .hud-right {
-  right: max(calc(var(--u) * 5), calc(var(--safe-r) - var(--offset-x, 0px)));
+  right: max(var(--edge-inset), calc(var(--safe-r) - var(--offset-x, 0px)));
   flex-direction: column;
   align-items: flex-end;
-  gap: calc(var(--u) * 3);
+  gap: calc(var(--ui) * 3);
 }
 
 .hp-track {
   position: relative;
-  width: calc(var(--u) * 78);
-  height: calc(var(--u) * 8);
+  width: calc(var(--ui) * 78);
+  height: calc(var(--ui) * 8);
   background: var(--hp-dark);
-  border: var(--u) solid var(--void);
+  border: var(--hair) solid var(--void);
   box-shadow:
-    0 0 0 var(--u) var(--void),
-    inset 0 var(--u) 0 rgba(4, 1, 9, 0.55);
+    0 0 0 var(--hair) var(--void),
+    inset 0 var(--hair) 0 rgba(4, 1, 9, 0.55);
 }
 
 .hp-fill {
@@ -244,27 +300,27 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: calc(var(--u) * 5);
-  letter-spacing: calc(var(--u) * 0.2);
+  font-size: var(--text-base);
+  letter-spacing: calc(var(--ui) * 0.2);
 }
 
 .timer {
-  font-size: calc(var(--u) * 12);
-  letter-spacing: calc(var(--u) * 0.5);
+  font-size: var(--text-2xl);
+  letter-spacing: calc(var(--ui) * 0.5);
   font-weight: 700;
 }
 
 .level-chip {
-  font-size: calc(var(--u) * 6);
+  font-size: var(--text-md);
   color: var(--ink-dim);
-  letter-spacing: calc(var(--u) * 0.3);
+  letter-spacing: calc(var(--ui) * 0.3);
 }
 
 .stat {
   display: flex;
   align-items: center;
-  gap: calc(var(--u) * 2);
-  font-size: calc(var(--u) * 6);
+  gap: calc(var(--ui) * 2);
+  font-size: var(--text-md);
   color: var(--ink-dim);
 }
 
@@ -280,24 +336,24 @@ body {
 /* Loadout icon rows, bottom-left. */
 .loadout {
   position: absolute;
-  left: max(calc(var(--u) * 5), calc(var(--safe-l) - var(--offset-x, 0px)));
-  bottom: max(calc(var(--u) * 5), calc(var(--safe-b) - var(--offset-y, 0px)));
+  left: max(var(--edge-inset), calc(var(--safe-l) - var(--offset-x, 0px)));
+  bottom: max(var(--edge-inset), calc(var(--safe-b) - var(--offset-y, 0px)));
   display: flex;
   flex-direction: column;
-  gap: calc(var(--u) * 3);
+  gap: calc(var(--ui) * 3);
 }
 
 .slot-row {
   display: flex;
-  gap: calc(var(--u) * 2);
+  gap: calc(var(--ui) * 2);
 }
 
 .slot {
   position: relative;
-  width: calc(var(--u) * 16);
-  height: calc(var(--u) * 16);
+  width: calc(var(--ui) * 16);
+  height: calc(var(--ui) * 16);
   background: var(--panel);
-  border: var(--u) solid var(--edge);
+  border: var(--hair) solid var(--edge);
   box-shadow: var(--frame);
   display: flex;
   align-items: center;
@@ -306,26 +362,26 @@ body {
 
 .slot canvas {
   image-rendering: pixelated;
-  width: calc(var(--u) * 12);
-  height: calc(var(--u) * 12);
+  width: calc(var(--ui) * 12);
+  height: calc(var(--ui) * 12);
   object-fit: contain;
 }
 
 .slot .pips {
   position: absolute;
-  bottom: calc(var(--u) * -0.5);
+  bottom: calc(var(--ui) * -0.5);
   left: 0;
   right: 0;
   display: flex;
   justify-content: center;
-  gap: calc(var(--u) * 1);
+  gap: calc(var(--ui) * 1);
 }
 
 .slot .pip {
-  width: calc(var(--u) * 1.5);
-  height: calc(var(--u) * 1.5);
+  width: calc(var(--ui) * 1.5);
+  height: calc(var(--ui) * 1.5);
   background: var(--edge-bright);
-  box-shadow: 0 0 0 calc(var(--u) * 0.5) var(--void);
+  box-shadow: 0 0 0 calc(var(--ui) * 0.5) var(--void);
 }
 
 .slot .pip.on {
@@ -336,27 +392,27 @@ body {
   border-color: var(--gold);
   box-shadow:
     var(--frame),
-    0 0 calc(var(--u) * 5) rgba(212, 161, 90, 0.45);
+    0 0 calc(var(--ui) * 5) rgba(212, 161, 90, 0.45);
 }
 
 /* Passive slots have no art yet, so they show an initial instead. */
 .slot .initial {
-  font-size: calc(var(--u) * 8);
+  font-size: calc(var(--ui) * 8);
   font-weight: 700;
   color: var(--accent);
 }
 
 .boss-banner {
   position: absolute;
-  top: calc(var(--u) * 42);
+  top: calc(var(--ui) * 42);
   left: 50%;
   transform: translateX(-50%);
-  font-size: calc(var(--u) * 9);
-  letter-spacing: calc(var(--u) * 0.6);
+  font-size: calc(var(--ui) * 9);
+  letter-spacing: calc(var(--ui) * 0.6);
   color: var(--danger);
   text-shadow:
-    0 var(--u) 0 rgba(4, 1, 9, 0.9),
-    0 0 calc(var(--u) * 7) rgba(217, 74, 94, 0.6);
+    0 var(--ui) 0 rgba(4, 1, 9, 0.9),
+    0 0 calc(var(--ui) * 7) rgba(217, 74, 94, 0.6);
   opacity: 0;
   transition: opacity 250ms ease-out;
 }
@@ -376,20 +432,20 @@ body {
    rules about when it is allowed to speak at all. */
 .coach-line {
   /* Clears the blood orb's buttons, which stand 16u tall on a 5u base. */
-  --coach-lift: calc(var(--u) * 22);
+  --coach-lift: calc(var(--ui) * 22);
   position: absolute;
   left: 50%;
-  bottom: max(calc(var(--u) * 27), calc(var(--safe-b) - var(--offset-y, 0px) + var(--coach-lift)));
+  bottom: max(calc(var(--ui) * 27), calc(var(--safe-b) - var(--offset-y, 0px) + var(--coach-lift)));
   transform: translateX(-50%);
   /* 176u centred spans 152..328 of the 480-wide buffer: clear of the loadout
      column on the left and the blood cluster on the right at any scale. */
-  max-width: calc(var(--u) * 176);
+  max-width: calc(var(--ui) * 176);
   text-align: center;
-  font-size: calc(var(--u) * 5);
-  letter-spacing: calc(var(--u) * 0.15);
+  font-size: var(--text-base);
+  letter-spacing: calc(var(--ui) * 0.15);
   line-height: 1.35;
   color: var(--ink-dim);
-  text-shadow: 0 var(--u) 0 rgba(4, 1, 9, 0.9);
+  text-shadow: 0 var(--ui) 0 rgba(4, 1, 9, 0.9);
   pointer-events: none;
   opacity: 0;
   transition: opacity 320ms ease-out;
@@ -414,14 +470,14 @@ body {
      carries it instead — free space is absorbed by the first and last child
      and collapses to nothing once the content is taller than the box. */
   justify-content: flex-start;
-  gap: calc(var(--u) * 6);
+  gap: calc(var(--ui) * 6);
   /* Void black wash with a deep-indigo bloom behind the content, so menus read
      as a crypt interior rather than a flat grey scrim. */
   background:
     radial-gradient(ellipse at 50% 42%, rgba(26, 13, 57, 0.85) 0%, rgba(4, 1, 9, 0.9) 70%),
     rgba(4, 1, 9, 0.84);
-  backdrop-filter: blur(calc(var(--u) * 0.8));
-  padding: calc(var(--u) * 8);
+  backdrop-filter: blur(calc(var(--ui) * 0.8));
+  padding: var(--pad-screen);
   overflow-y: auto;
   /* `#app` is `touch-action: none`, which would otherwise also swallow drags
      that start in here — menus can overflow vertically in landscape, so give
@@ -445,46 +501,46 @@ body {
 
 .screen h1 {
   margin: 0;
-  font-size: calc(var(--u) * 20);
-  letter-spacing: calc(var(--u) * 1);
+  font-size: var(--text-3xl);
+  letter-spacing: calc(var(--ui) * 1);
   font-weight: 700;
   text-align: center;
   color: var(--ink);
   text-shadow:
-    0 var(--u) 0 var(--void),
-    0 0 calc(var(--u) * 12) rgba(68, 53, 105, 0.95);
+    0 var(--ui) 0 var(--void),
+    0 0 calc(var(--ui) * 12) rgba(68, 53, 105, 0.95);
 }
 
 .screen h2 {
   margin: 0;
-  font-size: calc(var(--u) * 10);
-  letter-spacing: calc(var(--u) * 0.5);
+  font-size: var(--text-xl);
+  letter-spacing: calc(var(--ui) * 0.5);
   font-weight: 700;
   color: var(--accent);
   text-align: center;
   text-shadow:
-    0 var(--u) 0 var(--void),
-    0 0 calc(var(--u) * 8) rgba(217, 74, 94, 0.45);
+    0 var(--ui) 0 var(--void),
+    0 0 calc(var(--ui) * 8) rgba(217, 74, 94, 0.45);
 }
 
 .screen p {
   margin: 0;
-  font-size: calc(var(--u) * 6);
+  font-size: var(--text-md);
   color: var(--ink-dim);
   text-align: center;
-  max-width: calc(var(--u) * 200);
+  max-width: calc(var(--ui) * 200);
   line-height: 1.6;
 }
 
 .hint {
-  font-size: calc(var(--u) * 5);
+  font-size: var(--text-base);
   color: var(--ink-faint);
   text-align: center;
 }
 
 .cards {
   display: flex;
-  gap: calc(var(--u) * 4);
+  gap: calc(var(--ui) * 4);
   flex-wrap: wrap;
   justify-content: center;
   max-width: 100%;
@@ -492,15 +548,15 @@ body {
 
 .card {
   position: relative;
-  width: calc(var(--u) * 84);
-  min-height: calc(var(--u) * 62);
+  width: calc(var(--ui) * 84);
+  min-height: calc(var(--ui) * 62);
   background: linear-gradient(180deg, var(--panel-solid) 0%, var(--crypt) 100%);
-  border: var(--u) solid var(--edge);
+  border: var(--hair) solid var(--edge);
   box-shadow: var(--frame), var(--lift);
-  padding: calc(var(--u) * 5);
+  padding: var(--pad-panel);
   display: flex;
   flex-direction: column;
-  gap: calc(var(--u) * 3);
+  gap: calc(var(--ui) * 3);
   cursor: pointer;
   text-align: left;
   color: inherit;
@@ -515,50 +571,50 @@ body {
 .card.focused {
   border-color: var(--accent);
   background: linear-gradient(180deg, var(--panel-raised) 0%, var(--panel-solid) 100%);
-  transform: translateY(calc(var(--u) * -1));
+  transform: translateY(calc(var(--ui) * -1));
   box-shadow:
     var(--frame),
     var(--glow-accent),
-    inset 0 0 calc(var(--u) * 10) rgba(217, 74, 94, 0.18),
-    0 calc(var(--u) * 4) 0 rgba(4, 1, 9, 0.55);
+    inset 0 0 calc(var(--ui) * 10) rgba(217, 74, 94, 0.18),
+    0 calc(var(--ui) * 4) 0 rgba(4, 1, 9, 0.55);
 }
 
 /* Tab focus adds a moonlit-steel ring on top of the accent halo, so a card that
    is both selected and keyboard-focused still reads as focused. */
 .card:focus-visible {
-  outline: calc(var(--u) * 2) solid var(--xp);
-  outline-offset: calc(var(--u) * 1);
+  outline: calc(var(--ui) * 2) solid var(--xp);
+  outline-offset: calc(var(--ui) * 1);
   box-shadow: var(--frame), var(--glow-accent), var(--glow-focus);
 }
 
 .card .card-head {
   display: flex;
   align-items: center;
-  gap: calc(var(--u) * 3);
+  gap: calc(var(--ui) * 3);
 }
 
 .card canvas {
   image-rendering: pixelated;
-  width: calc(var(--u) * 14);
-  height: calc(var(--u) * 14);
+  width: calc(var(--ui) * 14);
+  height: calc(var(--ui) * 14);
   flex: 0 0 auto;
   object-fit: contain;
 }
 
 .card .card-title {
-  font-size: calc(var(--u) * 7);
+  font-size: var(--text-lg);
   font-weight: 700;
   line-height: 1.25;
 }
 
 .card .card-tag {
-  font-size: calc(var(--u) * 4.5);
+  font-size: var(--text-sm);
   color: var(--accent);
-  letter-spacing: calc(var(--u) * 0.3);
+  letter-spacing: calc(var(--ui) * 0.3);
 }
 
 .card .card-body {
-  font-size: calc(var(--u) * 5);
+  font-size: var(--text-base);
   color: var(--ink-dim);
   line-height: 1.55;
   flex: 1;
@@ -566,22 +622,22 @@ body {
 
 .card .card-key {
   position: absolute;
-  top: calc(var(--u) * 2);
-  right: calc(var(--u) * 3);
-  font-size: calc(var(--u) * 5);
+  top: calc(var(--ui) * 2);
+  right: calc(var(--ui) * 3);
+  font-size: var(--text-base);
   color: var(--ink-faint);
 }
 
 .card .card-pips {
   display: flex;
-  gap: calc(var(--u) * 1.5);
+  gap: calc(var(--ui) * 1.5);
 }
 
 .card .card-pips .pip {
-  width: calc(var(--u) * 4);
-  height: calc(var(--u) * 2);
+  width: calc(var(--ui) * 4);
+  height: calc(var(--ui) * 2);
   background: var(--edge);
-  box-shadow: 0 0 0 calc(var(--u) * 0.5) var(--void);
+  box-shadow: 0 0 0 calc(var(--ui) * 0.5) var(--void);
 }
 
 .card .card-pips .pip.on {
@@ -595,12 +651,12 @@ body {
 /* The arena picker is the same card, one notch smaller: four of them can sit
    above five survivor cards without the title screen becoming two screens. */
 .arena-cards {
-  max-width: calc(var(--u) * 300);
+  max-width: calc(var(--ui) * 300);
 }
 
 .arena-card {
-  width: calc(var(--u) * 68);
-  min-height: calc(var(--u) * 34);
+  width: calc(var(--ui) * 68);
+  min-height: calc(var(--ui) * 34);
 }
 
 /* Selection is not focus. The chosen arena has to stay marked after the cursor
@@ -609,7 +665,7 @@ body {
 .card.primary {
   border-color: var(--accent-deep);
   background: linear-gradient(180deg, var(--panel-raised) 0%, var(--panel-solid) 100%);
-  box-shadow: var(--frame), var(--lift), inset calc(var(--u) * 2) 0 0 var(--accent);
+  box-shadow: var(--frame), var(--lift), inset calc(var(--ui) * 2) 0 0 var(--accent);
 }
 
 /* Gold against a screen of blood-red tags: the defence night is the one that
@@ -628,28 +684,28 @@ body {
      push the row past the fold and clip its own padding away. */
   bottom: 0;
   z-index: 1;
-  padding: calc(var(--u) * 4) 0;
+  padding: calc(var(--ui) * 4) 0;
   width: 100%;
   background: linear-gradient(to top, rgba(4, 1, 9, 0.96) 60%, rgba(4, 1, 9, 0));
 }
 
 .button-row {
   display: flex;
-  gap: calc(var(--u) * 4);
+  gap: calc(var(--ui) * 4);
   flex-wrap: wrap;
   justify-content: center;
 }
 
 button.btn {
   font: inherit;
-  font-size: calc(var(--u) * 7);
-  padding: calc(var(--u) * 3) calc(var(--u) * 8);
+  font-size: var(--text-lg);
+  padding: calc(var(--ui) * 3) calc(var(--ui) * 8);
   background: linear-gradient(180deg, var(--panel-solid) 0%, var(--crypt) 100%);
   color: var(--ink);
-  border: var(--u) solid var(--edge);
+  border: var(--hair) solid var(--edge);
   box-shadow: var(--frame), var(--lift);
   cursor: pointer;
-  letter-spacing: calc(var(--u) * 0.3);
+  letter-spacing: calc(var(--ui) * 0.3);
   transition: border-color 110ms, background 110ms, box-shadow 110ms, transform 110ms, color 110ms;
 }
 
@@ -658,16 +714,16 @@ button.btn.focused {
   border-color: var(--accent);
   color: var(--ink);
   background: linear-gradient(180deg, var(--panel-raised) 0%, var(--panel-solid) 100%);
-  transform: translateY(calc(var(--u) * -1));
+  transform: translateY(calc(var(--ui) * -1));
   box-shadow:
     var(--frame),
     var(--glow-accent),
-    0 calc(var(--u) * 4) 0 rgba(4, 1, 9, 0.55);
+    0 calc(var(--ui) * 4) 0 rgba(4, 1, 9, 0.55);
 }
 
 button.btn:focus-visible {
-  outline: calc(var(--u) * 2) solid var(--xp);
-  outline-offset: calc(var(--u) * 1);
+  outline: calc(var(--ui) * 2) solid var(--xp);
+  outline-offset: calc(var(--ui) * 1);
   box-shadow: var(--frame), var(--glow-accent), var(--glow-focus);
 }
 
@@ -676,7 +732,7 @@ button.btn.primary {
   color: var(--gold);
   box-shadow:
     var(--frame),
-    0 0 0 var(--u) rgba(212, 161, 90, 0.28),
+    0 0 0 var(--hair) rgba(212, 161, 90, 0.28),
     var(--lift);
 }
 
@@ -687,7 +743,7 @@ button.btn.primary.focused {
   box-shadow:
     var(--frame),
     var(--glow-gold),
-    0 calc(var(--u) * 4) 0 rgba(4, 1, 9, 0.55);
+    0 calc(var(--ui) * 4) 0 rgba(4, 1, 9, 0.55);
 }
 
 /* Nothing sets `disabled` today, but the rule keeps a dead control from ever
@@ -706,8 +762,8 @@ button.btn[disabled] {
 .results {
   display: grid;
   grid-template-columns: auto auto;
-  gap: calc(var(--u) * 2) calc(var(--u) * 8);
-  font-size: calc(var(--u) * 6);
+  gap: calc(var(--ui) * 2) calc(var(--ui) * 8);
+  font-size: var(--text-md);
 }
 
 .results dt {
@@ -724,28 +780,28 @@ button.btn[disabled] {
 .picker {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--u) * 3);
+  gap: calc(var(--ui) * 3);
   align-items: center;
 }
 
 .picker-label {
-  font-size: calc(var(--u) * 5);
+  font-size: var(--text-base);
   color: var(--ink-faint);
-  letter-spacing: calc(var(--u) * 0.4);
+  letter-spacing: calc(var(--ui) * 0.4);
 }
 
 /* Tonight's Oaths — a read-only block under the wallet. Reuses .picker and the
    .pip look from the card meters; it contains no focusables by design. */
 .oaths {
-  gap: calc(var(--u) * 2);
-  margin-bottom: calc(var(--u) * 2);
+  gap: calc(var(--ui) * 2);
+  margin-bottom: calc(var(--ui) * 2);
 }
 
 .oaths .oath {
   display: flex;
   align-items: center;
-  gap: calc(var(--u) * 2.5);
-  font-size: calc(var(--u) * 4.5);
+  gap: calc(var(--ui) * 2.5);
+  font-size: var(--text-sm);
   color: var(--ink-faint);
 }
 
@@ -755,10 +811,10 @@ button.btn[disabled] {
 
 .oaths .pip {
   flex: none;
-  width: calc(var(--u) * 3);
-  height: calc(var(--u) * 3);
+  width: calc(var(--ui) * 3);
+  height: calc(var(--ui) * 3);
   background: var(--edge);
-  box-shadow: 0 0 0 calc(var(--u) * 0.5) var(--void);
+  box-shadow: 0 0 0 calc(var(--ui) * 0.5) var(--void);
 }
 
 .oaths .pip.on {
@@ -774,9 +830,9 @@ button.btn[disabled] {
 
 .debug {
   position: absolute;
-  right: calc(var(--u) * 5);
-  bottom: calc(var(--u) * 5);
-  font-size: calc(var(--u) * 4.5);
+  right: var(--edge-inset);
+  bottom: var(--edge-inset);
+  font-size: var(--text-sm);
   color: var(--ink-faint);
   text-align: right;
   line-height: 1.5;
@@ -793,24 +849,24 @@ button.btn[disabled] {
 .blood-cluster {
   position: absolute;
   left: 50%;
-  bottom: max(calc(var(--u) * 5), calc(var(--safe-b) - var(--offset-y, 0px)));
+  bottom: max(var(--edge-inset), calc(var(--safe-b) - var(--offset-y, 0px)));
   transform: translateX(-50%);
   display: flex;
   align-items: flex-end;
-  gap: calc(var(--u) * 3);
+  gap: calc(var(--ui) * 3);
 }
 
 .blood-orb {
   position: relative;
-  width: calc(var(--u) * 22);
-  height: calc(var(--u) * 22);
+  width: calc(var(--ui) * 22);
+  height: calc(var(--ui) * 22);
   border-radius: 50%;
   overflow: hidden;
   background: var(--wine);
-  border: var(--u) solid var(--void);
+  border: var(--hair) solid var(--void);
   box-shadow:
-    0 0 0 var(--u) var(--void),
-    inset 0 calc(var(--u) * 2) calc(var(--u) * 3) rgba(4, 1, 9, 0.7),
+    0 0 0 var(--hair) var(--void),
+    inset 0 calc(var(--ui) * 2) calc(var(--ui) * 3) rgba(4, 1, 9, 0.7),
     var(--lift);
 }
 
@@ -827,20 +883,20 @@ button.btn[disabled] {
 }
 
 .blood-btn {
-  width: calc(var(--u) * 16);
-  height: calc(var(--u) * 16);
+  width: calc(var(--ui) * 16);
+  height: calc(var(--ui) * 16);
   border-radius: 50%;
-  border: var(--u) solid var(--edge);
+  border: var(--hair) solid var(--edge);
   background: var(--panel);
   box-shadow: var(--frame);
   color: var(--ink-faint);
   font: inherit;
-  font-size: calc(var(--u) * 4);
+  font-size: var(--text-xs);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: calc(var(--u) * 1);
+  gap: calc(var(--ui) * 1);
   padding: 0;
   touch-action: none;
 }
@@ -861,39 +917,39 @@ button.btn[disabled] {
     box-shadow: var(--frame), 0 0 0 0 rgba(217, 74, 94, 0);
   }
   50% {
-    box-shadow: var(--frame), 0 0 0 calc(var(--u) * 2) rgba(217, 74, 94, 0.45);
+    box-shadow: var(--frame), 0 0 0 calc(var(--ui) * 2) rgba(217, 74, 94, 0.45);
   }
 }
 
 .key-hint {
-  font-size: calc(var(--u) * 3.5);
+  font-size: calc(var(--ui) * 3.5);
   color: var(--ink-dim);
 }
 
-@media (pointer: coarse) {
-  .key-hint {
-    display: none;
-  }
+/* No keyboard, no key hints. See the note on `.touch-layer` for why this keys
+   off a class rather than `@media (pointer: coarse)`. */
+.coarse .key-hint {
+  display: none;
 }
 
 /* --- Ability button, in the blood cluster ------------------------------- */
 
 .ability-btn {
   position: relative;
-  width: calc(var(--u) * 18);
-  height: calc(var(--u) * 18);
+  width: calc(var(--ui) * 18);
+  height: calc(var(--ui) * 18);
   border-radius: 50%;
-  border: var(--u) solid var(--edge);
+  border: var(--hair) solid var(--edge);
   background: var(--panel);
   box-shadow: var(--frame);
   color: var(--ink-faint);
   font: inherit;
-  font-size: calc(var(--u) * 3.5);
+  font-size: calc(var(--ui) * 3.5);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: calc(var(--u) * 0.5);
+  gap: calc(var(--ui) * 0.5);
   padding: 0;
   overflow: hidden;
   touch-action: none;
@@ -913,8 +969,8 @@ button.btn[disabled] {
 }
 
 .ability-icon canvas {
-  width: calc(var(--u) * 9);
-  height: calc(var(--u) * 9);
+  width: calc(var(--ui) * 9);
+  height: calc(var(--ui) * 9);
   image-rendering: pixelated;
 }
 
@@ -946,18 +1002,18 @@ button.btn[disabled] {
     box-shadow: var(--frame), 0 0 0 0 rgba(212, 161, 90, 0);
   }
   50% {
-    box-shadow: var(--frame), 0 0 0 calc(var(--u) * 2) rgba(212, 161, 90, 0.45);
+    box-shadow: var(--frame), 0 0 0 calc(var(--ui) * 2) rgba(212, 161, 90, 0.45);
   }
 }
 
 /* Structure HP pips, top-centre under the clock (castle-defense maps only). */
 .structure-pips {
   position: absolute;
-  top: calc(var(--u) * 30);
+  top: calc(var(--ui) * 30);
   left: 50%;
   transform: translateX(-50%);
   display: none;
-  gap: calc(var(--u) * 3);
+  gap: calc(var(--ui) * 3);
 }
 
 .structure-pips.visible {
@@ -965,13 +1021,13 @@ button.btn[disabled] {
 }
 
 .structure-pip {
-  width: calc(var(--u) * 24);
-  height: calc(var(--u) * 4);
+  width: calc(var(--ui) * 24);
+  height: calc(var(--ui) * 4);
   background: var(--panel);
-  border: var(--u) solid var(--void);
+  border: var(--hair) solid var(--void);
   box-shadow:
-    0 0 0 var(--u) var(--void),
-    inset 0 var(--u) 0 rgba(4, 1, 9, 0.5);
+    0 0 0 var(--hair) var(--void),
+    inset 0 var(--hair) 0 rgba(4, 1, 9, 0.5);
   overflow: hidden;
 }
 
@@ -989,18 +1045,18 @@ button.btn[disabled] {
   border-color: var(--hp-dark);
   background: var(--wine);
   box-shadow:
-    0 0 0 var(--u) var(--void),
-    inset 0 0 calc(var(--u) * 3) rgba(128, 35, 49, 0.7);
+    0 0 0 var(--hair) var(--void),
+    inset 0 0 calc(var(--ui) * 3) rgba(128, 35, 49, 0.7);
 }
 
 /* --- Meta progression: wallet + locked characters ----------------------- */
 
 .wallet {
   color: var(--gold);
-  font-size: calc(var(--u) * 5);
-  letter-spacing: calc(var(--u) * 0.5);
-  margin-bottom: calc(var(--u) * 2);
-  text-shadow: 0 var(--u) 0 var(--void);
+  font-size: var(--text-base);
+  letter-spacing: calc(var(--ui) * 0.5);
+  margin-bottom: calc(var(--ui) * 2);
+  text-shadow: 0 var(--ui) 0 var(--void);
 }
 
 .card.locked {
@@ -1020,12 +1076,12 @@ button.btn[disabled] {
 .sanctum-cards {
   flex-wrap: wrap;
   justify-content: center;
-  max-width: calc(var(--u) * 320);
+  max-width: calc(var(--ui) * 320);
 }
 
 .card-cost {
   color: var(--gold);
-  font-size: calc(var(--u) * 4);
+  font-size: var(--text-xs);
 }
 
 /* Three affordability states, kept apart by hue rather than by brightness alone:
@@ -1042,94 +1098,105 @@ button.btn[disabled] {
 /* --- Touch layer (coarse pointers only) ---------------------------------- */
 
 /* Hidden entirely on mouse/trackpad machines; the JS side also only builds it
-   when the device reports touch points, so this is belt and braces. */
+   when the device reports touch points, so this is belt and braces.
+
+   The touch rules below hang off `.coarse` on the root element rather than
+   `@media (pointer: coarse)` on purpose. The stylesheet used to ask the browser
+   one question and `Game` a different one (`navigator.maxTouchPoints > 0`,
+   which is also what decides whether `TouchControls` gets built at all), and on
+   a hybrid touch laptop the two answers disagree: either a pause button exists
+   in the DOM but is display:none, or the chrome steps aside for a joystick
+   nobody built. `Game` writes the class from its own answer, so there is now
+   exactly one. It also means a developer can force phone chrome in a desktop
+   browser by toggling one class in the inspector — though the chrome unit
+   itself is computed in JS and keeps its fine-pointer floor. */
 .touch-layer {
   display: none;
 }
 
-@media (pointer: coarse) {
-  .touch-layer {
-    display: block;
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
+.coarse .touch-layer {
+  display: block;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
 
-  .touch-layer.disabled {
-    display: none;
-  }
+.coarse .touch-layer.disabled {
+  display: none;
+}
 
-  /* Left half of the play area is joystick territory. Buttons live on the
-     right/bottom edges, outside this zone, so identifiers never contend. */
-  .touch-zone {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 50%;
-    pointer-events: auto;
-    touch-action: none;
-  }
+/* Left half of the play area is joystick territory. The HUD's own buttons are
+   later siblings, so they take the tap where the two overlap — the blood
+   cluster does reach into this zone today. */
+.coarse .touch-zone {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  pointer-events: auto;
+  touch-action: none;
+}
 
-  /* The floating base is positioned in viewport px by JS (touch coords are
-     viewport-relative); sized in --u so it scales with the art. */
-  .joy-base {
-    position: fixed;
-    width: calc(var(--u) * 48);
-    height: calc(var(--u) * 48);
-    margin-left: calc(var(--u) * -24);
-    margin-top: calc(var(--u) * -24);
-    border-radius: 50%;
-    border: var(--u) solid var(--edge-bright);
-    background: rgba(17, 12, 26, 0.35);
-    box-shadow:
-      0 0 0 var(--u) rgba(4, 1, 9, 0.6),
-      inset 0 0 calc(var(--u) * 6) rgba(4, 1, 9, 0.45);
-    display: none;
-    pointer-events: none;
-  }
+/* The floating base is positioned in viewport px by JS (touch coords are
+   viewport-relative); sized in chrome units so it stays thumb-sized. */
+.coarse .joy-base {
+  position: fixed;
+  width: calc(var(--ui) * 48);
+  height: calc(var(--ui) * 48);
+  margin-left: calc(var(--ui) * -24);
+  margin-top: calc(var(--ui) * -24);
+  border-radius: 50%;
+  border: var(--hair) solid var(--edge-bright);
+  background: rgba(17, 12, 26, 0.35);
+  box-shadow:
+    0 0 0 var(--hair) rgba(4, 1, 9, 0.6),
+    inset 0 0 calc(var(--ui) * 6) rgba(4, 1, 9, 0.45);
+  display: none;
+  pointer-events: none;
+}
 
-  .joy-base.active {
-    display: block;
-  }
+.coarse .joy-base.active {
+  display: block;
+}
 
-  .joy-nub {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: calc(var(--u) * 16);
-    height: calc(var(--u) * 16);
-    margin-left: calc(var(--u) * -8);
-    margin-top: calc(var(--u) * -8);
-    border-radius: 50%;
-    background: rgba(212, 161, 90, 0.5);
-    box-shadow: 0 0 0 calc(var(--u) * 0.5) rgba(4, 1, 9, 0.55);
-  }
+.coarse .joy-nub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--ui) * 16);
+  height: calc(var(--ui) * 16);
+  margin-left: calc(var(--ui) * -8);
+  margin-top: calc(var(--ui) * -8);
+  border-radius: 50%;
+  background: rgba(212, 161, 90, 0.5);
+  box-shadow: 0 0 0 calc(var(--ui) * 0.5) rgba(4, 1, 9, 0.55);
+}
 
-  /* The pause control owns the top-right corner on touch, so the counter column
-     steps left of its 18u-wide box (14u + 4u inset) with a 4u gutter. Sits 1u
-     below the xp track's bottom border (4u bar + 1u border) instead of under
-     it — the touch layer is prepended, so the HUD would paint over the circle. */
-  .hud-right {
-    right: max(calc(var(--u) * 22), calc(var(--safe-r) - var(--offset-x, 0px)));
-  }
+/* The pause control owns the top-right corner on touch, so the counter column
+   steps left of its 18u-wide box (14u + 4u inset) with a 4u gutter. Both are
+   chrome units and stay in step with each other; the clearance from the xp
+   track below them is not, since that bar is the one art-bound rule — on a
+   phone the chrome unit is the larger of the two, so the gap only widens. */
+.coarse .hud-right {
+  right: max(calc(var(--ui) * 22), calc(var(--safe-r) - var(--offset-x, 0px)));
+}
 
-  .touch-pause {
-    position: absolute;
-    top: max(calc(var(--u) * 6), calc(var(--safe-t) - var(--offset-y, 0px)));
-    right: max(calc(var(--u) * 4), calc(var(--safe-r) - var(--offset-x, 0px)));
-    width: calc(var(--u) * 14);
-    height: calc(var(--u) * 14);
-    border-radius: 50%;
-    border: var(--u) solid var(--edge);
-    background: var(--panel);
-    box-shadow: var(--frame);
-    color: var(--ink-dim);
-    font: inherit;
-    font-size: calc(var(--u) * 5);
-    letter-spacing: calc(var(--u) * 0.5);
-    padding: 0;
-    pointer-events: auto;
-    touch-action: none;
-  }
+.coarse .touch-pause {
+  position: absolute;
+  top: max(calc(var(--ui) * 6), calc(var(--safe-t) - var(--offset-y, 0px)));
+  right: max(calc(var(--ui) * 4), calc(var(--safe-r) - var(--offset-x, 0px)));
+  width: calc(var(--ui) * 14);
+  height: calc(var(--ui) * 14);
+  border-radius: 50%;
+  border: var(--hair) solid var(--edge);
+  background: var(--panel);
+  box-shadow: var(--frame);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: var(--text-base);
+  letter-spacing: calc(var(--ui) * 0.5);
+  padding: 0;
+  pointer-events: auto;
+  touch-action: none;
 }
