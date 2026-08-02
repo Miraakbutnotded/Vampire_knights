@@ -46,6 +46,23 @@ import type { RunSummary, TelemetryService } from './services/telemetry.ts';
 type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'dying' | 'results' | 'sanctum';
 
 /**
+ * The three DOM layers over the canvas, supplied by main.ts.
+ *
+ * They are taken as a record rather than one root because they are not
+ * interchangeable: `ui` is clipped to the letterboxed play area and everything
+ * in it is anchored to the world, while `touch` and `menu` span the whole
+ * viewport. index.html carries the full reasoning.
+ */
+export interface UiRoots {
+  /** The play box. Holds the HUD and the debug overlay. */
+  ui: HTMLElement;
+  /** Full viewport, under `ui`. Holds the joystick capture zone and pause. */
+  touch: HTMLElement;
+  /** Full viewport, over everything. Holds the menus. */
+  menu: HTMLElement;
+}
+
+/**
  * States in which a run is open and the coach may speak. Outside these the
  * strip belongs to no run, so the schedule does not advance at all.
  */
@@ -137,7 +154,7 @@ export class Game implements LoopHooks {
 
   constructor(
     canvas: HTMLCanvasElement,
-    uiRoot: HTMLElement,
+    roots: UiRoots,
     private sprites: SpriteTable,
     private meta: MetaService,
     // Taken here rather than reached for through the bus because a run's
@@ -167,13 +184,18 @@ export class Game implements LoopHooks {
     this.debugEl = document.createElement('div');
     this.debugEl.className = 'debug';
 
-    uiRoot.append(this.hud.root, this.screens.root, this.debugEl);
+    // The HUD and the debug overlay belong to the play box; the menus do not.
+    // See the comment in index.html for why that line is drawn where it is.
+    roots.ui.append(this.hud.root, this.debugEl);
+    roots.menu.append(this.screens.root);
 
-    // Touch controls exist only where touch exists; prepended so the HUD's own
-    // buttons (later siblings) stack above the joystick capture zone.
+    // Touch controls exist only where touch exists. They live in their own
+    // full-viewport layer beneath `#ui`, which keeps the old stacking exactly
+    // as it was — the HUD's buttons still take the tap where the two overlap —
+    // while giving the joystick the letterbox pillar it could never reach.
     if (this.coarse) {
       this.touch = new TouchControls(this.input);
-      uiRoot.prepend(this.touch.root);
+      roots.touch.append(this.touch.root);
       this.input.attachAxisSource(this.touch);
     }
 

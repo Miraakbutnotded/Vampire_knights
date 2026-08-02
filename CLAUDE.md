@@ -136,6 +136,23 @@ deliberately. Touch styling hangs off a `.coarse` class the constructor writes f
 `navigator.maxTouchPoints` — never `@media (pointer: coarse)`, which is a second source of truth that
 disagrees with the JS on hybrid laptops.
 
+**Three DOM layers**, in paint order (`index.html`, wired through `UiRoots` in game.ts): `#touch`
+(joystick + pause), `#ui` (HUD + debug), `#menu` (the five screens). Only `#ui` is clipped and
+translated to the letterboxed play box, because only its contents are anchored to the world — so
+only its children compose device insets as `max(design, safe − offset)`. Children of `#touch` and
+`#menu` span the viewport and compose them **directly** (`max(design, safe)`); using the `#ui` idiom
+there under-insets a notched phone by the width of the letterbox bar, and `src/ui/layout.test.ts`
+gates it.
+
+Cross-element clearances in the stylesheet are **composed, never measured** — `--cluster-w`,
+`--pause-reserve`, `--bottom-band`, `--hud-center-h`. Each is built from the tokens of the things it
+has to clear, so resizing a control moves everything that reserves space against it in the same
+edit; layout.test.ts fails the build if one of them turns back into a literal. Every menu is built
+from two regions (`shell()` in screens.ts): `.screen-aside` holds the reading matter and no
+focusable, `.screen-main` holds everything actionable. They stack into one centred column normally
+and become lanes under `@media (max-height: 560px)` — a phone in landscape. That media query asks
+about vertical room, which is a different question from `.coarse`, not a second answer to it.
+
 ### Content pipeline (`src/gameplay/content.ts`)
 
 The only importer of the raw JSON. Normalizes once at module load into typed defs
@@ -188,5 +205,10 @@ auto-resolve by taking the first offer. To write a test: `makeHarness()`, mutate
 `world.list(Kind.X)`, or bus events. The 15-minute full-run test treats >4000 concurrent entities
 as a leak.
 
-Renderer, Hud, Screens, Input, TileMap, SpriteTable have no test coverage — they need a browser;
-verify those changes with `npm run dev`.
+Renderer, Hud, Screens, Input, TileMap and SpriteTable need a browser, so their DOM work is verified
+with `npm run dev`. What can be pulled out of them is: `src/ui/navigation.test.ts` covers the menu
+cursor and the title screen's flat-index-to-meaning mapping (`src/ui/navigation.ts`), and
+`src/ui/metrics.test.ts` / `src/ui/layout.test.ts` parse `style.css` itself — the art-unit allowlist,
+the physical size every token resolves to at the touch floor, and whether each cross-element
+clearance is still composed rather than a literal. New UI arithmetic belongs in one of those two
+rather than in a comment.

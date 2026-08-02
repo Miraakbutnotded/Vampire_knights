@@ -29,7 +29,11 @@ declare global {
 async function boot(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>('#game');
   const uiRoot = document.querySelector<HTMLElement>('#ui');
-  if (!canvas || !uiRoot) throw new Error('index.html is missing #game or #ui');
+  const touchRoot = document.querySelector<HTMLElement>('#touch');
+  const menuRoot = document.querySelector<HTMLElement>('#menu');
+  if (!canvas || !uiRoot || !touchRoot || !menuRoot) {
+    throw new Error('index.html is missing #game, #touch, #ui or #menu');
+  }
 
   const sprites = await SpriteTable.load();
   // Second async boot step: the wallet and sanctum ranks must exist before the
@@ -43,7 +47,7 @@ async function boot(): Promise<void> {
   // First of the three rollover points, and it must precede the Game: the
   // constructor opens the title screen, which renders today's oaths.
   meta.rollDaily(Date.now());
-  const game = new Game(canvas, uiRoot, sprites, meta, telemetry);
+  const game = new Game(canvas, { ui: uiRoot, touch: touchRoot, menu: menuRoot }, sprites, meta, telemetry);
 
   if (import.meta.env.DEV) window.vkTelemetry = telemetry;
 

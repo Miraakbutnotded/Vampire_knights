@@ -7,6 +7,8 @@ import type { Run } from '../gameplay/run.ts';
 import type { SpriteTable } from '../render/sprites.ts';
 import type { MapChoice } from '../render/tilemap.ts';
 
+import { NUMBER_KEYS, choiceLabel, titleSelection, wrapIndex } from './navigation.ts';
+
 export type ScreenName = 'none' | 'title' | 'levelup' | 'pause' | 'results' | 'sanctum';
 
 export interface ResultsData {
@@ -67,8 +69,6 @@ export interface SanctumCallbacks {
   onBack: () => void;
 }
 
-const NUMBER_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'];
-
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -81,17 +81,25 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 /**
- * All full-screen menus: title, level-up draft, pause and results.
+ * All full-screen menus: title, level-up draft, pause, results and the Sanctum.
  *
  * Every screen reduces to the same interaction — a list of focusable choices
- * driven by either keyboard, gamepad or mouse — so navigation is implemented
+ * driven by keyboard, gamepad, mouse or thumb — so navigation is implemented
  * once here and each screen just supplies its elements and a callback.
+ *
+ * Each screen is built into two regions (see `shell`): an `aside` holding the
+ * reading matter and a `main` holding everything the player can act on. In a
+ * roomy window the two dissolve into the single centred column the menus have
+ * always been; on a short viewport — a phone held sideways is 402pt tall, and a
+ * title screen is three times that — they become lanes, so the choices get the
+ * full height instead of queueing below a headline. The split is presentational
+ * only: the choice array stays flat and ordered, and an element's lane cannot
+ * change what selecting it does.
  */
 export class Screens {
   readonly root: HTMLElement;
 
   private current: ScreenName = 'none';
-  private panel: HTMLElement;
 
   private choices: HTMLElement[] = [];
   private focusIndex = 0;
@@ -110,8 +118,12 @@ export class Screens {
     this.maps = maps;
     this.selectedMap = maps[0]?.id ?? 'meadow';
     this.root = el('div', 'screen');
-    this.panel = el('div', 'picker');
-    this.root.appendChild(this.panel);
+    // A menu covers the game and takes every input while it is up, which is
+    // what a modal dialog is; saying so is the whole of the announcement for
+    // assistive tech, since `display: none` already keeps a hidden screen out
+    // of the tree. The accessible name is set per screen in `shell`.
+    this.root.setAttribute('role', 'dialog');
+    this.root.setAttribute('aria-modal', 'true');
   }
 
   get active(): ScreenName {
@@ -129,6 +141,33 @@ export class Screens {
     this.onSelect = null;
   }
 
+  /**
+   * Clears the screen and returns its two regions, ready to be filled.
+   *
+   * `aside` is the reading matter — headings, prose, stats, the wallet — and
+   * holds no focusable by design. `main` is everything actionable: pickers,
+   * cards, the button row, the hint that explains them. The stylesheet stacks
+   * the two into one centred column when there is height for it and lays them
+   * out as lanes when there is not.
+   *
+   * The screen name doubles as a modifier class, so a screen that needs to opt
+   * out of the lane layout (the level-up draft wants the full width for three
+   * cards) can say so in CSS rather than here.
+   */
+  private shell(name: Exclude<ScreenName, 'none'>, label: string): {
+    aside: HTMLElement;
+    main: HTMLElement;
+  } {
+    this.current = name;
+    this.root.className = `screen screen-${name} visible`;
+    this.root.setAttribute('aria-label', label);
+    this.root.replaceChildren();
+    const aside = el('div', 'screen-aside');
+    const main = el('div', 'screen-main');
+    this.root.append(aside, main);
+    return { aside, main };
+  }
+
   // --- title --------------------------------------------------------------
 
   showTitle(characters: readonly CharacterDef[], meta: TitleMeta, callbacks: TitleCallbacks): void {
@@ -139,26 +178,26 @@ export class Screens {
   }
 
   private renderTitle(): void {
-    this.current = 'title';
-    this.root.classList.add('visible');
-    this.root.replaceChildren();
+    const { aside, main } = this.shell('title', 'Title screen');
 
-    this.root.appendChild(el('h1', undefined, 'SURVIVORS'));
-    this.root.appendChild(
+    aside.appendChild(el('h1', undefined, 'SURVIVORS'));
+    aside.appendChild(
       el(
         'p',
         undefined,
         'Fifteen minutes until dawn. Hold the walls, or hold your ground — pick up whatever keeps you standing.',
       ),
     );
-    this.root.appendChild(el('div', 'wallet', `VAULT ${this.titleMeta?.gold ?? 0} GOLD`));
+    aside.appendChild(el('div', 'wallet', `VAULT ${this.titleMeta?.gold ?? 0} GOLD`));
 
     // Tonight's Oaths, under the wallet where it reads as an extension of it.
     //
-    // **Zero focusables, deliberately.** `focusables` below is one flat array
-    // and handleInput maps Digit1..9 straight onto its indices, while each
-    // character card renders its own number as `maps.length + i + 1`. Anything
-    // interactive here would shift every number key on the screen by one.
+    // **Zero focusables, deliberately** — which is also why it belongs in the
+    // aside: that region is defined as the part of the screen with nothing to
+    // act on, so the rule is now structural rather than a promise in a comment.
+    // Anything interactive here would shift every number key on the screen by
+    // one, since `focusables` below is one flat array and handleInput maps
+    // Digit1..9 straight onto its indices.
     const oaths = this.titleMeta?.daily ?? [];
     if (oaths.length > 0) {
       const panel = el('div', 'picker oaths');
@@ -167,13 +206,14 @@ export class Screens {
         const row = el('div', 'oath');
         const pip = el('div', 'pip');
         if (oath.done) pip.classList.add('on');
+        pip.setAttribute('aria-hidden', 'true');
         row.appendChild(pip);
         row.appendChild(el('div', 'oath-label', oath.label));
         row.appendChild(el('div', 'oath-count', `${oath.progress}/${oath.target}`));
         if (oath.done) row.classList.add('done');
         panel.appendChild(row);
       }
-      this.root.appendChild(panel);
+      aside.appendChild(panel);
     }
 
     const focusables: HTMLElement[] = [];
@@ -188,7 +228,12 @@ export class Screens {
       const choice = this.maps[i]!;
       const card = el('button', 'card arena-card');
       card.type = 'button';
-      if (choice.id === this.selectedMap) card.classList.add('primary');
+      // Selection is not focus here — the chosen arena stays marked while the
+      // cursor moves on to the survivors — so it needs a state of its own
+      // rather than borrowing the focus ring's meaning.
+      const selected = choice.id === this.selectedMap;
+      card.setAttribute('aria-pressed', String(selected));
+      if (selected) card.classList.add('primary');
 
       const head = el('div', 'card-head');
       const titles = el('div');
@@ -206,13 +251,15 @@ export class Screens {
       card.appendChild(head);
 
       if (choice.blurb) card.appendChild(el('div', 'card-body', choice.blurb));
-      card.appendChild(el('div', 'card-key', String(i + 1)));
+      // Numbered from the position it is about to take in the flat array, so
+      // the printed key and the key that selects it are the same derivation.
+      appendCardKey(card, focusables.length);
 
       mapCards.appendChild(card);
       focusables.push(card);
     }
     mapPicker.appendChild(mapCards);
-    this.root.appendChild(mapPicker);
+    main.appendChild(mapPicker);
 
     // Character picker: locked cards render greyed with their price and route
     // to the unlock flow instead of starting a run.
@@ -243,13 +290,13 @@ export class Screens {
       card.appendChild(head);
 
       card.appendChild(el('div', 'card-body', character.description));
-      card.appendChild(el('div', 'card-key', String(this.maps.length + i + 1)));
+      appendCardKey(card, focusables.length);
 
       cards.appendChild(card);
       focusables.push(card);
     }
     charPicker.appendChild(cards);
-    this.root.appendChild(charPicker);
+    main.appendChild(charPicker);
 
     // Sanctum entry — appended after the pickers so the map/character
     // number-key indices stay stable.
@@ -257,26 +304,29 @@ export class Screens {
     const sanctumBtn = el('button', 'btn', 'THE SANCTUM');
     sanctumBtn.type = 'button';
     metaRow.appendChild(sanctumBtn);
-    this.root.appendChild(metaRow);
+    main.appendChild(metaRow);
     focusables.push(sanctumBtn);
 
-    this.root.appendChild(
+    main.append(
       el('div', 'hint key-hint', 'WASD or arrows to move · ESC to pause · number keys or click to choose'),
+      el('div', 'hint touch-hint', 'Left thumb walks · right thumb feasts · tap a survivor to begin'),
     );
 
     const mapCount = this.maps.length;
     const charCount = this.characters.length;
     this.setChoices(focusables, (index) => {
-      if (index < mapCount) {
-        this.selectedMap = this.maps[index]!.id;
+      const choice = titleSelection(index, mapCount, charCount);
+      if (choice.kind === 'map') {
+        const map = this.maps[choice.at];
+        if (!map) return;
+        this.selectedMap = map.id;
         // Re-render so the highlighted arena updates, keeping focus in place.
-        const keep = index;
         this.renderTitle();
-        this.setFocus(keep);
+        this.setFocus(index);
         return;
       }
-      if (index < mapCount + charCount) {
-        const character = this.characters[index - mapCount];
+      if (choice.kind === 'character') {
+        const character = this.characters[choice.at];
         if (!character) return;
         if (!(this.titleMeta?.isUnlocked(character) ?? true)) {
           this.titleCallbacks?.onUnlock(character.id);
@@ -285,7 +335,7 @@ export class Screens {
         this.titleCallbacks?.onStart(character.id, this.selectedMap);
         return;
       }
-      this.titleCallbacks?.onSanctum();
+      if (choice.kind === 'sanctum') this.titleCallbacks?.onSanctum();
     });
     // Default focus to the first character rather than the arena buttons, since
     // starting a run is what the player is here to do.
@@ -295,11 +345,9 @@ export class Screens {
   // --- level-up draft -----------------------------------------------------
 
   showLevelUp(offers: Offer[], onPick: (offer: Offer) => void): void {
-    this.current = 'levelup';
-    this.root.classList.add('visible');
-    this.root.replaceChildren();
+    const { aside, main } = this.shell('levelup', 'Level up — choose an upgrade');
 
-    this.root.appendChild(el('h2', undefined, 'LEVEL UP'));
+    aside.appendChild(el('h2', undefined, 'LEVEL UP'));
 
     const cards = el('div', 'cards');
     const focusables: HTMLElement[] = [];
@@ -329,20 +377,19 @@ export class Screens {
       card.appendChild(el('div', 'card-body', offer.description));
 
       if (offer.maxLevel > 0) {
-        const pips = el('div', 'card-pips');
-        for (let p = 0; p < offer.maxLevel; p++) {
-          pips.appendChild(el('span', p < offer.level ? 'pip on' : 'pip'));
-        }
-        card.appendChild(pips);
+        card.appendChild(levelPips(offer.level, offer.maxLevel));
       }
 
-      card.appendChild(el('div', 'card-key', String(i + 1)));
+      appendCardKey(card, focusables.length);
       cards.appendChild(card);
       focusables.push(card);
     }
 
-    this.root.appendChild(cards);
-    this.root.appendChild(el('div', 'hint key-hint', 'Arrows to move · Enter to choose · 1-3 for a direct pick'));
+    main.appendChild(cards);
+    main.append(
+      el('div', 'hint key-hint', 'Arrows to move · Enter to choose · 1-3 for a direct pick'),
+      el('div', 'hint touch-hint', 'Tap a card to take it'),
+    );
 
     this.setChoices(focusables, (index) => {
       const offer = offers[index];
@@ -354,21 +401,19 @@ export class Screens {
   // --- pause --------------------------------------------------------------
 
   showPause(run: Run, callbacks: PauseCallbacks): void {
-    this.current = 'pause';
-    this.root.classList.add('visible');
-    this.root.replaceChildren();
+    const { aside, main } = this.shell('pause', 'Paused');
 
-    this.root.appendChild(el('h2', undefined, 'PAUSED'));
+    aside.appendChild(el('h2', undefined, 'PAUSED'));
 
     const summary = el('dl', 'results');
     appendResult(summary, 'Time', formatTime(run.time));
     appendResult(summary, 'Level', String(run.level));
     appendResult(summary, 'Kills', String(run.kills));
     appendResult(summary, 'Gold', String(run.gold));
-    this.root.appendChild(summary);
+    aside.appendChild(summary);
 
     const loadout = run.weapons.map((w) => `${w.def.name} ${w.level}`).join(' · ');
-    if (loadout) this.root.appendChild(el('p', undefined, loadout));
+    if (loadout) aside.appendChild(el('p', undefined, loadout));
 
     const row = el('div', 'button-row');
     const resume = el('button', 'btn primary', 'Resume');
@@ -378,8 +423,11 @@ export class Screens {
     const quit = el('button', 'btn', 'Quit to title');
     quit.type = 'button';
     row.append(resume, restart, quit);
-    this.root.appendChild(row);
-    this.root.appendChild(el('div', 'hint key-hint', 'ESC to resume'));
+    main.appendChild(row);
+    main.append(
+      el('div', 'hint key-hint', 'ESC to resume'),
+      el('div', 'hint touch-hint', 'Tap Resume, or the pause button again'),
+    );
 
     this.setChoices([resume, restart, quit], (index) => {
       if (index === 0) callbacks.onResume();
@@ -392,17 +440,15 @@ export class Screens {
   // --- results ------------------------------------------------------------
 
   showResults(data: ResultsData, callbacks: ResultsCallbacks): void {
-    this.current = 'results';
-    this.root.classList.add('visible');
-    this.root.replaceChildren();
+    const { aside, main } = this.shell('results', data.victory ? 'You survived' : 'You died');
 
     const { run, victory } = data;
     const held = data.structuresSpawned - data.structuresLost;
     // A defence night gets its own line, because "you survived" is only half
     // of what was asked of you there.
     const defended = data.structuresSpawned > 0;
-    this.root.appendChild(el('h1', undefined, victory ? 'YOU SURVIVED' : 'YOU DIED'));
-    this.root.appendChild(
+    aside.appendChild(el('h1', undefined, victory ? 'YOU SURVIVED' : 'YOU DIED'));
+    aside.appendChild(
       el(
         'p',
         undefined,
@@ -429,10 +475,10 @@ export class Screens {
     // reprimand on every run that did not happen to close one.
     if (data.dailyGold > 0) appendResult(summary, 'Oaths kept', `+${data.dailyGold}`);
     appendResult(summary, 'Sanctum vault', String(data.walletGold));
-    this.root.appendChild(summary);
+    aside.appendChild(summary);
 
     const loadout = run.weapons.map((w) => `${w.def.name} ${w.level}`).join(' · ');
-    if (loadout) this.root.appendChild(el('p', undefined, loadout));
+    if (loadout) aside.appendChild(el('p', undefined, loadout));
 
     const row = el('div', 'button-row');
     const retry = el('button', 'btn primary', 'Run again');
@@ -440,7 +486,7 @@ export class Screens {
     const title = el('button', 'btn', 'Title screen');
     title.type = 'button';
     row.append(retry, title);
-    this.root.appendChild(row);
+    main.appendChild(row);
 
     this.setChoices([retry, title], (index) => {
       if (index === 0) callbacks.onRetry();
@@ -452,15 +498,13 @@ export class Screens {
   // --- sanctum ------------------------------------------------------------
 
   showSanctum(meta: SanctumMeta, callbacks: SanctumCallbacks, focus = 0): void {
-    this.current = 'sanctum';
-    this.root.classList.add('visible');
-    this.root.replaceChildren();
+    const { aside, main } = this.shell('sanctum', 'The Sanctum');
 
-    this.root.appendChild(el('h2', undefined, 'THE SANCTUM'));
-    this.root.appendChild(
+    aside.appendChild(el('h2', undefined, 'THE SANCTUM'));
+    aside.appendChild(
       el('p', undefined, 'Gold spent between nights stays spent. These vows persist.'),
     );
-    this.root.appendChild(el('div', 'wallet', `VAULT ${meta.gold} GOLD`));
+    aside.appendChild(el('div', 'wallet', `VAULT ${meta.gold} GOLD`));
 
     const cards = el('div', 'cards sanctum-cards');
     const focusables: HTMLElement[] = [];
@@ -483,28 +527,26 @@ export class Screens {
       card.appendChild(head);
 
       card.appendChild(el('div', 'card-body', node.description));
-
-      const pips = el('div', 'card-pips');
-      for (let p = 0; p < node.maxRank; p++) {
-        pips.appendChild(el('span', p < rank ? 'pip on' : 'pip'));
-      }
-      card.appendChild(pips);
-
+      card.appendChild(levelPips(rank, node.maxRank));
       card.appendChild(el('div', 'card-cost', maxed ? 'COMPLETE' : `${cost} GOLD`));
+      appendCardKey(card, focusables.length);
 
       cards.appendChild(card);
       focusables.push(card);
     }
-    this.root.appendChild(cards);
+    main.appendChild(cards);
 
     const row = el('div', 'button-row');
     const back = el('button', 'btn primary', 'Back to title');
     back.type = 'button';
     row.appendChild(back);
-    this.root.appendChild(row);
+    main.appendChild(row);
     focusables.push(back);
 
-    this.root.appendChild(el('div', 'hint key-hint', 'Arrows to move · Enter to buy · ESC to leave'));
+    main.append(
+      el('div', 'hint key-hint', 'Arrows to move · Enter to buy · ESC to leave'),
+      el('div', 'hint touch-hint', 'Swipe the row · tap a vow to buy it'),
+    );
 
     this.setChoices(focusables, (index) => {
       if (index < META_LIST.length) {
@@ -529,11 +571,36 @@ export class Screens {
     });
   }
 
+  /**
+   * Moves the highlight, wrapping at either end.
+   *
+   * This is a roving highlight, not DOM focus: nothing here calls
+   * `element.focus()`, because the menus are polled from the game loop and
+   * moving real focus would put the browser's own scroll and focus-ring
+   * heuristics in the middle of a cursor the game already owns.
+   *
+   * It does have to bring the highlight into view, which it did not before.
+   * A screen whose choices overflow — the Sanctum's ten vows, a card row that
+   * scrolls sideways on a phone — used to move the highlight off the edge and
+   * leave the player pressing a direction with nothing visibly happening.
+   * `nearest` on both axes scrolls the minimum needed, so it never yanks a
+   * list that was already showing the target.
+   */
   private setFocus(index: number): void {
     if (this.choices.length === 0) return;
-    const wrapped = ((index % this.choices.length) + this.choices.length) % this.choices.length;
+    const wrapped = wrapIndex(index, this.choices.length);
     this.focusIndex = wrapped;
-    this.choices.forEach((element, i) => element.classList.toggle('focused', i === wrapped));
+    this.choices.forEach((element, i) => {
+      const on = i === wrapped;
+      element.classList.toggle('focused', on);
+      // The highlight is the cursor for keyboard and gamepad play, and there is
+      // no real focus to carry that meaning, so it is stated outright.
+      if (on) element.setAttribute('aria-current', 'true');
+      else element.removeAttribute('aria-current');
+    });
+    // Guarded: jsdom-less environments and older engines both lack it, and a
+    // missing scroll must never break navigation itself.
+    this.choices[wrapped]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
 
   /**
@@ -568,4 +635,32 @@ export class Screens {
 function appendResult(list: HTMLElement, label: string, value: string): void {
   list.appendChild(el('dt', undefined, label));
   list.appendChild(el('dd', undefined, value));
+}
+
+/**
+ * Prints the number that selects this card, if a number key reaches it.
+ *
+ * Bounded on purpose: `handleInput` only maps Digit1..9, and the Sanctum has
+ * ten vows plus a Back button. A card printing "10" would be advertising a key
+ * that does not exist, so past the ninth choice nothing is printed and the card
+ * is reached by arrows, a click or a tap like everything else.
+ */
+function appendCardKey(card: HTMLElement, index: number): void {
+  if (index >= NUMBER_KEYS.length) return;
+  const key = el('div', 'card-key', choiceLabel(index));
+  // Redundant to a screen reader — the button already announces its own name,
+  // and "3" read before every title is noise.
+  key.setAttribute('aria-hidden', 'true');
+  card.appendChild(key);
+}
+
+/** The filled/empty rank meter shared by the draft cards and the Sanctum. */
+function levelPips(level: number, maxLevel: number): HTMLElement {
+  const pips = el('div', 'card-pips');
+  // Decorative: the rank is already in the card's tag ("LEVEL 3", "RANK 2/5").
+  pips.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < maxLevel; i++) {
+    pips.appendChild(el('span', i < level ? 'pip on' : 'pip'));
+  }
+  return pips;
 }

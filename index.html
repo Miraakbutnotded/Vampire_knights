@@ -7,9 +7,31 @@
     <link rel="stylesheet" href="/src/ui/style.css" />
   </head>
   <body>
+    <!--
+      Three DOM layers over the canvas, in paint order.
+
+      `#ui` is the HUD, and it is the only one clipped to the letterboxed play
+      area: everything in it annotates the world and means nothing away from it
+      — the xp bar is the top edge of the arena, the loadout and blood cluster
+      are anchored to its corners. Detach it and on a phone the health bar
+      floats 80pt out into the black and reads as browser furniture.
+
+      `#touch` and `#menu` are the full viewport on purpose. Menus are opaque
+      scrims, and a scrim that stops at the letterbox leaves raw violet pillars
+      either side that read as a rendering fault; they also need the width,
+      since three finger-sized cards want more room than the play box has. The
+      joystick wants the width for the same reason in reverse — the 18% of a
+      landscape phone that is letterbox used to be dead to touch entirely.
+
+      `#touch` sits under `#ui` so the HUD's own buttons keep taking the tap
+      where the two overlap, and `#menu` sits over both so an open menu is
+      never poked through.
+    -->
     <div id="app">
       <canvas id="game"></canvas>
+      <div id="touch"></div>
       <div id="ui"></div>
+      <div id="menu"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

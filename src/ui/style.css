@@ -100,6 +100,55 @@
   --pad-panel: calc(var(--ui) * 5); /* inside a card or panel */
   --pad-screen: calc(var(--ui) * 8); /* inside a full-screen menu */
 
+  /* Touch targets.
+     Apple asks for 44pt and on iOS one CSS pixel is one point, so the floor is
+     stated in raw px while the design size is stated in chrome units, and
+     whichever is larger wins. At the touch floor of 3 the unit sizes already
+     clear 44 on their own — the px term is a backstop for a small desktop
+     window, not the design. */
+  --tap-min: max(44px, calc(var(--ui) * 15));
+  --tap-blood: max(var(--tap-min), calc(var(--ui) * 16)); /* 48pt on a phone */
+  --tap-ability: max(var(--tap-min), calc(var(--ui) * 18)); /* 54pt */
+  --tap-pause: max(var(--tap-min), calc(var(--ui) * 16)); /* 48pt */
+  --orb-size: calc(var(--ui) * 22);
+  --cluster-gap: calc(var(--ui) * 3);
+
+  /* THE ANTI-DRIFT CONSTANTS.
+     Each of the four below is COMPOSED from the things it has to clear, never
+     measured off a screenshot, because every one of them encodes a clearance
+     between two elements that do not otherwise know about each other. A magic
+     number here is a collision waiting for the next time somebody resizes a
+     button — which is exactly how `.hud-right: 22u` and `.structure-pips: 30u`
+     came to be two units away from the things they were avoiding. */
+
+  /* Feast + orb + Frenzy + ability and their three gaps: the widest the thumb
+     cluster can be. `.touch-zone` sizes itself from this, so enlarging a blood
+     button moves the joystick boundary in the same edit.
+     An UPPER bound, not the measured width — the ability button is dropped
+     entirely for a character without one, and the cluster is deliberately left
+     to collapse rather than being pinned to this. Over-reserving costs a few
+     points of joystick zone; under-reserving costs a tap. */
+  --cluster-w: calc(
+    var(--tap-blood) * 2 + var(--orb-size) + var(--tap-ability) + var(--cluster-gap) * 3
+  );
+
+  /* Where the pause control's box starts, measured from the right edge of the
+     VIEWPORT — it lives in `#touch`, which is not letterboxed — plus a gutter.
+     The HUD's counter column steps left of this. */
+  --pause-reserve: calc(max(calc(var(--ui) * 4), var(--safe-r)) + var(--tap-pause) + var(--ui) * 4);
+
+  /* The bottom band the thumbs own. The loadout column is the tallest thing in
+     it: two rows of 16u slots with a 3u gutter. The coach line clears it. */
+  --bottom-band: calc(var(--ui) * 35);
+
+  /* The top-centre stack: `--hud-top` is the row's own inset from the top edge
+     and `--hud-center-h` is the clock-plus-level-chip below it, composed from
+     the two type steps it is actually made of. Anything hanging under the
+     clock positions itself from these, so a bigger clock pushes it down
+     instead of through it. */
+  --hud-top: max(calc(var(--ui) * 8), calc(var(--safe-t) - var(--offset-y, 0px)));
+  --hud-center-h: calc(var(--text-2xl) + calc(var(--ui) * 2) + var(--text-md));
+
   /* Gothic edge treatment, built from box-shadow alone — there are no UI image
      assets yet and every layer here scales with the chrome unit. `--frame`
      stacks a void hairline outside the violet border and another just inside it
@@ -171,7 +220,12 @@ body {
   image-rendering: pixelated;
 }
 
-/* Sized and offset to exactly cover the letterboxed play area. */
+/* Sized and offset to exactly cover the letterboxed play area.
+ *
+ * The HUD only. Everything in it is anchored to the world — the xp bar is the
+ * arena's top edge, the loadout and blood cluster hang off its corners — so it
+ * has to move and clip with the play box. See index.html for the whole split.
+ */
 #ui {
   position: absolute;
   left: var(--offset-x, 0px);
@@ -182,15 +236,35 @@ body {
   overflow: hidden;
 }
 
-/* The layer itself is transparent to touch so the canvas underneath stays
-   playable, and anything interactive opts back in. `.screen` has to be on this
-   list even though it is a plain div: it is the scrollport for menus that
-   overflow, and an element that is not hit-testable can never be the target of
-   a drag, so without this its overflow-y is unreachable and the Sanctum can
-   trap you with the Back button below the fold. */
-#ui button,
-#ui .card,
-#ui .screen {
+/* The joystick layer and the menu layer, both the whole viewport.
+ *
+ * On a landscape phone the letterbox is 18% of the width and used to be dead
+ * to touch: taps there hit `#app`, which has `touch-action: none` and no
+ * handler. Menus now paint over it (a scrim that stopped at the play box left
+ * raw violet pillars that read as a rendering fault) and the joystick can be
+ * anchored in it.
+ *
+ * SAFE AREAS. Children of these two compose the device insets DIRECTLY —
+ * `max(design, var(--safe-l))`. The `max(design, safe - offset)` idiom used
+ * throughout the HUD below is correct only for `#ui`, because only `#ui` has
+ * already been translated by the letterbox; copying it into a rule here
+ * under-insets on a notched phone by exactly the width of the black bar. */
+#touch,
+#menu {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Every layer is transparent to touch so the canvas underneath stays playable,
+   and anything interactive opts back in. `.screen` has to be on this list even
+   though it is a plain div: it is the scrollport for menus that overflow, and
+   an element that is not hit-testable can never be the target of a drag, so
+   without this its overflow-y is unreachable and the Sanctum can trap you with
+   the Back button below the fold. Its two regions inherit that from it. */
+:is(#ui, #menu, #touch) button,
+:is(#ui, #menu) .card,
+#menu .screen {
   pointer-events: auto;
 }
 
@@ -243,7 +317,7 @@ body {
    which is exactly the desktop/wide-window behaviour. */
 .hud-row {
   position: absolute;
-  top: max(calc(var(--ui) * 8), calc(var(--safe-t) - var(--offset-y, 0px)));
+  top: var(--hud-top);
   display: flex;
   align-items: center;
   gap: calc(var(--ui) * 4);
@@ -477,7 +551,13 @@ body {
     radial-gradient(ellipse at 50% 42%, rgba(26, 13, 57, 0.85) 0%, rgba(4, 1, 9, 0.9) 70%),
     rgba(4, 1, 9, 0.84);
   backdrop-filter: blur(calc(var(--ui) * 0.8));
-  padding: var(--pad-screen);
+  /* `.screen` lives in `#menu`, which spans the viewport and is NOT translated
+     by the letterbox, so the device insets compose directly. Using the HUD's
+     `max(design, safe - offset)` form here would under-inset on a notched
+     phone by the width of the black bar. */
+  padding:
+    max(var(--pad-screen), var(--safe-t)) max(var(--pad-screen), var(--safe-r))
+    max(var(--pad-screen), var(--safe-b)) max(var(--pad-screen), var(--safe-l));
   overflow-y: auto;
   /* `#app` is `touch-action: none`, which would otherwise also swallow drags
      that start in here — menus can overflow vertically in landscape, so give
@@ -490,12 +570,32 @@ body {
   display: flex;
 }
 
-/* The auto-margin half of the centring described on `.screen` above. */
-.screen.visible > *:first-child {
+/* The two regions every screen is built from (`shell` in screens.ts):
+   `.screen-aside` is the reading matter and holds nothing focusable,
+   `.screen-main` is everything the player can act on.
+ *
+ * Here they are plain full-width columns carrying the screen's own gap, which
+ * reproduces the single centred stack these menus have always been — measure a
+ * roomy window before and after this change and nothing moved. The regions only
+ * become visible as structure in the short-viewport block further down. */
+.screen-aside,
+.screen-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--ui) * 6);
+  width: 100%;
+  min-width: 0;
+}
+
+/* The auto-margin half of the centring described on `.screen` above. The two
+   regions are the first and last child now, so the margins moved onto them
+   rather than onto whatever heading or hint happened to be at either end. */
+.screen.visible > .screen-aside {
   margin-top: auto;
 }
 
-.screen.visible > *:last-child {
+.screen.visible > .screen-main {
   margin-bottom: auto;
 }
 
@@ -677,8 +777,14 @@ body {
 /* Buttons */
 
 /* Pinned to the foot of the scroller so leaving a screen never requires
-   finding the bottom of it first — the way out is always on screen. */
-.screen .button-row {
+   finding the bottom of it first — the way out is always on screen.
+ *
+ * A CHILD combinator, not a descendant one. `.screen .button-row` also matched
+ * any row nested deeper — harmless while every row happened to be a direct
+ * child of the screen, and a live defect the moment one is nested inside a
+ * picker or a lane, which is exactly what the layout below does. Pinning is a
+ * property of the row that closes a screen, not of every row on it. */
+.screen-main > .button-row {
   position: sticky;
   /* Parked flush with the bottom of the scrollport. A negative offset would
      push the row past the fold and clip its own padding away. */
@@ -846,6 +952,10 @@ button.btn[disabled] {
 
 /* --- Blood economy cluster, bottom-centre thumb zone -------------------- */
 
+/* Deliberately NOT given `width: var(--cluster-w)`. The ability button is
+   dropped for a character without one and the cluster has to collapse around
+   the gap; `--cluster-w` is the upper bound other elements reserve against,
+   which is the safe direction to be wrong in. */
 .blood-cluster {
   position: absolute;
   left: 50%;
@@ -853,13 +963,13 @@ button.btn[disabled] {
   transform: translateX(-50%);
   display: flex;
   align-items: flex-end;
-  gap: calc(var(--ui) * 3);
+  gap: var(--cluster-gap);
 }
 
 .blood-orb {
   position: relative;
-  width: calc(var(--ui) * 22);
-  height: calc(var(--ui) * 22);
+  width: var(--orb-size);
+  height: var(--orb-size);
   border-radius: 50%;
   overflow: hidden;
   background: var(--wine);
@@ -883,8 +993,8 @@ button.btn[disabled] {
 }
 
 .blood-btn {
-  width: calc(var(--ui) * 16);
-  height: calc(var(--ui) * 16);
+  width: var(--tap-blood);
+  height: var(--tap-blood);
   border-radius: 50%;
   border: var(--hair) solid var(--edge);
   background: var(--panel);
@@ -932,12 +1042,23 @@ button.btn[disabled] {
   display: none;
 }
 
+/* `.key-hint`'s mirror image, and the reason it exists: hiding the key hints
+   on a phone left every screen explaining nothing at all. Each screen authors
+   both lines and exactly one of them renders. */
+.touch-hint {
+  display: none;
+}
+
+.coarse .touch-hint {
+  display: block;
+}
+
 /* --- Ability button, in the blood cluster ------------------------------- */
 
 .ability-btn {
   position: relative;
-  width: calc(var(--ui) * 18);
-  height: calc(var(--ui) * 18);
+  width: var(--tap-ability);
+  height: var(--tap-ability);
   border-radius: 50%;
   border: var(--hair) solid var(--edge);
   background: var(--panel);
@@ -1006,10 +1127,17 @@ button.btn[disabled] {
   }
 }
 
-/* Structure HP pips, top-centre under the clock (castle-defense maps only). */
+/* Structure HP pips, top-centre under the clock (castle-defense maps only).
+ *
+ * Positioned from the centre stack's own tokens rather than from a measured
+ * 30u. The old constant left two units — three points on a phone — between
+ * these pips and the level chip, and it would have gone negative the moment
+ * the clock's type step changed or a notch pushed the whole row down. Now the
+ * safe-area shift and the type scale are both inside the expression, and the
+ * 4u gutter is the only number left to read. */
 .structure-pips {
   position: absolute;
-  top: calc(var(--ui) * 30);
+  top: calc(var(--hud-top) + var(--hud-center-h) + var(--ui) * 4);
   left: 50%;
   transform: translateX(-50%);
   display: none;
@@ -1095,6 +1223,139 @@ button.btn[disabled] {
   color: var(--danger);
 }
 
+/* --- Short viewport: the menus become lanes ------------------------------ */
+
+/*
+ * A phone held sideways is about 402pt tall. Every menu here is a single
+ * centred column, and the title screen's column — headline, blurb, wallet,
+ * three oaths, four arenas, five survivors, a button and a hint — is close to
+ * three times that. You scrolled past the arenas to find the survivors and
+ * never saw both at once.
+ *
+ * Splitting it in two fixes the axis that is actually short. The reading matter
+ * moves into a lane of its own and the choices get the FULL height of the
+ * screen rather than whatever is left underneath a headline; the card rows then
+ * scroll sideways instead of wrapping, so each picker costs one row instead of
+ * two. The title screen comes to about 330pt of content in a 354pt lane — it
+ * stops scrolling vertically altogether.
+ *
+ * KEYED ON HEIGHT ALONE, deliberately. This is not a second answer to "is this
+ * a touch device": that question has exactly one source of truth, the `.coarse`
+ * class Game writes, and the whole point of the class was to stop the
+ * stylesheet asking it separately. This is the different question "is there
+ * vertical room", which no JS decision depends on and which a short desktop
+ * window should answer the same way a phone does.
+ */
+@media (max-height: 560px) {
+  .screen.visible {
+    display: grid;
+    /* Aside on the left, choices on the right. 30% of an 874pt phone is 248pt,
+       which holds a shrunk headline and the oath list without wrapping words. */
+    grid-template-columns: minmax(0, 30%) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: calc(var(--ui) * 6);
+    /* The lanes scroll, not the screen. */
+    overflow: hidden;
+  }
+
+  /* Beats `.screen.visible > .screen-aside` above, which is the same
+     specificity and earlier in the file. The auto-margin centring is for a
+     column with slack; a lane that fills its row has none. */
+  .screen.visible > .screen-aside,
+  .screen.visible > .screen-main {
+    margin: 0;
+  }
+
+  .screen-aside,
+  .screen-main {
+    align-items: stretch;
+    gap: calc(var(--ui) * 4);
+    width: auto;
+    min-height: 0;
+    /* Each lane scrolls on its own, so a long oath list cannot push the
+       survivor row off the bottom of the screen. */
+    overflow-y: auto;
+    /* `#app` is `touch-action: none`; give the lane its scroll axis back. */
+    touch-action: pan-y;
+  }
+
+  /* A 60pt headline is 15% of the screen's height for one word. The choices are
+     the job here and the title is decoration, so both headings drop a step and
+     stop being centred — a left edge shared with the prose under it reads as a
+     column rather than as three things that happen to be stacked. */
+  .screen h1 {
+    font-size: var(--text-xl);
+    text-align: left;
+  }
+
+  .screen h2 {
+    font-size: var(--text-lg);
+    text-align: left;
+  }
+
+  .screen p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .picker {
+    align-items: stretch;
+  }
+
+  .picker-label,
+  .hint {
+    text-align: left;
+  }
+
+  /* Card rows scroll sideways rather than wrapping. Wrapping costs a whole
+     extra row of height — the scarce axis — to show one more card; scrolling
+     costs nothing and is the gesture a thumb already expects on a row of
+     cards. `setFocus` scrolls the highlight into view, so arrows and a gamepad
+     still reach every card in here. */
+  .cards {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    touch-action: pan-x;
+    scroll-snap-type: x proximity;
+    /* Room for the focused card's lift and halo, which the scrollport would
+       otherwise clip and make it look sheared off. */
+    padding: calc(var(--ui) * 2) 0 calc(var(--ui) * 3);
+  }
+
+  .card {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  /* The draft keeps the full width. Three 84u cards and their gaps come to
+     780pt, and a 874pt phone leaves 826pt after its padding — they fit across
+     exactly once, and a lane would take 30% of that and force a wrap. So the
+     aside becomes a strip above them instead of a column beside them. */
+  .screen-levelup.visible {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .screen-levelup .screen-aside {
+    overflow: visible;
+  }
+
+  .screen-levelup .screen-main {
+    justify-content: center;
+  }
+
+  /* Pause and results have no cards — their choices ARE the buttons, so the
+     buttons get the lane: full width, stacked, each one a comfortable target
+     under the thumb rather than three small pills in a row. */
+  .screen-pause .button-row,
+  .screen-results .button-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 /* --- Touch layer (coarse pointers only) ---------------------------------- */
 
 /* Hidden entirely on mouse/trackpad machines; the JS side also only builds it
@@ -1125,17 +1386,69 @@ button.btn[disabled] {
   display: none;
 }
 
-/* Left half of the play area is joystick territory. The HUD's own buttons are
-   later siblings, so they take the tap where the two overlap — the blood
-   cluster does reach into this zone today. */
+/* Left thumb walks, right thumb acts — and the boundary between them is now
+ * computed rather than assumed.
+ *
+ * This zone used to be a flat 50% of the play area while the blood cluster was
+ * centred, which put FEAST and half the orb inside joystick territory. It only
+ * ever worked because the HUD is a later sibling and takes the tap, so pressing
+ * a button was fine but *starting to walk* with a thumb that happened to land
+ * on FEAST fed the blood, not the legs. The cluster now sits in the right
+ * corner on touch (see below), and this width proves the two cannot meet: it
+ * is the distance to the cluster's left edge in viewport coordinates, so any
+ * change to a button's size moves this boundary in the same edit.
+ *
+ * `--offset-x + --play-w` is the play box's right edge in the viewport, which
+ * is the frame this layer is in — `#touch` spans the whole window while the
+ * cluster is anchored inside `#ui`.
+ *
+ * The 50% cap is what actually governs on every real device; the calc is the
+ * guarantee, and the 40u floor keeps a joystick on a viewport too small to be
+ * playable anyway rather than collapsing the zone to nothing. */
 .coarse .touch-zone {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 50%;
+  width: min(
+    50%,
+    max(
+      calc(var(--ui) * 40),
+      calc(
+        var(--offset-x, 0px) + var(--play-w, 100%) -
+          max(var(--edge-inset), calc(var(--safe-r) - var(--offset-x, 0px))) - var(--cluster-w) -
+          var(--ui) * 4
+      )
+    )
+  );
   pointer-events: auto;
   touch-action: none;
+}
+
+/* Thumbs, not a symmetry: on touch the action cluster leaves the centre for
+   the right corner, which is where the hand that is not steering already is —
+   and, just as importantly, is the far side of the joystick boundary above.
+   `right` composes the safe inset the HUD way (`safe - offset`) because the
+   cluster lives in `#ui`, which the letterbox has already translated. */
+.coarse .blood-cluster {
+  left: auto;
+  right: max(var(--edge-inset), calc(var(--safe-r) - var(--offset-x, 0px)));
+  transform: none;
+}
+
+/* With the cluster out of the centre, the coaching strip takes the lane it
+   vacated: pinned to the left edge, stopped short of the cluster by the same
+   token the joystick boundary uses, and lifted clear of the loadout column. */
+.coarse .coach-line {
+  left: max(var(--edge-inset), calc(var(--safe-l) - var(--offset-x, 0px)));
+  right: calc(var(--cluster-w) + var(--edge-inset) + var(--ui) * 4);
+  bottom: calc(
+    max(var(--edge-inset), calc(var(--safe-b) - var(--offset-y, 0px))) + var(--bottom-band) +
+      var(--cluster-gap)
+  );
+  max-width: none;
+  transform: none;
+  text-align: left;
 }
 
 /* The floating base is positioned in viewport px by JS (touch coords are
@@ -1174,20 +1487,29 @@ button.btn[disabled] {
 }
 
 /* The pause control owns the top-right corner on touch, so the counter column
-   steps left of its 18u-wide box (14u + 4u inset) with a 4u gutter. Both are
-   chrome units and stay in step with each other; the clearance from the xp
-   track below them is not, since that bar is the one art-bound rule — on a
-   phone the chrome unit is the larger of the two, so the gap only widens. */
+   steps left of it. `--pause-reserve` is that box plus a gutter measured from
+   the VIEWPORT edge, so the subtraction converts it into this element's frame;
+   the previous form was a hand-derived 22u that silently stopped clearing the
+   button the moment the button changed size — which it just did, from 14u to
+   16u to reach 44pt. The clearance from the xp track below is not composed,
+   since that bar is the one art-bound rule — on a phone the chrome unit is the
+   larger of the two, so the gap only ever widens. */
 .coarse .hud-right {
-  right: max(calc(var(--ui) * 22), calc(var(--safe-r) - var(--offset-x, 0px)));
+  right: max(var(--edge-inset), calc(var(--pause-reserve) - var(--offset-x, 0px)));
 }
 
+/* 14u was 42pt on a phone: the one control that exists purely for touch was
+   also the only one that missed the 44pt minimum. 16u is 48pt, and
+   `--pause-reserve` above is written in terms of `--tap-pause` so the counter
+   column followed it here without a second edit.
+   Insets compose the safe area DIRECTLY — this button lives in `#touch`, which
+   spans the viewport and is not translated by the letterbox. */
 .coarse .touch-pause {
   position: absolute;
-  top: max(calc(var(--ui) * 6), calc(var(--safe-t) - var(--offset-y, 0px)));
-  right: max(calc(var(--ui) * 4), calc(var(--safe-r) - var(--offset-x, 0px)));
-  width: calc(var(--ui) * 14);
-  height: calc(var(--ui) * 14);
+  top: max(calc(var(--ui) * 6), var(--safe-t));
+  right: max(calc(var(--ui) * 4), var(--safe-r));
+  width: var(--tap-pause);
+  height: var(--tap-pause);
   border-radius: 50%;
   border: var(--hair) solid var(--edge);
   background: var(--panel);
@@ -1199,4 +1521,35 @@ button.btn[disabled] {
   padding: 0;
   pointer-events: auto;
   touch-action: none;
+}
+
+/* --- Reduced motion ------------------------------------------------------ */
+
+/*
+ * Two of the animations here are infinite pulses on controls that sit in the
+ * player's peripheral vision for a fifteen-minute run — the blood buttons once
+ * the orb is full, the ability button once it is off cooldown. An unstoppable
+ * throb is the exact thing this setting exists to switch off.
+ *
+ * Nothing is lost by stopping them: "ready" is carried by colour and border on
+ * both controls, and the pulse was only ever the second, louder half of that
+ * signal. The one-shot transitions elsewhere stay — they are 90 to 320ms and
+ * each of them reports something that actually happened (a bar filling, a
+ * banner arriving) rather than decorating a steady state.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .blood-cluster.ready .blood-btn,
+  .ability-btn.ready {
+    animation: none;
+  }
+
+  /* The card and button lift is a decoration that moves under the pointer, and
+     on a menu driven by arrow keys it is a whole row of cards jumping as the
+     cursor passes. The border, halo and background still mark the focus. */
+  .card:hover,
+  .card.focused,
+  button.btn:hover,
+  button.btn.focused {
+    transform: none;
+  }
 }

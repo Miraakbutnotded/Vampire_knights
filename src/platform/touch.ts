@@ -8,14 +8,27 @@ const DEADZONE_PX = 10;
 /**
  * Floating virtual joystick + pause button, DOM-over-canvas like all UI.
  *
- * Left half of the play area: the first touch anchors the joystick base under
- * the thumb; dragging yields a unit direction. Right-thumb taps (ability,
- * Feast/Frenzy, pause) are ordinary DOM buttons — the HUD already owns the
- * ability/blood buttons, this layer adds only the joystick and pause.
+ * Lives in `#touch`, its own full-viewport layer under `#ui` — so the capture
+ * zone reaches into the letterbox pillar, which on a landscape phone is 18% of
+ * the screen and used to be dead to touch entirely.
+ *
+ * Left of the boundary is the joystick: the first touch anchors the base under
+ * the thumb and dragging yields a unit direction. Right of it are ordinary DOM
+ * buttons — ability and Feast/Frenzy belong to the HUD, this layer adds only
+ * the joystick and pause.
+ *
+ * THE BOUNDARY IS COMPUTED, and this comment used to lie about it. It claimed
+ * the buttons sat outside the zone; in fact the blood cluster was centred and
+ * reached about 120pt into it, and only the HUD being a later sibling kept
+ * taps working. Pressing a button was therefore fine, but putting a thumb down
+ * to START WALKING on a spot that happened to be FEAST fed the blood instead.
+ * The cluster now sits in the right corner on touch and `.coarse .touch-zone`
+ * derives its width from `--cluster-w`, so the two provably cannot overlap and
+ * resizing a button moves this boundary in the same edit.
  *
  * Ownership: the joystick tracks its Touch.identifier, so a second finger on
  * a button can never steal or recenter the stick, and the stick never eats
- * button taps (they happen outside the left zone).
+ * button taps.
  *
  * Feeds Input through its two seams and nothing else: implements AxisSource
  * ({axisX, axisY}, read in Input.beginFrame ahead of normalize) and calls
@@ -51,13 +64,18 @@ export class TouchControls {
 
     this.base = document.createElement('div');
     this.base.className = 'joy-base';
+    // Pure feedback for a gesture already in progress, and it follows a finger
+    // that assistive tech is not driving.
+    this.base.setAttribute('aria-hidden', 'true');
     this.nub = document.createElement('div');
     this.nub.className = 'joy-nub';
     this.base.appendChild(this.nub);
 
     const pauseBtn = document.createElement('button');
     pauseBtn.className = 'touch-pause';
+    // "II" is a glyph, not a word — it reads as "eye eye" or as nothing.
     pauseBtn.textContent = 'II';
+    pauseBtn.setAttribute('aria-label', 'Pause');
     pauseBtn.addEventListener('pointerdown', (ev: PointerEvent) => {
       if (ev.button !== 0) return;
       ev.preventDefault();

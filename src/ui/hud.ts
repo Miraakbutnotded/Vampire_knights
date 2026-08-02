@@ -19,6 +19,19 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 /**
+ * A keyboard shortcut printed on a control.
+ *
+ * Hidden from assistive tech: the button already announces what it does, and
+ * `.coarse .key-hint` is `display: none` anyway, so on the device where these
+ * buttons are the only way to act the letter is not there at all.
+ */
+function keyHint(key: string): HTMLElement {
+  const hint = el('span', 'key-hint', key);
+  hint.setAttribute('aria-hidden', 'true');
+  return hint;
+}
+
+/**
  * The in-run overlay: health, experience, timer, counters and loadout.
  *
  * DOM nodes are built once and only their text and widths are written each
@@ -68,7 +81,13 @@ export class Hud {
   constructor(private sprites: SpriteTable) {
     this.root = el('div', 'hud');
 
+    // Decorative bars and meters carry `aria-hidden` throughout this file. Each
+    // one duplicates something already exposed as text — the xp track is the
+    // level chip, the blood orb is the Feast/Frenzy buttons' enabled state, the
+    // pip rows are the level in a slot's own title — and a screen reader
+    // reading a silent fill percentage on every frame is worse than silence.
     const xpTrack = el('div', 'xp-track');
+    xpTrack.setAttribute('aria-hidden', 'true');
     this.xpFill = el('div', 'xp-fill');
     xpTrack.appendChild(this.xpFill);
 
@@ -102,19 +121,29 @@ export class Hud {
     this.passiveRow = el('div', 'slot-row');
     loadout.append(this.weaponRow, this.passiveRow);
 
+    // The two things in the HUD that speak rather than display. Both are
+    // polite: they arrive between other events and neither is worth cutting
+    // off whatever is being read. Their text changes rarely — the banner on a
+    // boss event, the coach when the director allows it — so neither turns
+    // into a live region that fires every frame.
     this.banner = el('div', 'boss-banner');
+    this.banner.setAttribute('role', 'status');
+    this.banner.setAttribute('aria-live', 'polite');
     this.structureRow = el('div', 'structure-pips');
     this.coachLine = el('div', 'coach-line');
+    this.coachLine.setAttribute('role', 'status');
+    this.coachLine.setAttribute('aria-live', 'polite');
 
     // Bottom-centre thumb zone: the blood orb flanked by Feast / Frenzy taps.
     this.bloodWrap = el('div', 'blood-cluster');
     const feastBtn = el('button', 'blood-btn feast');
-    feastBtn.append(el('span', 'blood-btn-label', 'FEAST'), el('span', 'key-hint', 'Q'));
+    feastBtn.append(el('span', 'blood-btn-label', 'FEAST'), keyHint('Q'));
     const orb = el('div', 'blood-orb');
+    orb.setAttribute('aria-hidden', 'true');
     this.bloodFill = el('div', 'blood-fill');
     orb.appendChild(this.bloodFill);
     const frenzyBtn = el('button', 'blood-btn frenzy');
-    frenzyBtn.append(el('span', 'blood-btn-label', 'FRENZY'), el('span', 'key-hint', 'E'));
+    frenzyBtn.append(el('span', 'blood-btn-label', 'FRENZY'), keyHint('E'));
     this.bloodWrap.append(feastBtn, orb, frenzyBtn);
 
     const press = (intent: 'heal' | 'burst') => (ev: PointerEvent) => {
@@ -135,9 +164,14 @@ export class Hud {
 
     // Ability button rides the same thumb cluster as the blood taps.
     this.abilityBtn = el('button', 'ability-btn');
+    // Icon-only in every state, so its name has to come from somewhere. The
+    // label is written alongside `title` in update(), once per ability change.
+    this.abilityBtn.setAttribute('aria-label', 'Ability');
     this.abilityIcon = el('div', 'ability-icon');
+    this.abilityIcon.setAttribute('aria-hidden', 'true');
     this.abilityCd = el('div', 'ability-cd');
-    this.abilityBtn.append(this.abilityIcon, this.abilityCd, el('span', 'key-hint', 'SPACE'));
+    this.abilityCd.setAttribute('aria-hidden', 'true');
+    this.abilityBtn.append(this.abilityIcon, this.abilityCd, keyHint('SPACE'));
     this.abilityBtn.addEventListener('pointerdown', (ev: PointerEvent) => {
       // Same rules as the blood buttons: primary button only, pointerdown not
       // click (kills the iOS tap delay), stopPropagation away from the future
@@ -300,7 +334,11 @@ export class Hud {
     if (ability) {
       if (ability.def.icon !== this.abilityIconName) {
         this.abilityIconName = ability.def.icon;
-        this.abilityBtn.title = `${ability.def.name} — ${ability.def.description}`;
+        const described = `${ability.def.name} — ${ability.def.description}`;
+        this.abilityBtn.title = described;
+        // `title` is a tooltip and not reliably announced; the label is what
+        // actually names an icon-only button.
+        this.abilityBtn.setAttribute('aria-label', described);
         this.abilityIcon.replaceChildren(this.sprites.iconCanvas(ability.def.icon, 32));
       }
       const cdPercent =
@@ -369,6 +407,9 @@ export class Hud {
 
   private pips(level: number, maxLevel: number): HTMLElement {
     const wrap = el('div', 'pips');
+    // The slot's own title already says "Whip — level 3/8"; a row of unlabelled
+    // dots underneath it is decoration.
+    wrap.setAttribute('aria-hidden', 'true');
     for (let i = 0; i < maxLevel; i++) {
       wrap.appendChild(el('span', i < level ? 'pip on' : 'pip'));
     }
