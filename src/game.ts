@@ -12,7 +12,7 @@ import { Camera } from './render/camera.ts';
 import { Fx } from './render/fx.ts';
 import { FrameGate } from './render/repaint.ts';
 import { Renderer, VIEW_H, VIEW_W } from './render/renderer.ts';
-import { TileMap, availableMaps } from './render/tilemap.ts';
+import { TileMap, mapChoices } from './render/tilemap.ts';
 import type { SpriteTable } from './render/sprites.ts';
 
 import { MAX_QUERY_RESULTS, SpatialHash } from './gameplay/collision.ts';
@@ -139,8 +139,10 @@ export class Game implements LoopHooks {
     this.renderer = new Renderer(canvas, sprites);
     this.hud = new Hud(sprites);
 
-    const maps = availableMaps();
-    this.lastMapId = maps[0] ?? 'meadow';
+    // First in the picker is also the default run, so the map files decide
+    // which night a player who presses start without reading gets.
+    const maps = mapChoices();
+    this.lastMapId = maps[0]?.id ?? 'meadow';
     this.lastCharacterId = CHARACTER_LIST[0]!.id;
     this.screens = new Screens(sprites, maps);
 
@@ -648,7 +650,14 @@ export class Game implements LoopHooks {
     // screen always reflects the last transition.
     const walletTotal = this.settleRun(victory);
     this.screens.showResults(
-      { victory, run: this.run, walletGold: walletTotal, dailyGold: this.dailyGold },
+      {
+        victory,
+        run: this.run,
+        walletGold: walletTotal,
+        dailyGold: this.dailyGold,
+        structuresSpawned: this.structuresSpawned,
+        structuresLost: this.structuresLost,
+      },
       {
         onRetry: () => void this.startRun(this.lastCharacterId, this.lastMapId),
         onTitle: () => this.openTitle(),

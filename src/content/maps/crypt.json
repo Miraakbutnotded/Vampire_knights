@@ -1,5 +1,7 @@
 {
   "name": "The Sunken Crypt",
+  "order": 2,
+  "blurb": "Buried halls, hard corners. The dead know the way through.",
   "tileSize": 16,
   "ground": { "mode": "scatter" },
   "bounds": { "left": -640, "top": -480, "right": 640, "bottom": 480 },

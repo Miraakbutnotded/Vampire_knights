@@ -1839,7 +1839,7 @@ describe('castle defense', () => {
       // manually, towers included — their fire, their bolts and their ctx.rng
       // draws are part of what has to come out identical.
       standUpBastion(ctx);
-      harness.run(150); // covers the 120s siege start plus 30s of fighting
+      harness.run(150); // covers the 60s teaching siege and the 120s one, plus 30s of fighting
       let structureHp = 0;
       for (const sid of ctx.world.list(Kind.Structure)) {
         structureHp += ctx.world.hp[sid]!;
@@ -1890,10 +1890,17 @@ describe('castle defense', () => {
     // can never run past the walls the map shipped.
     expect(ctx.run.wallsLost).toBeLessThanOrEqual(2);
 
-    // Balance tripwire: a full seeded run banked ~603 gold once the bastion's
-    // two watchtowers were part of it (~253 with the phase-3 pair alone — the
-    // towers earn their keep in kills). Half-to-double catches order-of-
+    // Balance tripwire: a full seeded run banks ~652 gold (~603 before the 60s
+    // teaching siege, ~253 with the phase-3 structure pair and no watchtowers —
+    // the towers earn their keep in kills). Half-to-double catches order-of-
     // magnitude economy regressions without pinning every balance tweak.
+    //
+    // This harness never moves, so it is the *undefended* case: a siege that
+    // arrives before the towers have paid for themselves parks attackers on
+    // them, and every later siege then resolves with no structure left to pay
+    // out. That is why the teaching siege is four zombies for twenty seconds
+    // and not the ten-for-forty-five the 120s wave uses — measured, the bigger
+    // version dropped this figure to 326.
     expect(ctx.run.gold).toBeGreaterThan(300);
     expect(ctx.run.gold).toBeLessThan(1200);
   });

@@ -263,6 +263,7 @@
       { "at": 880, "type": "reaper", "count": 1 }
     ],
     "sieges": [
+      { "at": 60, "type": "zombie", "count": 4, "duration": 20 },
       { "at": 120, "type": "zombie", "count": 10, "duration": 45 },
       { "at": 300, "type": "skeleton", "count": 12, "duration": 45 },
       { "at": 480, "type": "slime", "count": 14, "duration": 45 },

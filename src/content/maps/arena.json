@@ -1,5 +1,7 @@
 {
   "name": "Warden's Arena",
+  "order": 3,
+  "blurb": "A closed floor with no door. Wall to wall, fifteen minutes.",
   "tileSize": 32,
   "ground": { "mode": "grid" },
   "spawnPoint": [320, 224],

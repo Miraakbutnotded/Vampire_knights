@@ -1,5 +1,7 @@
 {
   "name": "Moonlit Meadow",
+  "order": 1,
+  "blurb": "Open ground under a full moon. Nowhere to hide.",
   "tileSize": 16,
   "ground": { "mode": "scatter" },
   "bounds": null,

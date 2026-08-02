@@ -43,6 +43,14 @@ interface PropJson {
 
 export interface MapJson {
   name?: string;
+  /** One line for the arena picker: what this place asks of you. */
+  blurb?: string;
+  /**
+   * Sort key for the arena picker, ascending. Optional by design — a map that
+   * omits it still appears (after every ordered map, alphabetically among its
+   * peers), so dropping a JSON in `content/maps/` remains the whole ritual.
+   */
+  order?: number;
   tileSize?: number;
   bounds?: { left: number; top: number; right: number; bottom: number } | null;
   spawnPoint?: [number, number];
@@ -73,11 +81,63 @@ const mapModules = import.meta.glob<{ default: MapJson }>('../content/maps/*.jso
   eager: true,
 });
 
+/** What the arena picker needs to describe a map without loading its tileset. */
+export interface MapChoice {
+  /** Filename without extension. The id every other system passes around. */
+  id: string;
+  /** Display name from the map file; falls back to the id so it is never blank. */
+  name: string;
+  /** One line of pitch. Empty when the map file does not offer one. */
+  blurb: string;
+  /**
+   * True when the map ships structures, i.e. this is a defence night rather
+   * than a survival one. **Derived, never authored** — a map cannot advertise
+   * walls it does not stand up, and adding walls to a map advertises them.
+   */
+  defends: boolean;
+}
+
+/** Maps without an `order` sort after every ordered one, alphabetically. */
+const UNORDERED = 1000;
+
+/**
+ * Turns raw map files into picker order. Pure and exported so the defaulting
+ * and the sort are testable without a glob or a browser.
+ *
+ * The order lives in the map files rather than in a list here: registration in
+ * two places is how a map ends up discovered but invisible, or listed but
+ * missing. Every field degrades — an id for a missing name, an empty blurb, the
+ * back of the queue for a missing order — so an undecorated map file still
+ * shows up and still starts, which is the warn-don't-throw contract the content
+ * pipeline keeps everywhere else. Ties break alphabetically, so the sort is
+ * total and the picker cannot shuffle between boots.
+ */
+export function orderMaps(entries: { id: string; json: MapJson }[]): MapChoice[] {
+  return entries
+    .map(({ id, json }) => ({
+      id,
+      name: json.name ?? id,
+      blurb: json.blurb ?? '',
+      defends: (json.structures?.length ?? 0) > 0,
+      order: typeof json.order === 'number' && Number.isFinite(json.order) ? json.order : UNORDERED,
+    }))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+    .map(({ id, name, blurb, defends }) => ({ id, name, blurb, defends }));
+}
+
+/** Every shipped map, in the order the title screen offers them. */
+export function mapChoices(): MapChoice[] {
+  return orderMaps(
+    Object.entries(mapModules).map(([path, mod]) => ({
+      id: path.split('/').pop()!.replace(/\.json$/, ''),
+      json: mod.default,
+    })),
+  );
+}
+
 /** Map ids are the filename without extension: `content/maps/meadow.json` -> "meadow". */
 export function availableMaps(): string[] {
-  return Object.keys(mapModules)
-    .map((path) => path.split('/').pop()!.replace(/\.json$/, ''))
-    .sort();
+  return mapChoices().map((choice) => choice.id);
 }
 
 function mapJson(id: string): MapJson {

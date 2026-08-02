@@ -297,6 +297,17 @@ grants a full-health second chance that also clears nearby enemies.
 Maps live in `src/content/maps/*.json`. **Any file you add there is picked up automatically** and
 appears in the arena picker on the title screen — the filename is the map id.
 
+Three fields exist only for that picker, and all three are optional:
+
+| field | effect |
+|---|---|
+| `name` | Card title. Falls back to the map id. |
+| `blurb` | One line under the title: what this place asks of you. |
+| `order` | Sort key, ascending. **The first map is also the default run** — a player who presses start without reading gets it. Omit it and the map sorts after every ordered one, alphabetically. |
+
+The `DEFEND THE WALLS` / `SURVIVE` tag on each card is *not* authored: it is derived from whether the
+map ships a `structures` array, so it can never advertise a siege the map does not run.
+
 Two ground modes:
 
 **`scatter`** — infinite, procedurally tiled from a weighted tileset. Deterministic, so it never
@@ -305,6 +316,8 @@ shimmers or repeats visibly. This is what an endless arena wants.
 ```jsonc
 {
   "name": "Moonlit Meadow",
+  "blurb": "Open ground under a full moon.",       // picker line
+  "order": 1,                                      // picker position; first = default run
   "tileSize": 16,
   "ground": { "mode": "scatter" },
   "bounds": null,                                  // null = unbounded

@@ -592,6 +592,32 @@ body {
   color: var(--xp);
 }
 
+/* The arena picker is the same card, one notch smaller: four of them can sit
+   above five survivor cards without the title screen becoming two screens. */
+.arena-cards {
+  max-width: calc(var(--u) * 300);
+}
+
+.arena-card {
+  width: calc(var(--u) * 68);
+  min-height: calc(var(--u) * 34);
+}
+
+/* Selection is not focus. The chosen arena has to stay marked after the cursor
+   moves on to the survivor cards — that is where the run is actually started,
+   and by then the arena is off the player's eye but still in the decision. */
+.card.primary {
+  border-color: var(--accent-deep);
+  background: linear-gradient(180deg, var(--panel-raised) 0%, var(--panel-solid) 100%);
+  box-shadow: var(--frame), var(--lift), inset calc(var(--u) * 2) 0 0 var(--accent);
+}
+
+/* Gold against a screen of blood-red tags: the defence night is the one that
+   is not like the others, and it says so before it is read. */
+.arena-card .card-tag.defend {
+  color: var(--gold);
+}
+
 /* Buttons */
 
 /* Pinned to the foot of the scroller so leaving a screen never requires

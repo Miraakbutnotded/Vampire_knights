@@ -1,9 +1,11 @@
 {
   "name": "The Broken Bastion",
+  "order": 0,
+  "blurb": "The horde comes for the gate. Hold it — the towers fire back.",
   "tileSize": 16,
   "ground": { "mode": "scatter" },
   "bounds": { "left": -560, "top": -420, "right": 560, "bottom": 420 },
-  "spawnPoint": [0, 60],
+  "spawnPoint": [-140, 0],
   "waves": "bastion",
   "voidColor": "#0c0a12",
   "tileset": [

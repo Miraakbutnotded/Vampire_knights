@@ -5,6 +5,7 @@ import type { CharacterDef } from '../gameplay/content.ts';
 import type { Offer } from '../gameplay/upgrades.ts';
 import type { Run } from '../gameplay/run.ts';
 import type { SpriteTable } from '../render/sprites.ts';
+import type { MapChoice } from '../render/tilemap.ts';
 
 export type ScreenName = 'none' | 'title' | 'levelup' | 'pause' | 'results' | 'sanctum';
 
@@ -15,6 +16,10 @@ export interface ResultsData {
   walletGold: number;
   /** Gold the daily oaths paid on this run's settle; 0 when none completed. */
   dailyGold: number;
+  /** Structures the map stood up at run start; 0 on the survival maps. */
+  structuresSpawned: number;
+  /** How many of those fell. Only read when `structuresSpawned` is non-zero. */
+  structuresLost: number;
 }
 
 /** One row of "Tonight's Oaths". Rendered flat — see renderTitle. */
@@ -93,17 +98,17 @@ export class Screens {
   private onSelect: ((index: number) => void) | null = null;
 
   private selectedMap: string;
-  private maps: string[];
+  private maps: MapChoice[];
   private characters: readonly CharacterDef[] = [];
   private titleCallbacks: TitleCallbacks | null = null;
   private titleMeta: TitleMeta | null = null;
 
   constructor(
     private sprites: SpriteTable,
-    maps: string[],
+    maps: MapChoice[],
   ) {
     this.maps = maps;
-    this.selectedMap = maps[0] ?? 'meadow';
+    this.selectedMap = maps[0]?.id ?? 'meadow';
     this.root = el('div', 'screen');
     this.panel = el('div', 'picker');
     this.root.appendChild(this.panel);
@@ -140,7 +145,11 @@ export class Screens {
 
     this.root.appendChild(el('h1', undefined, 'SURVIVORS'));
     this.root.appendChild(
-      el('p', undefined, 'Stay alive for fifteen minutes. Pick up whatever will keep you standing.'),
+      el(
+        'p',
+        undefined,
+        'Fifteen minutes until dawn. Hold the walls, or hold your ground — pick up whatever keeps you standing.',
+      ),
     );
     this.root.appendChild(el('div', 'wallet', `VAULT ${this.titleMeta?.gold ?? 0} GOLD`));
 
@@ -169,19 +178,40 @@ export class Screens {
 
     const focusables: HTMLElement[] = [];
 
-    // Arena picker.
+    // Arena picker. One focusable per map, in mapChoices order — the first
+    // entry is both the default selection and the first thing read, which is
+    // the whole reason the order lives in the map files.
     const mapPicker = el('div', 'picker');
     mapPicker.appendChild(el('div', 'picker-label', 'ARENA'));
-    const mapRow = el('div', 'button-row');
-    for (const mapId of this.maps) {
-      const button = el('button', 'btn');
-      button.type = 'button';
-      button.textContent = mapId;
-      if (mapId === this.selectedMap) button.classList.add('primary');
-      mapRow.appendChild(button);
-      focusables.push(button);
+    const mapCards = el('div', 'cards arena-cards');
+    for (let i = 0; i < this.maps.length; i++) {
+      const choice = this.maps[i]!;
+      const card = el('button', 'card arena-card');
+      card.type = 'button';
+      if (choice.id === this.selectedMap) card.classList.add('primary');
+
+      const head = el('div', 'card-head');
+      const titles = el('div');
+      titles.appendChild(el('div', 'card-title', choice.name));
+      // Derived from the map's structures, so the tag cannot promise a siege
+      // the map never runs.
+      titles.appendChild(
+        el(
+          'div',
+          choice.defends ? 'card-tag defend' : 'card-tag',
+          choice.defends ? 'DEFEND THE WALLS' : 'SURVIVE',
+        ),
+      );
+      head.appendChild(titles);
+      card.appendChild(head);
+
+      if (choice.blurb) card.appendChild(el('div', 'card-body', choice.blurb));
+      card.appendChild(el('div', 'card-key', String(i + 1)));
+
+      mapCards.appendChild(card);
+      focusables.push(card);
     }
-    mapPicker.appendChild(mapRow);
+    mapPicker.appendChild(mapCards);
     this.root.appendChild(mapPicker);
 
     // Character picker: locked cards render greyed with their price and route
@@ -238,7 +268,7 @@ export class Screens {
     const charCount = this.characters.length;
     this.setChoices(focusables, (index) => {
       if (index < mapCount) {
-        this.selectedMap = this.maps[index]!;
+        this.selectedMap = this.maps[index]!.id;
         // Re-render so the highlighted arena updates, keeping focus in place.
         const keep = index;
         this.renderTitle();
@@ -367,14 +397,24 @@ export class Screens {
     this.root.replaceChildren();
 
     const { run, victory } = data;
+    const held = data.structuresSpawned - data.structuresLost;
+    // A defence night gets its own line, because "you survived" is only half
+    // of what was asked of you there.
+    const defended = data.structuresSpawned > 0;
     this.root.appendChild(el('h1', undefined, victory ? 'YOU SURVIVED' : 'YOU DIED'));
     this.root.appendChild(
       el(
         'p',
         undefined,
         victory
-          ? 'The night broke and you were still standing.'
-          : 'The horde closed in. Try a different build.',
+          ? defended
+            ? held === data.structuresSpawned
+              ? 'Dawn came, and not one stone of it had fallen.'
+              : 'Dawn came. What was left of the bastion was still yours.'
+            : 'The night broke and you were still standing.'
+          : defended && held > 0
+            ? 'The horde closed in. The walls outlived you.'
+            : 'The horde closed in. Try a different build.',
       ),
     );
 
@@ -383,6 +423,8 @@ export class Screens {
     appendResult(summary, 'Level reached', String(run.level));
     appendResult(summary, 'Enemies slain', String(run.kills));
     appendResult(summary, 'Gold collected', String(run.gold));
+    // Structure-less maps say nothing rather than "Walls held 0/0".
+    if (defended) appendResult(summary, 'Walls held', `${held}/${data.structuresSpawned}`);
     // Only when it paid: a permanent "Oaths kept 0" line would read as a
     // reprimand on every run that did not happen to close one.
     if (data.dailyGold > 0) appendResult(summary, 'Oaths kept', `+${data.dailyGold}`);
