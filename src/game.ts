@@ -308,9 +308,17 @@ export class Game implements LoopHooks {
    * and openTitle are the only other places it happens, and an iOS player who
    * leaves the app suspended for days hits neither. Never resumes gameplay —
    * the player does that from the pause screen.
+   *
+   * Guarded to the title screen, and the guard wraps the roll itself, not just
+   * the repaint: autoPause leaves an open run in 'paused', and resuming from
+   * that at 00:05 would otherwise replace the day out from under a run whose
+   * runDay was frozen at startRun — commitDailyRun would then discard the whole
+   * run's progress as stale, silently. Nothing is lost by waiting: every path
+   * out of a run lands on openTitle (results, sanctum, quit), which rolls.
    */
   onResumed(): void {
-    if (this.meta.rollDaily(Date.now()) && this.state === 'title') this.openTitle();
+    if (this.state !== 'title') return;
+    if (this.meta.rollDaily(Date.now())) this.openTitle();
   }
 
   /** Today's oaths as the title screen wants them: label, bar, done flag. */
@@ -440,8 +448,9 @@ export class Game implements LoopHooks {
     this.siegeUntil = 0;
     this.runEnded = false;
     this.runToken++;
-    // Frozen here for the whole run: rollover is evaluated at boot, on the
-    // title screen and on resume — never mid-run.
+    // Frozen here for the whole run: rollover is evaluated at boot and on the
+    // title screen only — onResumed returns early unless the title is up, so
+    // no background/foreground cycle can roll the day mid-run.
     this.runDay = this.meta.dailyState.day;
     this.dailyTally?.reset();
     this.dailyGold = 0;

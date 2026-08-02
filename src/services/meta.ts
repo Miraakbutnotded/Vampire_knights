@@ -90,9 +90,11 @@ export class MetaService {
    * incremented in startRun, and a token that has already committed is ignored,
    * so the browser-side double-settle paths cannot pay a daily twice.
    *
-   * `runDay` is the day the run *started* on. A mismatch is unreachable by
-   * construction — rollover never runs mid-run — so the discard is a pinned
-   * invariant rather than an expected path.
+   * `runDay` is the day the run *started* on. Rollover is confined to boot and
+   * the title screen (onResumed refuses to roll unless the title is up), so a
+   * mismatch means the day moved while a run was open — a state the callers are
+   * built to make unreachable. The discard stays as the backstop for it: paying
+   * a fresh day's set from a run banked against yesterday's would be worse.
    */
   commitDailyRun(
     delta: Record<string, number>,

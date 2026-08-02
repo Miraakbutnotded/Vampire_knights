@@ -11,7 +11,8 @@ import { Rng } from '../core/rng.ts';
  * whichever wrote second.
  *
  * Every objective resolves against a signal gameplay already emits. Nothing new
- * is fired for the dailies; `walls` reads the widened 'run:ended' payload.
+ * is fired for the dailies; `walls` reads the widened 'run:ended' payload plus
+ * the 'siege:defended' count, so it cannot complete without a siege to hold.
  */
 
 export type DailyTier = 'core' | 'flavour';
@@ -276,8 +277,12 @@ export function dailyDelta(
     feast: tally.feastHealed,
     siege: tally.sieges,
     evolve: tally.evolves,
-    // Only a map that actually raised structures can hold them all.
-    walls: summary.structuresSpawned > 0 && summary.structuresLost === 0 ? 1 : 0,
+    // Only a map that actually raised structures can hold them all — and only
+    // a run that survived a siege has held anything. Without the siege count a
+    // 20-second suicide on the bastion scores it: the first siege lands at 60s,
+    // so an early death ends with four structures spawned and none lost.
+    walls:
+      summary.structuresSpawned > 0 && summary.structuresLost === 0 && tally.sieges > 0 ? 1 : 0,
   };
 }
 

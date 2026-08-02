@@ -238,6 +238,29 @@ describe('dailyDelta — the wire between run signals and objective ids', () => 
     expect(dailyDelta(tally, { ...summary, structuresSpawned: 0 })['walls']).toBe(0);
   });
 
+  /**
+   * The label promises the Bastion held, so a siege has to have been held.
+   * Structures standing is not evidence of that on its own: the bastion's first
+   * siege lands at 60s, so dying into the opening spawns leaves four structures
+   * spawned, none lost, and no wall ever tested — the cheapest possible route
+   * to a 150-gold objective and, with it, the all-three bonus.
+   */
+  it('refuses walls to a run that ended before a single siege resolved', () => {
+    const suicide = { ...tally, sieges: 0 };
+    expect(
+      dailyDelta(suicide, {
+        kills: 3,
+        level: 1,
+        gold: 5,
+        survivedSeconds: 30,
+        structuresSpawned: 4,
+        structuresLost: 0,
+      })['walls'],
+    ).toBe(0);
+    // One siege held with every wall up is the whole objective.
+    expect(dailyDelta({ ...tally, sieges: 1 }, summary)['walls']).toBe(1);
+  });
+
   it('emits a key for every pool objective, so nothing silently never progresses', () => {
     expect(Object.keys(dailyDelta(tally, summary)).sort()).toEqual(
       DAILY_POOL.map((d) => d.id).sort(),
@@ -452,5 +475,59 @@ describe('migrateDaily', () => {
     expect(migrateDaily({ day: 1, bonusClaimed: true }).bonusClaimed).toBe(true);
     expect(migrateDaily({ day: 1, bonusClaimed: 'true' }).bonusClaimed).toBe(false);
     expect(migrateDaily({ day: 1 }).bonusClaimed).toBe(false);
+  });
+});
+
+/**
+ * The rollover boundary is enforced in game.ts, which needs a browser, so this
+ * reads it as raw text — the same trick repaint.test.ts uses to hold a game.ts
+ * invariant that no headless harness can drive. import.meta.glob is not a
+ * specifier position, so this does not trip the engine isolation gate.
+ */
+const gameSource = (
+  import.meta.glob(['../game.ts'], { query: '?raw', import: 'default', eager: true }) as Record<
+    string,
+    string
+  >
+)['../game.ts']!;
+
+describe('rollover never runs mid-run', () => {
+  const onResumed = gameSource.match(/onResumed\(\): void \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+
+  it('has an onResumed to read', () => {
+    expect(onResumed).not.toBe('');
+    expect(onResumed).toContain('rollDaily');
+  });
+
+  /**
+   * wireLifecycle fires onResumed on every visibilitychange → visible, and that
+   * includes the return from autoPause with a run still open in 'paused'. If
+   * the roll were reachable there, backgrounding at 23:55 and returning at
+   * 00:05 would replace the day under a run whose runDay was frozen at
+   * startRun; commitDailyRun would then discard the entire run as stale (see
+   * meta.test.ts, 'discards a run that started on a different day'), paying
+   * nothing and resetting the bars the player just filled — with no UI signal.
+   *
+   * The guard has to wrap the roll itself, not just the repaint that follows
+   * it: rollDaily persists the new day as a side effect of being called.
+   */
+  it('refuses to roll unless the title screen is up, before touching rollDaily', () => {
+    const guard = onResumed.indexOf("this.state !== 'title'");
+    const roll = onResumed.indexOf('rollDaily');
+    expect(guard, 'onResumed must guard on state').toBeGreaterThanOrEqual(0);
+    expect(roll, 'the state guard must precede the roll').toBeGreaterThan(guard);
+    expect(onResumed.slice(guard, roll), 'the guard must return, not just gate a repaint').toContain(
+      'return',
+    );
+  });
+
+  /**
+   * Nothing is lost by the guard: every path out of a run lands on openTitle,
+   * which rolls. A suspended app therefore picks the new day up the moment it
+   * comes back to the title, and the run in flight keeps the day it began on.
+   */
+  it('rolls on every path back to the title, so a suspended app still catches up', () => {
+    const openTitle = gameSource.match(/openTitle\(\): void \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+    expect(openTitle).toContain('rollDaily');
   });
 });
