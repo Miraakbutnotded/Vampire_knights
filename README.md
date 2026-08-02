@@ -388,9 +388,6 @@ Rendering and menus are not covered — they need a browser.
 
 Deliberate gaps, in rough order of how much they'd add:
 
-- **Evolution art** — all eight evolved weapons ship on generated placeholders. Each has its own entry
-  in `sprites.json` waiting for a strip: `fx_reap`, `proj_choir`, `proj_bladewind`, `aura_sanctum`,
-  `orb_vigil`, `hazard_hellpyre`, `fx_nightfall`, `fx_judgment`.
 - **Meta-progression** — gold is tracked and displayed but doesn't persist or buy anything yet.
 - **Audio.** No sound at all.
 - **Enemy variety in the late game** — the last few wave stages reuse earlier enemies at higher

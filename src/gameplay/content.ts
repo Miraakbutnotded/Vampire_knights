@@ -438,9 +438,10 @@ function normalizeWeapons(): {
  *
  * Every rejection disables exactly one pairing, warns once, and leaves both
  * weapons playable — a typo costs a recipe, never a weapon. Two structural
- * rules make cycles unrepresentable and guarantee at most one evolution per
- * weapon per run: a target may not evolve further, and two bases may not share
- * a target.
+ * rules make cycles unrepresentable and give every target exactly one route in:
+ * a target may not evolve further, and two bases may not share a target. That
+ * is a statement about the recipe table, not about a run — the table cannot see
+ * a loadout, so "at most once per run" is enforced in `tryEvolve` instead.
  *
  * Exported and pure for the same reason as parseEvolutionBlock: the fail-soft
  * paths must be reachable from tests.

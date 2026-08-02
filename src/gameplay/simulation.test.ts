@@ -2665,6 +2665,60 @@ describe('weapon evolutions — the chest trigger', () => {
     expect(tryEvolve(ready.ctx)).toBeNull();
   });
 
+  it('refuses a second fusion when the base is re-acquired and carried back to the ceiling', () => {
+    const evo = weaponDef('whip')!.evolution!;
+    const harness = soloHarness('whip', passiveDef(evo.passiveId)!.maxLevel);
+    const { ctx, ctx: { run } } = harness;
+
+    expect(tryEvolve(ctx)!.intoId).toBe('reap');
+    // The swap overwrote the slot, so the base is gone from the loadout and
+    // reads level 0 again — nothing in Run itself stops it coming back.
+    expect(run.weaponLevel('whip')).toBe(0);
+
+    run.addWeapon('whip');
+    const rebought = run.weapons.find((w) => w.def.id === 'whip')!;
+    rebought.level = rebought.def.maxLevel;
+    // The passive is deliberately never consumed, so both halves are maxed a
+    // second time and every other precondition is satisfied.
+    expect(run.passiveLevel(evo.passiveId)).toBe(passiveDef(evo.passiveId)!.maxLevel);
+
+    expect(tryEvolve(ctx)).toBeNull();
+    // Two OwnedWeapon entries sharing one def would double the evolved weapon's
+    // damage while weaponLevel() reported only the first.
+    const ids = run.weapons.map((w) => w.def.id);
+    expect(ids).toEqual(['reap', 'whip']);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('stops drafting a base once its evolution is owned, so the pick is never a dead end', () => {
+    const whip = weaponDef('whip')!;
+    const original = whip.weight;
+    // WEAPON_LIST is readonly to callers, not frozen: force whip to the top of
+    // the pool so its absence is a guard rather than a weighted coincidence.
+    whip.weight = 1e6;
+    try {
+      const control = makeHarness();
+      control.ctx.run.weapons.length = 0;
+      control.ctx.run.passives.length = 0;
+      expect(rollOffers(control.ctx).some((o) => o.id === 'whip')).toBe(true);
+
+      const harness = soloHarness('whip', passiveDef(whip.evolution!.passiveId)!.maxLevel);
+      const { ctx } = harness;
+      expect(tryEvolve(ctx)!.intoId).toBe('reap');
+      expect(ctx.run.hasWeaponSlot()).toBe(true);
+
+      for (let i = 0; i < 60; i++) {
+        const offers = rollOffers(ctx);
+        expect(offers.length).toBeGreaterThan(0);
+        for (const offer of offers) {
+          expect(offer.id, 'the base was offered back as a dead-end pick').not.toBe('whip');
+        }
+      }
+    } finally {
+      whip.weight = original;
+    }
+  });
+
   it('consumes no gameplay randomness, on the path that fuses and the path that does not', () => {
     for (const passiveLevel of [passiveDef(weaponDef('whip')!.evolution!.passiveId)!.maxLevel, 1]) {
       const harness = soloHarness('whip', passiveLevel);

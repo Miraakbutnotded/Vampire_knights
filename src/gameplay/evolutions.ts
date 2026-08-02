@@ -34,6 +34,10 @@ export interface EvolutionResult {
  *
  * Nothing consults `MAX_WEAPON_SLOTS`, because `run.weapons.length` never
  * changes here — a full loadout evolves exactly like a fresh one.
+ *
+ * Each evolution fires at most once per run. The content rules in
+ * `linkEvolutions` only make each pairing unique; they cannot see the loadout,
+ * so owning the target is checked here.
  */
 export function tryEvolve(ctx: Ctx): EvolutionResult | null {
   const { run, world } = ctx;
@@ -49,6 +53,15 @@ export function tryEvolve(ctx: Ctx): EvolutionResult | null {
     if (!passive || run.passiveLevel(evolution.passiveId) < passive.maxLevel) continue;
     const into = weaponDef(evolution.intoId);
     if (!into) continue;
+
+    // One fusion per pairing per run, enforced on the target rather than on the
+    // base. The swap overwrites the slot, so the base leaves `run.weapons`
+    // entirely and `weaponLevel(baseId)` reads 0 again — a re-drafted copy
+    // carried back to the ceiling would otherwise mint a second evolved weapon
+    // sharing one def, doubling its damage while `weaponLevel` reported only
+    // the first. `continue`, not `return`: another pairing may still be
+    // eligible this chest, and it should not be punished for this one.
+    if (run.weaponLevel(into.id) > 0) continue;
 
     const baseId = owned.def.id;
 

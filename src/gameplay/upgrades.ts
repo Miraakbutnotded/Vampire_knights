@@ -51,6 +51,12 @@ export function rollOffers(ctx: Ctx, count = 3): Offer[] {
       // guard; maxLevel 1 keeps it out of the upgrade branch below once owned,
       // and weight 0 is a third line of defence in the content itself.
       if (EVOLVED_WEAPON_IDS.has(def.id)) continue;
+      // A base whose evolution is already owned reads as level 0 again, because
+      // the fusion overwrote its slot. Offering it back would sell a weapon
+      // slot and eight picks for a weapon that can never fuse again — tryEvolve
+      // refuses the second copy. Keep the dead end out of the draft.
+      const evolution = def.evolution;
+      if (evolution && run.weaponLevel(evolution.intoId) > 0) continue;
       if (!run.hasWeaponSlot()) continue;
       candidates.push({
         offer: {
