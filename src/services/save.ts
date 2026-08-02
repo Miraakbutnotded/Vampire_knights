@@ -1,15 +1,18 @@
+import { defaultCoach, migrateCoach } from './coach.ts';
+import type { CoachSave } from './coach.ts';
 import { defaultDaily, migrateDaily } from './daily.ts';
 import type { DailySave } from './daily.ts';
 import type { StorageAdapter } from './storage.ts';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const SAVE_KEY = 'vk-save';
 export const SAVE_BACKUP_KEY = 'vk-save.bak';
 
 /**
  * Everything Vampire Knights persists between runs.
  *
- * Version 1 (Phase 4) added `sanctum`; version 2 added `daily`.
+ * Version 1 (Phase 4) added `sanctum`; version 2 added `daily`; version 3 added
+ * `coach`.
  *
  * **Adding a field here is not enough.** encodeSave() below builds an explicit
  * literal rather than spreading, so a field added to this interface and not to
@@ -24,6 +27,8 @@ export interface SaveData {
   sanctum: Record<string, number>;
   /** Tonight's Oaths: the day floor, its progress, and what it has paid. */
   daily: DailySave;
+  /** Which of the coach's lines the player has already been told. */
+  coach: CoachSave;
 }
 
 export function defaultSave(): SaveData {
@@ -33,6 +38,7 @@ export function defaultSave(): SaveData {
     unlockedCharacters: [],
     sanctum: {},
     daily: defaultDaily(),
+    coach: defaultCoach(),
   };
 }
 
@@ -54,6 +60,7 @@ export function encodeSave(data: SaveData): string {
     unlockedCharacters: data.unlockedCharacters,
     sanctum: data.sanctum,
     daily: data.daily,
+    coach: data.coach,
   });
   return JSON.stringify({ payload, checksum: checksum(payload) });
 }
@@ -106,9 +113,11 @@ export function migrate(raw: unknown): SaveData | null {
     if (typeof rank === 'number' && Number.isInteger(rank) && rank > 0) sanctum[id] = rank;
   }
   // Unconditional, not version-gated: a v1 save simply has no `daily` and falls
-  // to defaults, the same way a v0 save had no `sanctum`.
+  // to defaults, the same way a v0 save had no `sanctum` and a v2 save has no
+  // `coach`. Every added field goes on this list and nowhere else.
   const daily = migrateDaily(rec['daily']);
-  return { version: SAVE_VERSION, gold, unlockedCharacters, sanctum, daily };
+  const coach = migrateCoach(rec['coach']);
+  return { version: SAVE_VERSION, gold, unlockedCharacters, sanctum, daily, coach };
 }
 
 /**

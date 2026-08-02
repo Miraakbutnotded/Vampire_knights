@@ -1,5 +1,7 @@
 import { META_LIST, metaNodeDef } from '../gameplay/content.ts';
 import type { CharacterDef, MetaMods } from '../gameplay/content.ts';
+import { coachPrompt } from './coach.ts';
+import type { CoachSave } from './coach.ts';
 import { foldDaily, rolloverDaily } from './daily.ts';
 import type { DailyPayout, DailySave } from './daily.ts';
 import { SaveStore, defaultSave } from './save.ts';
@@ -109,6 +111,28 @@ export class MetaService {
     };
     this.persist();
     return { completed: folded.completed, gold: folded.gold };
+  }
+
+  /** Which coach lines have already been said. Replaced on change, safe to hold. */
+  get coachState(): Readonly<CoachSave> {
+    return this.data.coach;
+  }
+
+  /**
+   * Records one coach line as permanently said.
+   *
+   * Idempotent and pool-checked, so a repeat or a stale id costs nothing and
+   * cannot grow the record — the same discipline migrateCoach applies on the way
+   * in. No run token here: unlike a payout, saying a line twice in one session
+   * is already impossible (the director marks it seen at show time and never
+   * offers it again), and the worst a duplicated call could do is a redundant
+   * write, which this returns early from anyway.
+   */
+  markCoachSeen(id: string): void {
+    if (!coachPrompt(id)) return;
+    if (this.data.coach.seen.includes(id)) return;
+    this.data = { ...this.data, coach: { seen: [...this.data.coach.seen, id] } };
+    this.persist();
   }
 
   rankOf(nodeId: string): number {

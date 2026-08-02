@@ -35,12 +35,32 @@ import { Screens } from './ui/screens.ts';
 import { TouchControls } from './platform/touch.ts';
 import { shouldAutoPause } from './platform/lifecycle.ts';
 
+import { CoachDirector, attachCoachCues } from './services/coach.ts';
+import type { CoachCueBinding } from './services/coach.ts';
 import { attachDailyTally, dailyDelta, dailySet, emptyTally } from './services/daily.ts';
 import type { DailyTally } from './services/daily.ts';
 import type { MetaService } from './services/meta.ts';
 import type { RunSummary, TelemetryService } from './services/telemetry.ts';
 
 type State = 'title' | 'loading' | 'playing' | 'levelup' | 'paused' | 'dying' | 'results' | 'sanctum';
+
+/**
+ * States in which a run is open and the coach may speak. Outside these the
+ * strip belongs to no run, so the schedule does not advance at all.
+ */
+const COACH_STATES: ReadonlySet<State> = new Set<State>([
+  'playing',
+  'levelup',
+  'paused',
+  'dying',
+]);
+
+/**
+ * Health fraction below which a coaching line would be noise rather than help.
+ * The scheduler does not try to detect "a fight" — in this genre there is always
+ * a fight — only the one state where reading anything is actively wrong.
+ */
+const COACH_PRESSED_HP = 0.4;
 
 /**
  * Owns the game's state machine and the fixed order that systems run in.
@@ -87,6 +107,9 @@ export class Game implements LoopHooks {
   private runDay = 0;
   /** Bus signals the dailies count, accumulated while a run is open. */
   private dailyTally: DailyTally | null = null;
+  /** Decides which line the first run explains itself with, and when. */
+  private coach: CoachDirector;
+  private coachCues: CoachCueBinding | null = null;
   /** How many structures this map raised, and how many of them fell. */
   private structuresSpawned = 0;
   private structuresLost = 0;
@@ -133,6 +156,11 @@ export class Game implements LoopHooks {
       uiRoot.prepend(this.touch.root);
       this.input.attachAxisSource(this.touch);
     }
+
+    // Built from the loaded save — main.ts awaits meta.load() before it
+    // constructs the Game — so a returning player's coach starts out silent.
+    // Touch decides the wording, on the same test the joystick is built on.
+    this.coach = new CoachDirector(meta.coachState.seen, navigator.maxTouchPoints > 0);
 
     // A placeholder Run exists from the start so `ctx` is never half-built; it
     // is replaced wholesale when a real run begins.
@@ -233,6 +261,42 @@ export class Game implements LoopHooks {
     // nothing extra for the oaths. The run-level numbers (kills, gold, level,
     // time) are read straight off `run` at settle instead.
     this.dailyTally = attachDailyTally(this.bus);
+    // Same argument as the tally above: the mapping from event vocabulary to
+    // coaching cue lives beside the pool, where a renamed event fails a test
+    // instead of silently muting a lesson. Nothing new is emitted for it.
+    this.coachCues = attachCoachCues(this.bus, this.coach);
+  }
+
+  /**
+   * Advances the coaching schedule and applies whatever it decided.
+   *
+   * Called from render() *before* the frame gate, alongside syncUiMetrics — it
+   * is frame-side bookkeeping, not drawing, and it has to keep running on a
+   * frame the gate freezes. Frame time rather than simulation time, because it
+   * describes reading rather than physics and must survive a frame that ticked
+   * the sim zero times.
+   */
+  private updateCoach(frameDt: number): void {
+    if (!COACH_STATES.has(this.state)) return;
+
+    // Moving is proof the lesson about moving is not owed. Raised every frame
+    // the stick is off centre; the director is idempotent about it.
+    if (this.input.axisX !== 0 || this.input.axisY !== 0) this.coach.raise('moved');
+
+    const maxHp = this.run.stats.maxHp;
+    const hp = this.ctx.player >= 0 ? this.world.hp[this.ctx.player]! : 0;
+    const step = this.coach.update(frameDt, {
+      // Draft, pause and Sanctum all cover the strip. `dying` is not occluded —
+      // the screens are still down — but its zero health presses instead.
+      occluded: this.screens.isOpen,
+      pressed: maxHp > 0 && hp / maxHp < COACH_PRESSED_HP,
+    });
+
+    if (step.action?.kind === 'show') this.hud.showCoach(step.action.text);
+    else if (step.action?.kind === 'hide') this.hud.hideCoach();
+    // Persisted the moment a line is spoken or retired, not at the end of the
+    // run: quitting mid-lesson must not buy it a second airing.
+    for (const id of step.seen) this.meta.markCoachSeen(id);
   }
 
   // --- state transitions --------------------------------------------------
@@ -379,6 +443,13 @@ export class Game implements LoopHooks {
     this.runDay = this.meta.dailyState.day;
     this.dailyTally?.reset();
     this.dailyGold = 0;
+    // Clears the run-scoped schedule; the seen-list is persisted and survives.
+    // 'ability' is armed only where there is a power to teach, so a knight
+    // without one is never told about a button it does not have.
+    this.coach.beginRun();
+    this.hud.hideCoach();
+    this.coach.raise('start');
+    if (this.run.ability) this.coach.raise('ability');
     this.telemetry.beginRun(characterId, mapId, seed);
     this.camera.bounds = map.bounds;
     this.camera.snapTo(map.spawnX, map.spawnY);
@@ -569,6 +640,10 @@ export class Game implements LoopHooks {
   private endRun(victory: boolean): void {
     this.setState('results');
     this.hud.setVisible(false);
+    // Hiding the whole HUD already takes the strip off screen; this clears the
+    // class as well, so a half-read line cannot reappear the instant the HUD
+    // comes back and the next run's first line fades in rather than snapping.
+    this.hud.hideCoach();
     // The state transition and showResults stay unconditional so the final
     // screen always reflects the last transition.
     const walletTotal = this.settleRun(victory);
@@ -720,6 +795,7 @@ export class Game implements LoopHooks {
     // world does not.
     this.syncUiMetrics();
     if (this.debugVisible) this.updateDebug();
+    this.updateCoach(frameDt);
 
     // Frozen states reproduce the pixels already on the display canvas, so they
     // are drawn once on entry and then skipped — the whole rule, and why an
@@ -863,6 +939,8 @@ export class Game implements LoopHooks {
   }
 
   dispose(): void {
+    this.coachCues?.detach();
+    this.dailyTally?.detach();
     this.touch?.dispose();
     this.input.dispose();
     this.renderer.dispose();

@@ -40,6 +40,7 @@ export class Hud {
   private passiveRow: HTMLElement;
   private banner: HTMLElement;
   private structureRow: HTMLElement;
+  private coachLine: HTMLElement;
   private structurePips: { wrap: HTMLElement; fill: HTMLElement }[] = [];
   private bloodWrap: HTMLElement;
   private bloodFill: HTMLElement;
@@ -103,6 +104,7 @@ export class Hud {
 
     this.banner = el('div', 'boss-banner');
     this.structureRow = el('div', 'structure-pips');
+    this.coachLine = el('div', 'coach-line');
 
     // Bottom-centre thumb zone: the blood orb flanked by Feast / Frenzy taps.
     this.bloodWrap = el('div', 'blood-cluster');
@@ -147,7 +149,35 @@ export class Hud {
     });
     this.bloodWrap.appendChild(this.abilityBtn);
 
-    this.root.append(xpTrack, left, center, right, loadout, this.bloodWrap, this.banner, this.structureRow);
+    this.root.append(
+      xpTrack,
+      left,
+      center,
+      right,
+      loadout,
+      this.bloodWrap,
+      this.banner,
+      this.structureRow,
+      this.coachLine,
+    );
+  }
+
+  /**
+   * Puts one coaching line in the strip along the bottom.
+   *
+   * Deliberately not a banner and never a modal: the strip is a fixed lane
+   * between the loadout column and the blood orb, it takes no pointer events,
+   * and it holds exactly one short sentence. Nothing about showing a line can
+   * cover the fight or swallow a tap. CoachDirector decides *when*; this only
+   * decides *where*, and the answer is "out of the way".
+   */
+  showCoach(text: string): void {
+    this.coachLine.textContent = text;
+    this.coachLine.classList.add('show');
+  }
+
+  hideCoach(): void {
+    this.coachLine.classList.remove('show');
   }
 
   setVisible(visible: boolean): void {

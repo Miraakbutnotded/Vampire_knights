@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { characterDef } from '../gameplay/content.ts';
+import { defaultCoach } from './coach.ts';
 import {
   DAILY_BONUS_GOLD,
   DAILY_OBJECTIVE_GOLD,
@@ -49,6 +50,7 @@ describe('save codec', () => {
       unlockedCharacters: ['acolyte'],
       sanctum: { greed: 2, haste: 1 },
       daily: { day: 20447, progress: { kills: 120 }, claimed: ['gold'], bonusClaimed: false },
+      coach: { seen: ['move', 'auto'] },
     };
     expect(decodeSave(encodeSave(data))).toEqual(data);
   });
@@ -91,6 +93,7 @@ describe('save codec', () => {
       unlockedCharacters: [],
       sanctum: {},
       daily: defaultDaily(),
+      coach: defaultCoach(),
     });
     // Garbage fields sanitize instead of poisoning the state: negative gold
     // clamps, fractional ranks drop, non-strings fall out of the unlock list.
@@ -100,22 +103,24 @@ describe('save codec', () => {
       unlockedCharacters: ['a'],
       sanctum: { haste: 2 },
       daily: defaultDaily(),
+      coach: defaultCoach(),
     });
   });
 
   /**
-   * The v1 → v2 step, and the reason migrate() still branches on nothing: a
-   * real v1 save has no `daily` at all, and the absent field falls to defaults
-   * exactly the way `sanctum` did on v0 → v1.
+   * The v1 → v2 → v3 steps, and the reason migrate() still branches on nothing:
+   * a real v1 save has no `daily` and no `coach` at all, and both absent fields
+   * fall to defaults exactly the way `sanctum` did on v0 → v1.
    */
   it('migrates a real v1 save forward, adopting a fresh daily record', () => {
     const v1 = { version: 1, gold: 3200, unlockedCharacters: ['acolyte'], sanctum: { greed: 2 } };
     expect(migrate(v1)).toEqual({
-      version: 2,
+      version: SAVE_VERSION,
       gold: 3200,
       unlockedCharacters: ['acolyte'],
       sanctum: { greed: 2 },
       daily: { day: 0, progress: {}, claimed: [], bonusClaimed: false },
+      coach: { seen: [] },
     });
     // day 0 reads as "never rolled": the first rollover adopts the observed day
     // without paying out for the set it replaces.
