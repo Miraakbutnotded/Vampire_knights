@@ -5,7 +5,9 @@ import { HapticsDriver } from './platform/haptics.ts';
 import { wireCapacitorLifecycle, wireLifecycle } from './platform/lifecycle.ts';
 import { SpriteTable } from './render/sprites.ts';
 import { MetaService } from './services/meta.ts';
-import { LocalStorageAdapter } from './services/storage.ts';
+import { liftStorage } from './services/migration.ts';
+import { LocalStorageAdapter, PreferencesStorageAdapter } from './services/storage.ts';
+import type { StorageAdapter } from './services/storage.ts';
 import { TelemetryService } from './services/telemetry.ts';
 
 /**
@@ -20,11 +22,52 @@ declare global {
 }
 
 /**
- * Boots the game: load art, build the game, start the loop.
+ * Picks the store the whole app persists through, and it is the only place in
+ * the codebase allowed to make that choice — services take an adapter, they
+ * never construct one.
  *
- * Sprite loading is the only asynchronous step. Everything downstream can then
- * assume every sprite resolves to something drawable — a real PNG where one
- * exists, procedural placeholder art where it doesn't.
+ * Detection is `Capacitor.isNativePlatform()`, which is true only when the
+ * native bridge injected itself into the WebView; the import is dynamic and
+ * caught so a plain `vite build` served over http behaves identically whether
+ * or not the package resolves. Both ways of being wrong are survivable:
+ *
+ * - **Native misread as web** → we keep writing localStorage, which is exactly
+ *   today's behaviour. The eviction risk returns, but nothing is lost, and no
+ *   marker is written, so the first correct boot still lifts the save.
+ * - **Web misread as native** → Preferences' own web implementation is
+ *   localStorage under a `CapacitorStorage.` key prefix, so the save is lifted
+ *   into the prefixed keys and the game reads it back from there. Different
+ *   keys, same bytes, same behaviour.
+ *
+ * Choosing Preferences is what triggers the one-time lift, and the boot waits
+ * for it: MetaService.load() must not read an empty store while the wallet is
+ * still in flight. A lift that fails is logged and boot continues — the game
+ * starts fine on an empty store, and the next launch retries.
+ */
+async function selectStorage(): Promise<StorageAdapter> {
+  const web = new LocalStorageAdapter();
+  let native = false;
+  try {
+    const { Capacitor } = await import('@capacitor/core');
+    native = Capacitor.isNativePlatform();
+  } catch (error) {
+    console.warn('[storage] Capacitor unavailable; using localStorage:', error);
+  }
+  if (!native) return web;
+
+  const prefs = new PreferencesStorageAdapter();
+  const report = await liftStorage(web, prefs);
+  if (report.outcome !== 'already-done') console.info('[storage] lift:', report);
+  return prefs;
+}
+
+/**
+ * Boots the game: load art, pick the save store, build the game, start the loop.
+ *
+ * Two asynchronous steps, run together because neither needs the other: art,
+ * after which every sprite resolves to something drawable — a real PNG where one
+ * exists, procedural placeholder art where it doesn't — and storage selection,
+ * which on device also carries out the one-time lift off localStorage.
  */
 async function boot(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>('#game');
@@ -35,10 +78,9 @@ async function boot(): Promise<void> {
     throw new Error('index.html is missing #game, #touch, #ui or #menu');
   }
 
-  const sprites = await SpriteTable.load();
-  // Second async boot step: the wallet and sanctum ranks must exist before the
+  const [sprites, storage] = await Promise.all([SpriteTable.load(), selectStorage()]);
+  // Last async boot step: the wallet and sanctum ranks must exist before the
   // title screen renders and before the first Run is constructed.
-  const storage = new LocalStorageAdapter();
   const meta = new MetaService(storage);
   const telemetry = new TelemetryService(storage);
   // Both read the same backing store and neither depends on the other, so they
