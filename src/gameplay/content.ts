@@ -315,6 +315,41 @@ export interface WeaponLevel {
   note: string;
 }
 
+/**
+ * A maxed weapon plus a maxed passive fuses into a different weapon.
+ *
+ * Resolved ids, not raw strings: by the time a def carries one of these both
+ * halves are known to exist, so gameplay never re-validates a pairing.
+ */
+export interface WeaponEvolution {
+  passiveId: string;
+  intoId: string;
+}
+
+/**
+ * Shape-checks a raw `evolution` block. Both halves are cross-referenced later
+ * (linkEvolutions) — passives do not exist yet at the point weapons normalize.
+ *
+ * Exported and pure so the fail-soft path is reachable from tests: content.ts
+ * normalizes once at module load and cannot be re-run with different JSON.
+ */
+export function parseEvolutionBlock(
+  raw: unknown,
+  weaponId: string,
+): { passive: string; into: string } | null {
+  // Absent is not malformed — most weapons never evolve.
+  if (raw === undefined || raw === null) return null;
+
+  const block = typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+  const passive = block?.['passive'];
+  const into = block?.['into'];
+  if (typeof passive !== 'string' || !passive || typeof into !== 'string' || !into) {
+    console.warn(`[content] weapon "${weaponId}" has a malformed "evolution" block; ignoring it.`);
+    return null;
+  }
+  return { passive, into };
+}
+
 export interface WeaponDef {
   id: string;
   index: number;
@@ -327,12 +362,19 @@ export interface WeaponDef {
   maxLevel: number;
   base: WeaponStats;
   levels: WeaponLevel[];
+  /** Filled in by linkEvolutions once passives exist; null when it never evolves. */
+  evolution: WeaponEvolution | null;
 }
 
-function normalizeWeapons(): { list: WeaponDef[]; byId: Map<string, WeaponDef> } {
+function normalizeWeapons(): {
+  list: WeaponDef[];
+  byId: Map<string, WeaponDef>;
+  rawEvolutions: Map<string, { passive: string; into: string }>;
+} {
   const raw = weaponsJson as unknown as Record<string, Record<string, unknown>>;
   const list: WeaponDef[] = [];
   const byId = new Map<string, WeaponDef>();
+  const rawEvolutions = new Map<string, { passive: string; into: string }>();
 
   for (const [id, def] of Object.entries(raw)) {
     const behaviorRaw = typeof def['behavior'] === 'string' ? (def['behavior'] as string) : '';
@@ -373,14 +415,93 @@ function normalizeWeapons(): { list: WeaponDef[]; byId: Map<string, WeaponDef> }
       maxLevel: levels.length + 1,
       base,
       levels,
+      // Cross-referencing a passive id here is impossible: passives normalize
+      // after weapons do. linkEvolutions fills this in below.
+      evolution: null,
     };
+
+    const evolution = parseEvolutionBlock(def['evolution'], id);
+    if (evolution) rawEvolutions.set(id, evolution);
 
     list.push(entry);
     byId.set(id, entry);
   }
 
   if (list.length === 0) throw new Error('content/weapons.json defines no usable weapons');
-  return { list, byId };
+  return { list, byId, rawEvolutions };
+}
+
+/**
+ * Second pass over the parsed evolution blocks, once passives exist. Returns
+ * the set of weapon ids that are evolution targets, which is what keeps them
+ * out of the level-up draft.
+ *
+ * Every rejection disables exactly one pairing, warns once, and leaves both
+ * weapons playable — a typo costs a recipe, never a weapon. Two structural
+ * rules make cycles unrepresentable and guarantee at most one evolution per
+ * weapon per run: a target may not evolve further, and two bases may not share
+ * a target.
+ *
+ * Exported and pure for the same reason as parseEvolutionBlock: the fail-soft
+ * paths must be reachable from tests.
+ */
+export function linkEvolutions(
+  weapons: { list: WeaponDef[]; byId: Map<string, WeaponDef> },
+  passives: { byId: Map<string, PassiveDef> },
+  raw: ReadonlyMap<string, { passive: string; into: string }>,
+): ReadonlySet<string> {
+  const targets = new Set<string>();
+  /** target id -> the base that claimed it, for the shared-target message. */
+  const claimedBy = new Map<string, string>();
+
+  for (const [id, block] of raw) {
+    const base = weapons.byId.get(id);
+    if (!base) continue;
+
+    if (!passives.byId.has(block.passive)) {
+      console.warn(
+        `[content] weapon "${id}" evolution requires unknown passive "${block.passive}"; that pairing is disabled.`,
+      );
+      continue;
+    }
+    if (block.into === id) {
+      console.warn(`[content] weapon "${id}" evolves into itself; that pairing is disabled.`);
+      continue;
+    }
+    if (!weapons.byId.has(block.into)) {
+      console.warn(
+        `[content] weapon "${id}" evolves into unknown weapon "${block.into}"; that pairing is disabled.`,
+      );
+      continue;
+    }
+    const owner = claimedBy.get(block.into);
+    if (owner !== undefined) {
+      console.warn(
+        `[content] weapons "${owner}" and "${id}" both evolve into "${block.into}"; disabling the pairing on "${id}".`,
+      );
+      continue;
+    }
+
+    base.evolution = { passiveId: block.passive, intoId: block.into };
+    claimedBy.set(block.into, id);
+    targets.add(block.into);
+  }
+
+  // No chains: an evolution is the end of the line, so a target that declared
+  // its own evolution loses it rather than the base that reached it. Whatever
+  // that dropped pairing had already claimed stays in the target set: a weapon
+  // authored as an evolution should stay out of the draft even when the recipe
+  // that reached it was rejected.
+  for (const target of targets) {
+    const def = weapons.byId.get(target)!;
+    if (def.evolution === null) continue;
+    console.warn(
+      `[content] weapon "${target}" is an evolution target and must not evolve further; dropping its "evolution".`,
+    );
+    def.evolution = null;
+  }
+
+  return targets;
 }
 
 const weaponData = normalizeWeapons();
@@ -505,6 +626,18 @@ export const PASSIVE_LIST: readonly PassiveDef[] = passiveData.list;
 export function passiveDef(id: string): PassiveDef | null {
   return passiveData.byId.get(id) ?? null;
 }
+
+/**
+ * Weapons that exist only as the far side of an evolution. rollOffers skips
+ * these when they are unowned, which is what keeps them out of the draft; their
+ * empty `levels` array (maxLevel 1) independently keeps them out of it once
+ * owned, and `weight: 0` is the belt to that pair of braces.
+ */
+export const EVOLVED_WEAPON_IDS: ReadonlySet<string> = linkEvolutions(
+  weaponData,
+  passiveData,
+  weaponData.rawEvolutions,
+);
 
 // --- abilities ------------------------------------------------------------
 

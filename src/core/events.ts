@@ -76,6 +76,12 @@ export interface GameEvents {
     atLevel: number;
     offered: string[];
   };
+  /**
+   * A maxed weapon fused with its maxed passive at a chest. The loadout slot
+   * keeps its position, so the HUD only needs to re-read it — the payload is
+   * for the announcement.
+   */
+  'weapon:evolved': { baseId: string; intoId: string; name: string };
   'xp:gained': { amount: number; xp: number; needed: number; level: number };
   'enemy:killed': { x: number; y: number; kills: number };
   'gold:gained': { amount: number; total: number };

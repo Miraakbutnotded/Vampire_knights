@@ -188,6 +188,38 @@ export class Run {
     return 1;
   }
 
+  /**
+   * Replaces an owned weapon with the far side of its evolution, in place.
+   * Returns false when the base is not owned or the target does not resolve.
+   *
+   * In place is deliberate: pushing or splicing would reorder the HUD slots,
+   * and the slot staying put is the whole readability of "this weapon became
+   * that weapon". Nothing here consults MAX_WEAPON_SLOTS, because the loadout
+   * length does not change — a full loadout evolves exactly like a fresh one.
+   *
+   * Destroying whatever the old weapon still owns in the world (orbit
+   * satellites, the aura ring) is the caller's job: Run has no World, and an
+   * orphaned aura is immortal.
+   */
+  evolveWeapon(baseId: string, intoId: string): boolean {
+    const index = this.weapons.findIndex((w) => w.def.id === baseId);
+    if (index < 0) return false;
+    const def = weaponDef(intoId);
+    if (!def) return false;
+
+    const owned = this.weapons[index]!;
+    owned.def = def;
+    owned.level = 1;
+    // Zero, not staggered: the evolution should land on the very next tick.
+    owned.cooldown = 0;
+    owned.activeIds.length = 0;
+    owned.activeTimer = 0;
+    owned.active = false;
+    // No recomputeStats(): weapons never feed run.stats — only passives, meta
+    // and ability mods do. Calling it would be harmless but misleading.
+    return true;
+  }
+
   /** Adds a passive at level 1, or levels it up. Returns the new level. */
   addPassive(id: string): number {
     const existing = this.passives.find((p) => p.def.id === id);

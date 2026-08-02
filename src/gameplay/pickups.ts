@@ -1,6 +1,7 @@
 import { Comp, Kind } from '../ecs/components.ts';
 import { damp } from '../core/math.ts';
 import { BLOOD_CONFIG } from './content.ts';
+import { tryEvolve } from './evolutions.ts';
 import type { Ctx } from './context.ts';
 
 export const PickupKind = {
@@ -231,8 +232,13 @@ function collect(ctx: Ctx, id: number): void {
       break;
     }
     case PickupKind.Chest: {
+      // The roll is drawn first and unconditionally, so the seeded stream
+      // advances identically whether or not an evolution fires.
       const rolls = ctx.rng.int(CHEST_MIN_UPGRADES, CHEST_MAX_UPGRADES);
-      run.pendingLevelUps += rolls;
+      // An evolution costs the cheapest thing the chest has — one pick — rather
+      // than being free. It can never zero a payout of two or three.
+      const evolved = tryEvolve(ctx);
+      run.pendingLevelUps += evolved ? Math.max(0, rolls - 1) : rolls;
       const gold = run.gainGold(ctx.rng.int(10, 30));
       bus.emit('gold:gained', { amount: gold, total: run.gold });
       bus.emit('player:levelup', { level: run.level });

@@ -4,6 +4,7 @@
     "sprite": "fx_slash",
     "behavior": "arc",
     "description": "Slashes in the direction you last moved. Hits everything it sweeps.",
+    "evolution": { "passive": "widelens", "into": "reap" },
     "weight": 100,
     "base": {
       "damage": 12,
@@ -31,6 +32,7 @@
     "sprite": "proj_bolt",
     "behavior": "homing",
     "description": "Fires a bolt that curves toward the nearest enemy.",
+    "evolution": { "passive": "twinsigil", "into": "choir" },
     "weight": 100,
     "base": {
       "damage": 11,
@@ -59,6 +61,7 @@
     "sprite": "proj_knife",
     "behavior": "straight",
     "description": "Fast knives thrown the way you face. Cheap, relentless, pierces.",
+    "evolution": { "passive": "tensioncord", "into": "bladewind" },
     "weight": 100,
     "base": {
       "damage": 8,
@@ -87,6 +90,7 @@
     "sprite": "aura_garlic",
     "behavior": "aura",
     "description": "A ring of consecrated ground. Damages and pushes back anything inside.",
+    "evolution": { "passive": "ironplate", "into": "sanctum" },
     "weight": 90,
     "base": {
       "damage": 6,
@@ -114,6 +118,7 @@
     "sprite": "orb_tome",
     "behavior": "orbit",
     "description": "Tomes orbit you, grinding through anything they touch.",
+    "evolution": { "passive": "longcandle", "into": "vigil" },
     "weight": 90,
     "base": {
       "damage": 10,
@@ -143,6 +148,7 @@
     "sprite": "hazard_fire",
     "behavior": "drop",
     "description": "Hurls flasks that leave burning ground where they land.",
+    "evolution": { "passive": "whetstone", "into": "hellpyre" },
     "weight": 85,
     "base": {
       "damage": 16,
@@ -172,6 +178,7 @@
     "sprite": "fx_star",
     "behavior": "nova",
     "description": "Bursts a ring of stars outward in every direction.",
+    "evolution": { "passive": "quickglyph", "into": "nightfall" },
     "weight": 80,
     "base": {
       "damage": 15,
@@ -199,6 +206,7 @@
     "sprite": "fx_bolt_strike",
     "behavior": "lightning",
     "description": "Strikes enemies on screen from above. Ignores everything in the way.",
+    "evolution": { "passive": "luckycoin", "into": "judgment" },
     "weight": 75,
     "base": {
       "damage": 34,
@@ -219,5 +227,162 @@
       { "count": 2, "note": "+2 strikes" },
       { "damage": 22, "cooldown": -0.4, "note": "+22 damage, -0.4s cooldown" }
     ]
+  },
+  "reap": {
+    "name": "Crimson Reap",
+    "sprite": "fx_reap",
+    "behavior": "arc",
+    "description": "The whip closes into a ring. Eight scythes, no aiming, nothing standing beside you.",
+    "weight": 0,
+    "base": {
+      "damage": 52,
+      "cooldown": 1.0,
+      "count": 8,
+      "pierce": -1,
+      "area": 1.5,
+      "duration": 0.3,
+      "knockback": 95,
+      "reach": 44
+    },
+    "levels": []
+  },
+
+  "choir": {
+    "name": "Hex Choir",
+    "sprite": "proj_choir",
+    "behavior": "homing",
+    "description": "Five voices that hunt for five seconds and thread six bodies apiece.",
+    "weight": 0,
+    "base": {
+      "damage": 34,
+      "cooldown": 0.8,
+      "count": 5,
+      "pierce": 6,
+      "area": 1,
+      "speed": 150,
+      "lifetime": 5.0,
+      "knockback": 22,
+      "turnRate": 13
+    },
+    "levels": []
+  },
+
+  "bladewind": {
+    "name": "Bladewind",
+    "sprite": "proj_bladewind",
+    "behavior": "straight",
+    "description": "Nine blades leave as one rank, dead straight and half again as fast.",
+    "weight": 0,
+    "base": {
+      "damage": 26,
+      "cooldown": 0.7,
+      "count": 9,
+      "pierce": 4,
+      "area": 1,
+      "speed": 330,
+      "lifetime": 1.6,
+      "knockback": 14,
+      "spread": 0
+    },
+    "levels": []
+  },
+
+  "sanctum": {
+    "name": "Sanctum",
+    "sprite": "aura_sanctum",
+    "behavior": "aura",
+    "description": "Consecrated ground you carry. Little crosses it, and nothing crosses it twice.",
+    "weight": 0,
+    "base": {
+      "damage": 24,
+      "cooldown": 0,
+      "count": 1,
+      "pierce": -1,
+      "area": 1.9,
+      "radius": 44,
+      "interval": 0.28,
+      "knockback": 75
+    },
+    "levels": []
+  },
+
+  "vigil": {
+    "name": "Eternal Vigil",
+    "sprite": "orb_vigil",
+    "behavior": "orbit",
+    "description": "Seven tomes that never fall out of orbit.",
+    "weight": 0,
+    "base": {
+      "damage": 34,
+      "cooldown": 2.0,
+      "count": 7,
+      "pierce": -1,
+      "area": 1,
+      "duration": 8.0,
+      "radius": 58,
+      "orbitSpeed": 3.4,
+      "interval": 0.28,
+      "knockback": 20
+    },
+    "levels": []
+  },
+
+  "hellpyre": {
+    "name": "Hellpyre",
+    "sprite": "hazard_hellpyre",
+    "behavior": "drop",
+    "description": "Five flasks that burn for six seconds. The ground stops being theirs.",
+    "weight": 0,
+    "base": {
+      "damage": 52,
+      "cooldown": 2.2,
+      "count": 5,
+      "pierce": -1,
+      "area": 1.35,
+      "duration": 6.0,
+      "radius": 26,
+      "interval": 0.3,
+      "spawnRadius": 96,
+      "knockback": 0
+    },
+    "levels": []
+  },
+
+  "nightfall": {
+    "name": "Nightfall",
+    "sprite": "fx_nightfall",
+    "behavior": "nova",
+    "description": "The sky empties every two seconds. Twenty-four stars, five bodies each.",
+    "weight": 0,
+    "base": {
+      "damage": 46,
+      "cooldown": 1.9,
+      "count": 24,
+      "pierce": 5,
+      "area": 1,
+      "speed": 135,
+      "lifetime": 2.2,
+      "knockback": 30
+    },
+    "levels": []
+  },
+
+  "judgment": {
+    "name": "Judgment",
+    "sprite": "fx_judgment",
+    "behavior": "lightning",
+    "description": "Nine strikes from above, and cover has stopped meaning anything.",
+    "weight": 0,
+    "base": {
+      "damage": 110,
+      "cooldown": 1.5,
+      "count": 9,
+      "pierce": -1,
+      "area": 1.5,
+      "radius": 22,
+      "duration": 0.24,
+      "knockback": 45
+    },
+    "levels": []
   }
 }

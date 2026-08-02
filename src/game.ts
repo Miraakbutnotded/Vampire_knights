@@ -188,6 +188,10 @@ export class Game implements LoopHooks {
       this.hud.showBanner(`${name.toUpperCase()} APPROACHES`);
     });
 
+    this.bus.on('weapon:evolved', ({ name }) => {
+      this.hud.showBanner(`${name.toUpperCase()} AWAKENS`);
+    });
+
     this.bus.on('siege:started', ({ duration }) => {
       this.siegeUntil = this.run.time + duration;
       this.hud.showBanner('SIEGE! DEFEND THE BASTION');

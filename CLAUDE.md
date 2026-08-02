@@ -133,7 +133,10 @@ lookups return null + `warnOnce` instead of throwing. A typo in content costs on
 the game — preserve this contract. Same fail-soft rule in rendering: missing PNG → generated
 placeholder, unknown sprite name → id 0 + warn.
 
-Weapon levels are additive deltas on `base`; `maxLevel = levels.length + 1` implicitly.
+Weapon levels are additive deltas on `base`; `maxLevel = levels.length + 1` implicitly. Evolutions are
+linked in a **second pass** (`linkEvolutions`, run after `normalizePassives` — a weapon cannot
+cross-reference a passive during its own normalization) and are exported as `EVOLVED_WEAPON_IDS`;
+`rollOffers` skips those ids at level 0, which is what keeps an evolution out of the draft.
 `effectiveStats()` in weapons.ts is the single place passives meet weapon numbers.
 `Run.recomputeStats()` runs only on loadout change, never per tick — don't mutate `run.stats`
 directly.
@@ -146,6 +149,10 @@ directly.
 - **New weapon behavior**: add to the `WeaponBehavior` const in content.ts (this whitelists it for
   JSON validation), write a `fireX()` + case in the `fire()` switch in weapons.ts; new tunables go
   in `WeaponStats` + `WEAPON_STAT_KEYS` + `WEAPON_STAT_DEFAULTS`.
+- **New weapon evolution**: an `evolution` block on the base plus a terminal entry (`weight: 0`,
+  `levels: []`) in weapons.json — no code. `tryEvolve` (`evolutions.ts`, called from the chest case in
+  `pickups.ts`) must stay **rng-free**, and it must `world.destroy` the base weapon's `activeIds`
+  before the swap or the aura ring outlives it as an immortal entity.
 - **New map**: drop a JSON in `src/content/maps/` — auto-discovered via `import.meta.glob`, filename
   is the map id. No registration.
 - **New art**: colour comes from `docs/art/palette.md` and nowhere else — never start a second

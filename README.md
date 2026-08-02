@@ -111,7 +111,9 @@ art, not noise to be tuned out.
   `[0.5, 0.85]` so their feet land on their position and depth sorting looks right. Projectiles and
   pickups want `[0.5, 0.5]`.
 - **`anims`** — only `idle` is required. Any missing state falls back to `idle`, so a one-animation
-  enemy is fine.
+  enemy is fine. Omitting `anims` entirely is legal and means "placeholder for now": the loader
+  generates the strip from `placeholder`, and `validate:art` has nothing to check because no `src` was
+  promised. That is how art that has not been drawn yet gets a reserved name.
 - **`frameW` / `frameH`** — per-animation, optional. Omit for square frames.
 - **`placeholder.shape`** — one of:
   `capsule` (humanoid), `blob`, `bat`, `ghost`, `skull`, `gem`, `coin`, `orb`, `slash`, `knife`,
@@ -183,6 +185,32 @@ level-up card shows, so write it for the player.
 
 `interval` is the re-hit cadence for anything persistent. `pierce: -1` means unlimited. A weapon whose
 `interval` is 0 hits each enemy exactly once per instance.
+
+#### Evolutions
+
+A weapon carried to its ceiling, plus the passive it was built around at *its* ceiling, fuses into a
+different weapon the next time you open a chest:
+
+```jsonc
+"whip": {
+  ...,
+  "evolution": { "passive": "widelens", "into": "reap" }
+}
+```
+
+The far side is an ordinary entry in the same file with `"weight": 0` and `"levels": []` — an empty
+`levels` array makes `maxLevel` 1, so it is structurally terminal and can never be offered as an
+upgrade. Its `behavior` should match the base's: an evolution is the same weapon, further along.
+
+Chests come from `dropsChest` enemies and from surviving a siege. Exactly one evolution resolves per
+chest — if two are ready, the one whose base you have carried longest wins and the other fires on the
+next chest — and it costs the chest one of its 1–3 upgrade rolls. The passive is **not** consumed, and
+the loadout slot does not move. A full six-weapon loadout evolves exactly like an empty one: the swap
+happens in place, so the slot cap is never consulted.
+
+Bad references disable one recipe and nothing else, with a warning naming it: an unknown passive or
+target, a weapon evolving into itself, a target that declares its own `evolution` (no chains), or two
+bases sharing one target (the later one loses). The weapons themselves keep working.
 
 ### `passives.json`
 
@@ -360,8 +388,9 @@ Rendering and menus are not covered — they need a browser.
 
 Deliberate gaps, in rough order of how much they'd add:
 
-- **Weapon evolutions** — the union of a maxed weapon and a passive into a stronger one. The data model
-  already supports it; it needs an `evolution` block in `weapons.json` and a check on chest pickup.
+- **Evolution art** — all eight evolved weapons ship on generated placeholders. Each has its own entry
+  in `sprites.json` waiting for a strip: `fx_reap`, `proj_choir`, `proj_bladewind`, `aura_sanctum`,
+  `orb_vigil`, `hazard_hellpyre`, `fx_nightfall`, `fx_judgment`.
 - **Meta-progression** — gold is tracked and displayed but doesn't persist or buy anything yet.
 - **Audio.** No sound at all.
 - **Enemy variety in the late game** — the last few wave stages reuse earlier enemies at higher

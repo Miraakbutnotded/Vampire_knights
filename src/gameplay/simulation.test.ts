@@ -7,6 +7,7 @@ import { FIXED_DT } from '../core/loop.ts';
 import { Comp, Kind, Team } from '../ecs/components.ts';
 import { World } from '../ecs/world.ts';
 import bastionMap from '../content/maps/bastion.json';
+import spritesJson from '../content/sprites.json';
 import { Camera } from '../render/camera.ts';
 import { Fx } from '../render/fx.ts';
 import type { SpriteTable } from '../render/sprites.ts';
@@ -17,29 +18,36 @@ import { MAX_QUERY_RESULTS, SpatialHash } from './collision.ts';
 import {
   BLOOD_CONFIG,
   CHARACTER_LIST,
+  EVOLVED_WEAPON_IDS,
   META_LIST,
   STRUCTURE_LIST,
   WEAPON_LIST,
+  WEAPON_STAT_DEFAULTS,
   characterDef,
   enemyDef,
+  linkEvolutions,
   metaNodeDef,
   normalizeAbility,
   normalizeBlood,
   normalizeMeta,
+  parseEvolutionBlock,
+  passiveDef,
   structureDef,
   structureDefByIndex,
   waveTable,
+  weaponDef,
   weaponStatsAtLevel,
 } from './content.ts';
-import type { MetaMods, StructureDef } from './content.ts';
+import type { MetaMods, PassiveDef, StructureDef, WeaponDef } from './content.ts';
 import { updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
 import { damageEnemy } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
-import { PickupKind, spawnBloodVial, spawnCoin, spawnGem, updatePickups } from './pickups.ts';
+import { PickupKind, spawnBloodVial, spawnChest, spawnCoin, spawnGem, updatePickups } from './pickups.ts';
 import { withinEngagement } from './damage.ts';
 import { Run, xpForLevel } from './run.ts';
 import { Spawner, difficultyAt } from './spawner.ts';
 import { damageStructure, spawnStructure, updateStructures } from './structures.ts';
+import { tryEvolve } from './evolutions.ts';
 import { applyOffer, rollOffers } from './upgrades.ts';
 import { effectiveStats, spawnHazard, updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
 import { updateBlood } from './blood.ts';
@@ -2357,5 +2365,432 @@ describe('a run reports what happened to it', () => {
     // offers that were declined, not just the one that won.
     expect(picked[0]!.offered).toEqual(offers.map((o) => o.id));
     expect(picked[0]!.offered).toContain(taken.id);
+  });
+});
+
+describe('weapon evolutions — content', () => {
+  const fakeWeapon = (id: string, over: Partial<WeaponDef> = {}): WeaponDef => ({
+    id,
+    index: 0,
+    name: id,
+    sprite: 'proj_bolt',
+    behavior: 'arc',
+    description: '',
+    weight: 100,
+    maxLevel: 1,
+    base: { ...WEAPON_STAT_DEFAULTS },
+    levels: [],
+    evolution: null,
+    ...over,
+  });
+  const fakePassive = (id: string): PassiveDef => ({
+    id,
+    index: 0,
+    name: id,
+    description: '',
+    maxLevel: 5,
+    weight: 100,
+    perLevel: {},
+  });
+  const pack = (defs: WeaponDef[]) => ({ list: defs, byId: new Map(defs.map((d) => [d.id, d])) });
+  const passivePack = (ids: string[]) => ({ byId: new Map(ids.map((id) => [id, fakePassive(id)])) });
+
+  it('parses a well-formed evolution block and rejects every malformed shape', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(parseEvolutionBlock({ passive: 'widelens', into: 'reap' }, 'whip')).toEqual({
+        passive: 'widelens',
+        into: 'reap',
+      });
+      // Absent is not malformed: most weapons have no evolution at all.
+      expect(parseEvolutionBlock(undefined, 'whip')).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+
+      for (const bad of [42, 'reap', ['widelens', 'reap'], {}, { passive: 'widelens' }, { into: 'reap' }, { passive: 1, into: 'reap' }]) {
+        expect(parseEvolutionBlock(bad, 'whip')).toBeNull();
+      }
+      expect(warn).toHaveBeenCalledWith('[content] weapon "whip" has a malformed "evolution" block; ignoring it.');
+      expect(warn).toHaveBeenCalledTimes(7);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('links a valid pairing onto the base and reports the target id', () => {
+    const whip = fakeWeapon('whip');
+    const reap = fakeWeapon('reap');
+    const evolved = linkEvolutions(
+      pack([whip, reap]),
+      passivePack(['widelens']),
+      new Map([['whip', { passive: 'widelens', into: 'reap' }]]),
+    );
+
+    expect(whip.evolution).toEqual({ passiveId: 'widelens', intoId: 'reap' });
+    expect(reap.evolution).toBeNull();
+    expect([...evolved]).toEqual(['reap']);
+  });
+
+  it('disables exactly one pairing per bad reference, warns once, and leaves the rest linked', () => {
+    const cases: {
+      raw: [string, { passive: string; into: string }][];
+      message: string;
+      /** Ids whose evolution must survive the rejection. */
+      survives: string[];
+      /** Ids whose evolution must have been dropped. */
+      dropped: string[];
+    }[] = [
+      {
+        raw: [['whip', { passive: 'widelenz', into: 'reap' }], ['knife', { passive: 'widelens', into: 'bladewind' }]],
+        message: '[content] weapon "whip" evolution requires unknown passive "widelenz"; that pairing is disabled.',
+        survives: ['knife'],
+        dropped: ['whip'],
+      },
+      {
+        raw: [['whip', { passive: 'widelens', into: 'reeap' }], ['knife', { passive: 'widelens', into: 'bladewind' }]],
+        message: '[content] weapon "whip" evolves into unknown weapon "reeap"; that pairing is disabled.',
+        survives: ['knife'],
+        dropped: ['whip'],
+      },
+      {
+        raw: [['whip', { passive: 'widelens', into: 'whip' }], ['knife', { passive: 'widelens', into: 'bladewind' }]],
+        message: '[content] weapon "whip" evolves into itself; that pairing is disabled.',
+        survives: ['knife'],
+        dropped: ['whip'],
+      },
+      {
+        raw: [['whip', { passive: 'widelens', into: 'reap' }], ['reap', { passive: 'widelens', into: 'bladewind' }]],
+        message: '[content] weapon "reap" is an evolution target and must not evolve further; dropping its "evolution".',
+        survives: ['whip'],
+        dropped: ['reap'],
+      },
+      {
+        raw: [['whip', { passive: 'widelens', into: 'reap' }], ['knife', { passive: 'widelens', into: 'reap' }]],
+        message: '[content] weapons "whip" and "knife" both evolve into "reap"; disabling the pairing on "knife".',
+        survives: ['whip'],
+        dropped: ['knife'],
+      },
+    ];
+
+    for (const test of cases) {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const defs = ['whip', 'knife', 'reap', 'bladewind'].map((id) => fakeWeapon(id));
+        const byId = new Map(defs.map((d) => [d.id, d]));
+        linkEvolutions({ list: defs, byId }, passivePack(['widelens']), new Map(test.raw));
+
+        expect(warn, test.message).toHaveBeenCalledWith(test.message);
+        expect(warn, test.message).toHaveBeenCalledTimes(1);
+        for (const id of test.dropped) expect(byId.get(id)!.evolution, `${id} kept`).toBeNull();
+        for (const id of test.survives) expect(byId.get(id)!.evolution, `${id} lost`).not.toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    }
+  });
+
+  it('ships eight pairings whose targets are terminal, unweighted and behaviour-preserving', () => {
+    const bases = WEAPON_LIST.filter((def) => def.evolution !== null);
+    expect(bases.length).toBe(8);
+    expect(EVOLVED_WEAPON_IDS.size).toBe(8);
+
+    for (const base of bases) {
+      const evo = base.evolution!;
+      const passive = passiveDef(evo.passiveId);
+      const target = weaponDef(evo.intoId);
+      expect(passive, `${base.id} requires unknown passive ${evo.passiveId}`).not.toBeNull();
+      expect(target, `${base.id} evolves into unknown weapon ${evo.intoId}`).not.toBeNull();
+
+      // A base you can actually max, and an evolution that is structurally the end
+      // of the line: maxLevel 1 keeps it out of the upgrade branch of rollOffers.
+      expect(base.maxLevel, `${base.id} is not upgradable`).toBeGreaterThan(1);
+      expect(target!.behavior, `${target!.id} changed behaviour`).toBe(base.behavior);
+      expect(target!.maxLevel, `${target!.id} is upgradable`).toBe(1);
+      expect(target!.levels.length).toBe(0);
+      expect(target!.weight, `${target!.id} is draftable`).toBe(0);
+      expect(target!.evolution, `${target!.id} chains`).toBeNull();
+      expect(EVOLVED_WEAPON_IDS.has(target!.id)).toBe(true);
+      // Strictly stronger than the maxed base on the stat the behaviour lives on.
+      expect(target!.base.damage).toBeGreaterThan(weaponStatsAtLevel(base, base.maxLevel).damage);
+    }
+
+    // No base is itself an evolution target: one evolution per weapon per run.
+    for (const base of bases) expect(EVOLVED_WEAPON_IDS.has(base.id)).toBe(false);
+  });
+
+  it('declares a sprite for every weapon, so none silently falls back to sprite id 0', () => {
+    const declared = spritesJson as unknown as Record<string, unknown>;
+    for (const def of WEAPON_LIST) {
+      expect(Object.hasOwn(declared, def.sprite), `${def.id} references undeclared sprite ${def.sprite}`).toBe(true);
+    }
+    // Evolutions get their own art slot rather than reusing the base's, so the
+    // fusion reads on screen the moment the PNGs land.
+    const evolvedSprites = WEAPON_LIST.filter((d) => EVOLVED_WEAPON_IDS.has(d.id)).map((d) => d.sprite);
+    expect(new Set(evolvedSprites).size).toBe(8);
+    for (const base of WEAPON_LIST.filter((d) => d.evolution !== null)) {
+      expect(weaponDef(base.evolution!.intoId)!.sprite).not.toBe(base.sprite);
+    }
+  });
+});
+
+describe('weapon evolutions — loadout', () => {
+  it('never offers an evolved weapon in the draft, however many drafts are taken', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    for (let i = 0; i < 400; i++) {
+      const offers = rollOffers(ctx);
+      for (const offer of offers) {
+        expect(EVOLVED_WEAPON_IDS.has(offer.id), `${offer.id} was offered`).toBe(false);
+      }
+      applyOffer(ctx, offers[0]!, offers);
+    }
+    for (const weapon of ctx.run.weapons) {
+      expect(EVOLVED_WEAPON_IDS.has(weapon.def.id), `${weapon.def.id} was drafted`).toBe(false);
+    }
+  });
+
+  it('skips evolved weapons even when weight would otherwise draft them', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    // The real guard is the id check, not the zero weight: prove it holds when
+    // the weight is not zero. WEAPON_LIST is readonly to callers, not frozen.
+    const reap = weaponDef('reap')!;
+    const original = reap.weight;
+    reap.weight = 1e6;
+    try {
+      for (let i = 0; i < 60; i++) {
+        for (const offer of rollOffers(ctx)) {
+          expect(EVOLVED_WEAPON_IDS.has(offer.id), `${offer.id} was offered`).toBe(false);
+        }
+      }
+    } finally {
+      reap.weight = original;
+    }
+  });
+
+  it('swaps a weapon in place, resets its per-weapon state and keeps the slot count', () => {
+    const run = new Run(CHARACTER_LIST[0]!.id);
+    run.weapons.length = 0;
+    run.addWeapon('knife');
+    run.addWeapon('whip');
+    const whip = run.weapons[1]!;
+    whip.level = whip.def.maxLevel;
+    whip.cooldown = 0.9;
+    whip.activeIds.push(7, 8);
+    whip.activeTimer = 1.2;
+    whip.active = true;
+
+    expect(run.evolveWeapon('whip', 'reap')).toBe(true);
+
+    // In place at index 1: the HUD slot is the readability of the whole feature.
+    expect(run.weapons.length).toBe(2);
+    expect(run.weapons[0]!.def.id).toBe('knife');
+    const evolved = run.weapons[1]!;
+    expect(evolved).toBe(whip);
+    expect(evolved.def.id).toBe('reap');
+    expect(evolved.level).toBe(1);
+    expect(evolved.cooldown).toBe(0);
+    expect(evolved.activeIds).toEqual([]);
+    expect(evolved.activeTimer).toBe(0);
+    expect(evolved.active).toBe(false);
+    expect(run.weaponLevel('whip')).toBe(0);
+    expect(run.weaponLevel('reap')).toBe(1);
+  });
+
+  it('refuses to evolve a weapon it does not own or into a weapon that does not exist', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const run = new Run(CHARACTER_LIST[0]!.id);
+      run.weapons.length = 0;
+      run.addWeapon('whip');
+
+      expect(run.evolveWeapon('knife', 'bladewind')).toBe(false);
+      expect(run.evolveWeapon('whip', 'nosuchweapon')).toBe(false);
+      expect(run.weapons.length).toBe(1);
+      expect(run.weapons[0]!.def.id).toBe('whip');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('evolves a full six-weapon loadout: the slot cap is never consulted', () => {
+    const run = new Run(CHARACTER_LIST[0]!.id);
+    run.weapons.length = 0;
+    for (const id of ['whip', 'wand', 'knife', 'garlic', 'tome', 'brazier']) run.addWeapon(id);
+    expect(run.hasWeaponSlot()).toBe(false);
+
+    expect(run.evolveWeapon('whip', 'reap')).toBe(true);
+    expect(run.weapons.length).toBe(6);
+    expect(run.weapons.map((w) => w.def.id)).toEqual(['reap', 'wand', 'knife', 'garlic', 'tome', 'brazier']);
+  });
+});
+
+describe('weapon evolutions — the chest trigger', () => {
+  /** Owns `weaponId` at max level and its required passive at `passiveLevel`. */
+  function arm(ctx: Ctx, weaponId: string, passiveLevel: number, weaponLevel?: number): void {
+    const { run } = ctx;
+    run.addWeapon(weaponId);
+    const owned = run.weapons.find((w) => w.def.id === weaponId)!;
+    owned.level = weaponLevel ?? owned.def.maxLevel;
+    const evo = owned.def.evolution!;
+    run.addPassive(evo.passiveId);
+    run.passives.find((p) => p.def.id === evo.passiveId)!.level = passiveLevel;
+    run.recomputeStats();
+  }
+
+  function soloHarness(weaponId: string, passiveLevel: number, weaponLevel?: number) {
+    const harness = makeHarness();
+    harness.ctx.run.weapons.length = 0;
+    harness.ctx.run.passives.length = 0;
+    arm(harness.ctx, weaponId, passiveLevel, weaponLevel);
+    return harness;
+  }
+
+  it('requires both halves maxed: neither one alone fuses', () => {
+    const evo = weaponDef('whip')!.evolution!;
+    const passiveMax = passiveDef(evo.passiveId)!.maxLevel;
+    const whipMax = weaponDef('whip')!.maxLevel;
+
+    const passiveShort = soloHarness('whip', passiveMax - 1);
+    expect(tryEvolve(passiveShort.ctx)).toBeNull();
+    expect(passiveShort.ctx.run.weapons[0]!.def.id).toBe('whip');
+
+    const weaponShort = soloHarness('whip', passiveMax, whipMax - 1);
+    expect(tryEvolve(weaponShort.ctx)).toBeNull();
+    expect(weaponShort.ctx.run.weapons[0]!.def.id).toBe('whip');
+
+    const ready = soloHarness('whip', passiveMax);
+    expect(tryEvolve(ready.ctx)).toEqual({ baseId: 'whip', intoId: 'reap', name: 'Crimson Reap' });
+    expect(ready.ctx.run.weapons[0]!.def.id).toBe('reap');
+    // Already evolved: it cannot fuse a second time.
+    expect(tryEvolve(ready.ctx)).toBeNull();
+  });
+
+  it('consumes no gameplay randomness, on the path that fuses and the path that does not', () => {
+    for (const passiveLevel of [passiveDef(weaponDef('whip')!.evolution!.passiveId)!.maxLevel, 1]) {
+      const harness = soloHarness('whip', passiveLevel);
+      harness.ctx.rng = new Rng(9871);
+      const mirror = new Rng(9871);
+      tryEvolve(harness.ctx);
+      // Any draw inside tryEvolve would shift every later draw in the run and
+      // silently rewrite the expected values of every seeded test.
+      for (let i = 0; i < 4; i++) expect(harness.ctx.rng.next()).toBe(mirror.next());
+    }
+  });
+
+  it('resolves one evolution per chest, oldest weapon first, and leaves the loser eligible', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.run.weapons.length = 0;
+    ctx.run.passives.length = 0;
+    // knife is carried longer than garlic, so knife wins the tie-break.
+    arm(ctx, 'knife', passiveDef(weaponDef('knife')!.evolution!.passiveId)!.maxLevel);
+    arm(ctx, 'garlic', passiveDef(weaponDef('garlic')!.evolution!.passiveId)!.maxLevel);
+
+    expect(tryEvolve(ctx)!.intoId).toBe('bladewind');
+    expect(ctx.run.weapons.map((w) => w.def.id)).toEqual(['bladewind', 'garlic']);
+
+    // The loser is untouched and fuses on the next chest.
+    expect(tryEvolve(ctx)!.intoId).toBe('sanctum');
+    expect(ctx.run.weapons.map((w) => w.def.id)).toEqual(['bladewind', 'sanctum']);
+    expect(tryEvolve(ctx)).toBeNull();
+  });
+
+  it('destroys what the old weapon still owns, so an evolved aura leaves no immortal ring', () => {
+    const harness = soloHarness('garlic', passiveDef(weaponDef('garlic')!.evolution!.passiveId)!.maxLevel);
+    const { ctx } = harness;
+    const { world } = ctx;
+
+    harness.run(0.5);
+    const owned = ctx.run.weapons[0]!;
+    const oldRing = owned.activeIds[0]!;
+    expect(world.isAlive(oldRing)).toBe(true);
+    // maintainAura strips Comp.Lifetime, so nothing else would ever expire it.
+    expect(world.has(oldRing, Comp.Lifetime)).toBe(false);
+
+    expect(tryEvolve(ctx)!.intoId).toBe('sanctum');
+    expect(world.isAlive(oldRing)).toBe(false);
+
+    harness.run(1);
+    // Exactly one ring on the field, and it is the evolved one.
+    const hazards = world.list(Kind.Hazard);
+    expect(hazards.length).toBe(1);
+    expect(hazards[0]).toBe(ctx.run.weapons[0]!.activeIds[0]);
+    expect(world.damage[hazards[0]!]).toBeGreaterThan(0);
+  });
+
+  it('fires the evolved weapon on the very next tick', () => {
+    const harness = soloHarness('nova', passiveDef(weaponDef('nova')!.evolution!.passiveId)!.maxLevel);
+    const { ctx, ctx: { world } } = harness;
+    // Fresh cooldown on the base, so nothing would have fired this tick.
+    ctx.run.weapons[0]!.cooldown = 99;
+    tryEvolve(ctx);
+
+    expect(world.list(Kind.Projectile).length).toBe(0);
+    updateWeapons(ctx, FIXED_DT);
+    expect(world.list(Kind.Projectile).length).toBe(weaponDef('nightfall')!.base.count);
+  });
+
+  it('costs a chest one of its upgrade rolls without touching the seeded roll itself', () => {
+    const collectChest = (harness: ReturnType<typeof makeHarness>): void => {
+      const { ctx } = harness;
+      spawnChest(ctx, ctx.world.x[ctx.player]!, ctx.world.y[ctx.player]!);
+      ctx.world.flush();
+      ctx.pickupHash.build(ctx.world, ctx.world.list(Kind.Pickup));
+      updatePickups(ctx, FIXED_DT);
+      ctx.world.flush();
+    };
+    const passiveMax = passiveDef(weaponDef('whip')!.evolution!.passiveId)!.maxLevel;
+
+    const fusing = soloHarness('whip', passiveMax);
+    const plain = soloHarness('whip', passiveMax - 1);
+    for (const harness of [fusing, plain]) {
+      harness.ctx.rng = new Rng(55555);
+      harness.ctx.run.pendingLevelUps = 0;
+      collectChest(harness);
+    }
+
+    expect(fusing.ctx.run.weapons[0]!.def.id).toBe('reap');
+    expect(plain.ctx.run.weapons[0]!.def.id).toBe('whip');
+    // The evolution is worth more than one pick, so it costs the cheapest thing
+    // the chest has — and never zeroes a payout of two or three.
+    expect(plain.ctx.run.pendingLevelUps).toBeGreaterThanOrEqual(1);
+    expect(fusing.ctx.run.pendingLevelUps).toBe(plain.ctx.run.pendingLevelUps - 1);
+    // Same seed, same stream: the roll happens whether or not anything fuses.
+    expect(fusing.ctx.rng.next()).toBe(plain.ctx.rng.next());
+    expect(fusing.ctx.run.gold).toBe(plain.ctx.run.gold);
+  });
+
+  it('crimson reap sweeps every side at once, so the whip stops being a thing you aim', () => {
+    const harness = soloHarness('whip', passiveDef(weaponDef('whip')!.evolution!.passiveId)!.maxLevel);
+    const { ctx, ctx: { world } } = harness;
+    tryEvolve(ctx);
+    ctx.aimX = 1;
+    ctx.aimY = 0;
+
+    const ring: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI) / 4;
+      ring.push(spawnEnemy(ctx, enemyDef('bat')!, Math.cos(angle) * 36, Math.sin(angle) * 36));
+    }
+    world.flush();
+    for (const id of ring) world.hp[id] = 1e9;
+    ctx.enemyHash.build(world, world.list(Kind.Enemy));
+
+    const before = ring.map((id) => world.hp[id]!);
+    updateWeapons(ctx, FIXED_DT);
+    updateHazards(ctx, FIXED_DT);
+
+    for (let i = 0; i < ring.length; i++) {
+      expect(world.hp[ring[i]!], `no sweep reached ${i * 45} degrees`).toBeLessThan(before[i]!);
+    }
+  });
+
+  it('announces the fusion on the bus for the HUD to pick up', () => {
+    const harness = soloHarness('storm', passiveDef(weaponDef('storm')!.evolution!.passiveId)!.maxLevel);
+    const seen: GameEvents['weapon:evolved'][] = [];
+    harness.ctx.bus.on('weapon:evolved', (payload) => seen.push(payload));
+
+    tryEvolve(harness.ctx);
+    expect(seen).toEqual([{ baseId: 'storm', intoId: 'judgment', name: 'Judgment' }]);
   });
 });

@@ -605,6 +605,20 @@
       "bob": 0
     }
   },
+  "fx_reap": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "placeholder": {
+      "shape": "slash",
+      "color": "#d94a5e",
+      "accent": "#802331",
+      "size": 34,
+      "frames": 3,
+      "bob": 0
+    }
+  },
   "proj_bolt": {
     "origin": [
       0.5,
@@ -624,6 +638,19 @@
       "bob": 1
     }
   },
+  "proj_choir": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "placeholder": {
+      "shape": "orb",
+      "color": "#867797",
+      "accent": "#34264f",
+      "size": 11,
+      "bob": 1
+    }
+  },
   "proj_knife": {
     "origin": [
       0.5,
@@ -639,6 +666,20 @@
       "shape": "knife",
       "color": "#e0e6f0",
       "accent": "#4a5568",
+      "size": 13,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "proj_bladewind": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "placeholder": {
+      "shape": "knife",
+      "color": "#d1d8e2",
+      "accent": "#6a6980",
       "size": 13,
       "frames": 1,
       "bob": 0
@@ -663,6 +704,19 @@
       "bob": 0
     }
   },
+  "aura_sanctum": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "placeholder": {
+      "shape": "ring",
+      "color": "#d4a15a",
+      "accent": "#8a6a34",
+      "size": 52,
+      "bob": 0
+    }
+  },
   "orb_tome": {
     "origin": [
       0.5,
@@ -678,6 +732,19 @@
       "shape": "square",
       "color": "#ffe9a8",
       "accent": "#7a5a20",
+      "size": 12,
+      "bob": 1
+    }
+  },
+  "orb_vigil": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "placeholder": {
+      "shape": "square",
+      "color": "#d0c2ad",
+      "accent": "#8a6a34",
       "size": 12,
       "bob": 1
     }
@@ -701,6 +768,19 @@
       "bob": 2
     }
   },
+  "hazard_hellpyre": {
+    "origin": [
+      0.5,
+      0.7
+    ],
+    "placeholder": {
+      "shape": "blob",
+      "color": "#ff8c42",
+      "accent": "#802331",
+      "size": 26,
+      "bob": 2
+    }
+  },
   "fx_bolt_strike": {
     "origin": [
       0.5,
@@ -717,6 +797,20 @@
       "color": "#cfe8ff",
       "accent": "#4a7fb5",
       "size": 18,
+      "frames": 3,
+      "bob": 0
+    }
+  },
+  "fx_judgment": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "placeholder": {
+      "shape": "diamond",
+      "color": "#d1d8e2",
+      "accent": "#443569",
+      "size": 20,
       "frames": 3,
       "bob": 0
     }
@@ -756,6 +850,18 @@
       "color": "#fff0b0",
       "accent": "#8a6a10",
       "size": 14
+    }
+  },
+  "fx_nightfall": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "placeholder": {
+      "shape": "star",
+      "color": "#aab7c9",
+      "accent": "#443569",
+      "size": 15
     }
   },
   "ability_cleave": {

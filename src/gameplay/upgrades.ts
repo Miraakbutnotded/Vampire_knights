@@ -1,4 +1,4 @@
-import { PASSIVE_LIST, WEAPON_LIST, weaponStatsAtLevel } from './content.ts';
+import { EVOLVED_WEAPON_IDS, PASSIVE_LIST, WEAPON_LIST, weaponStatsAtLevel } from './content.ts';
 import { healPlayer } from './pickups.ts';
 import type { DraftPickKind } from '../core/events.ts';
 import type { Ctx } from './context.ts';
@@ -47,6 +47,10 @@ export function rollOffers(ctx: Ctx, count = 3): Offer[] {
   for (const def of WEAPON_LIST) {
     const level = run.weaponLevel(def.id);
     if (level === 0) {
+      // An evolution is earned at a chest, never drafted. This is the real
+      // guard; maxLevel 1 keeps it out of the upgrade branch below once owned,
+      // and weight 0 is a third line of defence in the content itself.
+      if (EVOLVED_WEAPON_IDS.has(def.id)) continue;
       if (!run.hasWeaponSlot()) continue;
       candidates.push({
         offer: {
