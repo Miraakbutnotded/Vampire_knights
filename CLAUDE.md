@@ -12,9 +12,19 @@ npm test           # vitest run — headless simulation tests
 npm run test:watch # vitest watch mode
 npx vitest run -t "every weapon"   # single test by name pattern
 npm run validate:art               # sprite strips vs. the canonical palette and frame rules
+npm run cap:sync                   # build, then copy dist/ + regenerate the SPM manifest for iOS
+npm run verify:ios                 # cap:sync, then actually compile and link the iOS target
 ```
 
-All tests live in `src/gameplay/simulation.test.ts`. There is no linter configured; `tsc` is the gate.
+All simulation tests live in `src/gameplay/simulation.test.ts`; the UI has its own three (see Tests).
+There is no linter configured; `tsc` is the gate.
+
+`cap:sync` and `verify:ios` are **not** the same gate. `cap sync` rewrites
+`ios/App/CapApp-SPM/Package.swift` and copies web assets without ever invoking the Swift toolchain,
+so a plugin can appear in the manifest while the target no longer builds — "SPM picked it up" is not
+"it compiles". `verify:ios` runs `xcodebuild` for a device Release with signing off, which is the
+only thing that answers the second question. It needs macOS and Xcode, so it is the one gate a
+non-Mac session cannot run; say so plainly rather than inferring the build from a successful sync.
 
 ## What this is
 

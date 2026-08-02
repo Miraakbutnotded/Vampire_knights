@@ -361,3 +361,38 @@ describe('motion and pointer classes', () => {
     expect(ruleBody('.coarse .touch-hint')).toMatch(/display:\s*block/);
   });
 });
+
+/**
+ * A key legend is any class whose whole content is the name of a key to press:
+ * `.key-hint` is the line under a screen, `.card-key` the number in a card's
+ * corner. A touch device can send neither. `.key-hint` was switched off on
+ * `.coarse` from the start; `.card-key` was not, so every arena, survivor,
+ * draft card and vow on a phone printed a digit nothing could type.
+ *
+ * `appendCardKey` already bounds the badge at nine because `handleInput` only
+ * maps Digit1..9 — that is a bound by COUNT, and the miss was that no bound by
+ * DEVICE sat beside it. Hence the pairing this gates.
+ */
+describe('keys the device cannot send', () => {
+  /** Read out of the sheet, not written down, so a third legend is gated too. */
+  const legends = new Set<string>();
+  for (const [selector] of rules(declarations)) {
+    for (const [, cls] of selector.matchAll(/\.([\w-]*key[\w-]*)\b/g)) legends.add(cls!);
+  }
+
+  it('still finds the legends it is meant to be gating', () => {
+    // Guards the loop below: renaming a class out of the pattern would
+    // otherwise empty the set and pass vacuously.
+    expect([...legends]).toEqual(expect.arrayContaining(['card-key', 'key-hint']));
+  });
+
+  it.each([...legends])('.%s is not rendered on a touch device', (legend) => {
+    const hidden = rules(declarations).some(
+      ([selector, body]) =>
+        /(^|\s)\.coarse\s/.test(selector) &&
+        selector.trimEnd().endsWith(`.${legend}`) &&
+        /display:\s*none/.test(body),
+    );
+    expect(hidden, `.${legend} advertises a key a touch device cannot press`).toBe(true);
+  });
+});

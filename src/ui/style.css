@@ -1042,6 +1042,15 @@ button.btn[disabled] {
   display: none;
 }
 
+/* The same fault in the other place a key is printed. `appendCardKey` bounds
+   the corner badge at nine because `handleInput` only maps Digit1..9 — but
+   that bounds it by COUNT, and a phone cannot send any of the nine, so every
+   arena, survivor, draft card and vow was labelled with a key the device has
+   no way to produce. Only the label goes; the card is still reached by tap. */
+.coarse .card-key {
+  display: none;
+}
+
 /* `.key-hint`'s mirror image, and the reason it exists: hiding the key hints
    on a phone left every screen explaining nothing at all. Each screen authors
    both lines and exactly one of them renders. */

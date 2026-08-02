@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "validate:art": "python3 scripts/validate-art.py",
-    "cap:sync": "npm run build && npx cap sync ios"
+    "cap:sync": "npm run build && npx cap sync ios",
+    "verify:ios": "npm run cap:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -destination 'generic/platform=iOS' -derivedDataPath ios/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",
