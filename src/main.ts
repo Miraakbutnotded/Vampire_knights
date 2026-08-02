@@ -1,4 +1,7 @@
 import { Loop } from './core/loop.ts';
+
+/** How long the native storage arm may take before boot gives up on it. */
+const NATIVE_TIMEOUT_MS = 2500;
 import { Game } from './game.ts';
 import { AudioEngine } from './platform/audio.ts';
 import { HapticsDriver } from './platform/haptics.ts';
@@ -46,19 +49,45 @@ declare global {
  */
 async function selectStorage(): Promise<StorageAdapter> {
   const web = new LocalStorageAdapter();
+
+  // Every await below talks to a bridge that may simply never answer. A
+  // rejection we can catch; silence we cannot, and silence is what a plugin
+  // that failed to register actually produces — boot then waits forever behind
+  // a black screen with no error to report. So the native arm races a deadline
+  // and loses by default: the store that already works is one line away, and a
+  // wallet restored a launch later is worth incomparably more than a game that
+  // never starts.
+  const deadline = <T>(work: Promise<T>, ms: number): Promise<T | null> =>
+    Promise.race([
+      work,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+    ]);
+
   let native = false;
   try {
-    const { Capacitor } = await import('@capacitor/core');
-    native = Capacitor.isNativePlatform();
+    const core = await deadline(import('@capacitor/core'), NATIVE_TIMEOUT_MS);
+    if (!core) {
+      return web;
+    }
+    native = core.Capacitor.isNativePlatform();
   } catch (error) {
     console.warn('[storage] Capacitor unavailable; using localStorage:', error);
+    return web;
   }
   if (!native) return web;
 
-  const prefs = new PreferencesStorageAdapter();
-  const report = await liftStorage(web, prefs);
-  if (report.outcome !== 'already-done') console.info('[storage] lift:', report);
-  return prefs;
+  try {
+    const prefs = new PreferencesStorageAdapter();
+    const report = await deadline(liftStorage(web, prefs), NATIVE_TIMEOUT_MS);
+    if (!report) {
+      return web;
+    }
+    if (report.outcome !== 'already-done') console.info('[storage] lift:', report);
+    return prefs;
+  } catch (error) {
+    console.error('[storage] Preferences unavailable; staying on localStorage:', error);
+    return web;
+  }
 }
 
 /**
@@ -78,7 +107,8 @@ async function boot(): Promise<void> {
     throw new Error('index.html is missing #game, #touch, #ui or #menu');
   }
 
-  const [sprites, storage] = await Promise.all([SpriteTable.load(), selectStorage()]);
+  const sprites = await SpriteTable.load();
+  const storage = await selectStorage();
   // Last async boot step: the wallet and sanctum ranks must exist before the
   // title screen renders and before the first Run is constructed.
   const meta = new MetaService(storage);
@@ -115,9 +145,18 @@ async function boot(): Promise<void> {
       game.autoPause();
       void telemetry.flush();
     },
-  }).then(({ detach }) => {
-    detachCapacitorLifecycle = detach;
-  });
+  })
+    .then(({ detach }) => {
+      detachCapacitorLifecycle = detach;
+    })
+    // A plugin bridge that is not there is a missing convenience, not a reason
+    // to take the game down: the web `visibilitychange` path is already wired
+    // and covers everything except a cold native suspend. Unhandled, this
+    // rejection reaches window.onunhandledrejection and any diagnostic overlay
+    // listening there paints over a game that is running perfectly well.
+    .catch((error: unknown) => {
+      console.warn('[lifecycle] native pause unavailable:', error);
+    });
 
   const audio = new AudioEngine(game.bus);
   const haptics = new HapticsDriver(game.bus);
@@ -137,9 +176,13 @@ async function boot(): Promise<void> {
   }
 }
 
-boot().catch((error: unknown) => {
+boot()
+  .catch((error: unknown) => {
   console.error(error);
-  const message = error instanceof Error ? error.message : String(error);
+  const message =
+    error instanceof Error
+      ? [error.name, error.message].filter(Boolean).join(': ')
+      : String(error);
   document.body.innerHTML =
     `<pre style="color:#ff6b8a;font:14px ui-monospace,monospace;padding:24px;white-space:pre-wrap">` +
     `Failed to start.\n\n${escapeHtml(message)}</pre>`;
