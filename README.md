@@ -63,9 +63,14 @@ Image models cannot draw at 32×32, so the pipeline works the other way round: a
 on a chroma-green field, then bring it down.
 
 ```bash
-python3 scripts/spritify.py raw.png public/assets/enemies/ghoul.png --size 32 --preview look.png
-python3 scripts/tilify.py  raw.png public/assets/tiles/flagstone.png --size 16
+node scripts/python.mjs scripts/spritify.py raw.png public/assets/enemies/ghoul.png --size 32 --preview look.png
+node scripts/python.mjs scripts/tilify.py   raw.png public/assets/tiles/flagstone.png --size 16
 ```
+
+`scripts/python.mjs` is just an interpreter launcher: it finds a working Python 3 and hands off. Run
+the scripts with `python3` directly if that name works on your machine — it does on macOS and Linux.
+It does not on Windows, where `python3` resolves to a Store alias stub that exits non-zero, so the
+shim is what keeps `npm run validate:art` runnable on every platform.
 
 `spritify.py` keys out the green, crops to the subject, box-samples to the target size, snaps every
 surviving pixel to the palette and redraws the 1px silhouette outline. Quantising *last* is what
