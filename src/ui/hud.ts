@@ -224,6 +224,20 @@ export class Hud {
     this.bannerTimer = BANNER_SECONDS;
   }
 
+  /**
+   * Takes the banner down now, timer and all.
+   *
+   * The countdown only advances in `update`, which stops being called the
+   * moment the HUD is hidden — so a run that ends inside a banner's three
+   * seconds (a boss that kills you, a wall that falls as you do) leaves the
+   * text parked on a hidden HUD, and the *next* run opens under it. Same
+   * reasoning as hideCoach, and startRun calls the pair together.
+   */
+  hideBanner(): void {
+    this.banner.classList.remove('show');
+    this.bannerTimer = 0;
+  }
+
   /** Game injects the callback; the HUD never touches gameplay state itself. */
   bindBloodButtons(cb: (intent: 'heal' | 'burst') => void): void {
     this.bloodIntentCb = cb;

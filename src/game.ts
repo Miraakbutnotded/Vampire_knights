@@ -499,6 +499,7 @@ export class Game implements LoopHooks {
     // without one is never told about a button it does not have.
     this.coach.beginRun();
     this.hud.hideCoach();
+    this.hud.hideBanner();
     this.coach.raise('start');
     if (this.run.ability) this.coach.raise('ability');
     this.telemetry.beginRun(characterId, mapId, seed);
@@ -600,6 +601,11 @@ export class Game implements LoopHooks {
     this.world.animTime[id] = 0;
     // The blink would strobe the whole death animation.
     this.world.iframe[id] = 0;
+    // Same argument, and the killing blow always sets one: hitFlash decays in
+    // updatePlayer, which stops running here, so a leftover flash would paint
+    // the death strip as a flat white silhouette — the animation we froze the
+    // world to show would be the one thing invisible in it.
+    this.world.hitFlash[id] = 0;
     // The prev->current collapse belongs in updateDying, not here: this runs
     // mid-tick, and everything after it (projectiles, pickups, hazards) still
     // moves before the tick ends.
@@ -617,6 +623,9 @@ export class Game implements LoopHooks {
       this.world.animTime[id] = this.world.animTime[id]! + dt;
     }
     this.fx.update(dt);
+    // The particles from the killing blow are still ticking above, and the
+    // shake it threw is part of the same impact — see Camera.decayShake.
+    this.camera.decayShake(dt);
     this.deathTimer += dt;
     if (this.deathTimer >= this.deathDuration) this.showDefeat();
   }

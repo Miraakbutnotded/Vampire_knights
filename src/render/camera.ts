@@ -54,6 +54,21 @@ export class Camera {
     this.x = damp(this.x, goalX, FOLLOW_RATE, dt);
     this.y = damp(this.y, goalY, FOLLOW_RATE, dt);
 
+    this.decayShake(dt);
+    this.applyBounds();
+  }
+
+  /**
+   * Rings the shake out without moving the view.
+   *
+   * Folded out of `follow` because `follow` stops being called the moment the
+   * player dies, and the killing blow's own shake is still ringing: left alone
+   * the offset freezes wherever the last tick put it, so the death animation
+   * plays on a world held a few pixels off centre and then snaps back. The
+   * shake belongs to the impact, not to the simulation, so it finishes either
+   * way.
+   */
+  decayShake(dt: number): void {
     if (this.shakeAmount > 0.01) {
       this.shakeAmount = Math.max(0, this.shakeAmount - this.shakeDecay * dt);
       this.shakeX = fxRng.range(-1, 1) * this.shakeAmount;
@@ -63,8 +78,6 @@ export class Camera {
       this.shakeX = 0;
       this.shakeY = 0;
     }
-
-    this.applyBounds();
   }
 
   /**

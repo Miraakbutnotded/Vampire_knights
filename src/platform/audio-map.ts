@@ -28,6 +28,7 @@ const KNOWN_EVENTS: ReadonlySet<string> = new Set<keyof GameEvents>([
   'player:healed',
   'player:died',
   'player:levelup',
+  'weapon:evolved',
   'run:victory',
   'xp:gained',
   'enemy:killed',
