@@ -1,4 +1,3 @@
-import type { PreferencesPlugin } from '@capacitor/preferences';
 
 /**
  * Minimal async key-value contract the save system writes through.
@@ -50,32 +49,47 @@ export class LocalStorageAdapter implements StorageAdapter {
  * decision down here would hide a failed write from the retry they already do.
  */
 export class PreferencesStorageAdapter implements StorageAdapter {
-  private plugin: Promise<PreferencesPlugin> | null = null;
+  /**
+   * The pending import holds the MODULE NAMESPACE, never the plugin itself.
+   *
+   * That distinction is load-bearing. Capacitor's `registerPlugin` returns a
+   * Proxy whose get-trap manufactures a method for any property name — `then`
+   * included — so the proxy is accidentally a thenable. Resolve a promise
+   * with it and the promise machinery adopts it: it calls `proxy.then(...)`,
+   * Capacitor dutifully invokes a plugin method named "then" that will never
+   * answer, and the await hangs forever with no error to catch. That hang sat
+   * in the boot path and kept the shipped app on a black screen.
+   *
+   * A module namespace has no `then` export, so it is always a safe resolution
+   * value; the proxy is only ever destructured out AFTER the await, exactly as
+   * lifecycle.ts and haptics.ts already do. storage.test.ts pins this against
+   * a proxy with the same accidental-thenable shape.
+   */
+  private module: Promise<typeof import('@capacitor/preferences')> | null = null;
 
-  private load(): Promise<PreferencesPlugin> {
+  private load(): Promise<typeof import('@capacitor/preferences')> {
     // Assigned before the await so two concurrent calls share one import.
-    this.plugin ??= import('@capacitor/preferences').then((m) => m.Preferences);
-    return this.plugin;
+    this.module ??= import('@capacitor/preferences');
+    return this.module;
   }
 
   async get(key: string): Promise<string | null> {
-    const prefs = await this.load();
-    const { value } = await prefs.get({ key });
+    const { Preferences } = await this.load();
+    const { value } = await Preferences.get({ key });
     return value;
   }
 
   async set(key: string, value: string): Promise<void> {
-    const prefs = await this.load();
-    await prefs.set({ key, value });
+    const { Preferences } = await this.load();
+    await Preferences.set({ key, value });
   }
 
   async remove(key: string): Promise<void> {
-    const prefs = await this.load();
-    await prefs.remove({ key });
+    const { Preferences } = await this.load();
+    await Preferences.remove({ key });
   }
 }
 
-/** In-memory adapter for vitest and any future headless tooling. */
 export class MemoryStorageAdapter implements StorageAdapter {
   private map = new Map<string, string>();
 

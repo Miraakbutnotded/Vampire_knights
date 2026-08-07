@@ -67,6 +67,7 @@ async function selectStorage(): Promise<StorageAdapter> {
   try {
     const core = await deadline(import('@capacitor/core'), NATIVE_TIMEOUT_MS);
     if (!core) {
+      console.warn('[storage] @capacitor/core import timed out; using localStorage');
       return web;
     }
     native = core.Capacitor.isNativePlatform();
@@ -80,6 +81,7 @@ async function selectStorage(): Promise<StorageAdapter> {
     const prefs = new PreferencesStorageAdapter();
     const report = await deadline(liftStorage(web, prefs), NATIVE_TIMEOUT_MS);
     if (!report) {
+      console.warn('[storage] preferences lift timed out; using localStorage');
       return web;
     }
     if (report.outcome !== 'already-done') console.info('[storage] lift:', report);
