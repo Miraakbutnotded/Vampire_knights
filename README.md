@@ -297,6 +297,44 @@ Starting stats and starting weapon. Same stat names as the passive table, but as
 values** rather than deltas (`might: 1` is normal damage, `cooldown: 1` is normal speed). `revives`
 grants a full-health second chance that also clears nearby enemies.
 
+An `unlock` block prices the character; omit it and the character is free. The first character in the
+file is always free regardless — a paywalled slot 0 would soft-lock a fresh save.
+
+```jsonc
+"unlock": {
+  "gold": 2500,
+  "requirement": {
+    "id": "level",                          // what to measure — see the table below
+    "target": 20,                           // how much of it
+    "mode": "best",                         // "best" = in one run, "sum" = over every run ever
+    "label": "Reach level 20 in one run"    // printed on the locked card
+  }
+}
+```
+
+Both gates apply: the feat has to be earned **and** the price paid, in that order. `requirement` is
+optional — leave it out and gold alone unlocks the character.
+
+| `id` | scores |
+| --- | --- |
+| `kills` | enemies slain |
+| `level` | level reached |
+| `picks` | weapon/passive upgrades taken |
+| `gold` | gold banked |
+| `survive` | seconds survived |
+| `frenzy` | times Frenzy was entered |
+| `feast` | health recovered by Feast |
+| `siege` | sieges repelled |
+| `evolve` | weapons awakened |
+| `walls` | 1 for a siege held with no structure lost, else 0 |
+| `victory` | 1 for a run won, else 0 |
+
+Only a **finished** run scores — quitting mid-run records nothing, exactly as it banks no gold. An
+unknown `id` or a non-positive `target` warns and drops the requirement, leaving the price standing;
+it never makes a character harder to reach than the JSON asked for. The ids are whitelisted by
+`UnlockSignal` in `content.ts` and emitted by `featDelta` in `services/feats.ts` — adding one means
+touching both, and `feats.test.ts` fails if they drift apart.
+
 ## Designing maps
 
 Maps live in `src/content/maps/*.json`. **Any file you add there is picked up automatically** and

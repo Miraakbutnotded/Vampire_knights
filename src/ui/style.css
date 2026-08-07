@@ -1208,6 +1208,56 @@ button.btn[disabled] {
   color: var(--gold);
 }
 
+/* The feat gating an unlock, laid out like an oath row because it is one: same
+   pip, same label-then-count rhythm, so a requirement on a card and an oath in
+   the aside read as the same kind of promise. The tokens are the shared chrome
+   ones, so it scales with the rest of the card and never spends `--u`. */
+.card .card-req {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui) * 2);
+  margin-top: calc(var(--ui) * 1.5);
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+.card .card-req.done {
+  color: var(--ink);
+}
+
+.card .card-req .pip {
+  flex: none;
+  width: calc(var(--ui) * 2.5);
+  height: calc(var(--ui) * 2.5);
+  background: var(--edge);
+  box-shadow: 0 0 0 calc(var(--ui) * 0.5) var(--void);
+}
+
+.card .card-req .pip.on {
+  background: var(--accent);
+}
+
+.card .card-req-label {
+  flex: 1;
+}
+
+.card .card-req-count {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.card .card-cost {
+  margin-top: calc(var(--ui) * 1.5);
+  letter-spacing: calc(var(--ui) * 0.3);
+}
+
+/* Short on coin, same hue the Sanctum uses for a rank it cannot afford. A
+   separate class from the Sanctum's `.card.poor` because that one marks the
+   whole card, and a survivor card is already marked `.locked`. */
+.card .card-cost.short {
+  color: var(--danger);
+}
+
 /* --- The Sanctum -------------------------------------------------------- */
 
 .sanctum-cards {

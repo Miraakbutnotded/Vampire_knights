@@ -39,6 +39,7 @@ import { shouldAutoPause } from './platform/lifecycle.ts';
 import { CoachDirector, attachCoachCues } from './services/coach.ts';
 import type { CoachCueBinding } from './services/coach.ts';
 import { attachDailyTally, dailyDelta, dailySet, emptyTally } from './services/daily.ts';
+import { featDelta } from './services/feats.ts';
 import type { DailyTally } from './services/daily.ts';
 import type { MetaService } from './services/meta.ts';
 import type { RunSummary, TelemetryService } from './services/telemetry.ts';
@@ -390,7 +391,7 @@ export class Game implements LoopHooks {
       CHARACTER_LIST,
       {
         gold: this.meta.gold,
-        isUnlocked: (c) => this.meta.isUnlocked(c),
+        lockState: (c) => this.meta.lockStateOf(c),
         daily: this.dailyRows(),
       },
       {
@@ -662,21 +663,29 @@ export class Game implements LoopHooks {
       // load-bearing data asked for it. Nothing between here and the emit reads
       // the wallet, so the event order the rest of the game sees is unchanged.
       this.meta.bankRun(this.run.gold, this.runToken);
-      // Folded before the emit for the same storage reason: both writes chain
-      // through the one pending promise, and settling the dailies here means a
-      // single persist covers the wallet and the oath record together.
+      // Folded before the emit for the same storage reason: these writes chain
+      // through the one pending promise, and settling here means a single
+      // persist covers the wallet, the oath record and the feat record
+      // together.
+      const tally = this.dailyTally?.tally() ?? emptyTally();
+      const summary = {
+        kills: this.run.kills,
+        level: this.run.level,
+        gold: this.run.gold,
+        survivedSeconds: this.run.time,
+        structuresSpawned: this.structuresSpawned,
+        structuresLost: this.structuresLost,
+      };
       const payout = this.meta.commitDailyRun(
-        dailyDelta(this.dailyTally?.tally() ?? emptyTally(), {
-          kills: this.run.kills,
-          level: this.run.level,
-          gold: this.run.gold,
-          survivedSeconds: this.run.time,
-          structuresSpawned: this.structuresSpawned,
-          structuresLost: this.structuresLost,
-        }),
+        dailyDelta(tally, summary),
         this.runDay,
         this.runToken,
       );
+      // The permanent half of the same signals. Unlike the dailies this is not
+      // day-scoped and cannot be discarded by a rollover, so it is folded from
+      // the identical tally rather than re-derived — an unlock requirement and
+      // the oath that shares its wording must never disagree about one run.
+      this.meta.recordFeats(featDelta(tally, summary, victory), this.runToken);
       this.dailyGold = payout.gold;
       const walletTotal = this.meta.gold;
       this.bus.emit('run:ended', {

@@ -832,6 +832,59 @@ const BASE_STAT_DEFAULTS: BaseStats = {
   revives: 0,
 };
 
+/**
+ * The signals a character's unlock requirement may name — the whitelist this
+ * file validates characters.json against, exactly as `WeaponBehavior` does for
+ * weapons.
+ *
+ * Every id is a key `featDelta` (services/feats.ts) emits for a finished run,
+ * and that correspondence is what makes a requirement reachable. It is pinned
+ * from the other side by feats.test.ts rather than by an import, so gameplay
+ * keeps its one-way relationship with services; adding an id here without
+ * teaching featDelta to emit it fails that test instead of shipping a
+ * requirement no run can ever progress.
+ */
+export const UnlockSignal = {
+  Kills: 'kills',
+  Level: 'level',
+  Picks: 'picks',
+  Gold: 'gold',
+  Survive: 'survive',
+  Frenzy: 'frenzy',
+  Feast: 'feast',
+  Siege: 'siege',
+  Evolve: 'evolve',
+  Walls: 'walls',
+  Victory: 'victory',
+} as const;
+export type UnlockSignal = (typeof UnlockSignal)[keyof typeof UnlockSignal];
+
+export const UNLOCK_SIGNAL_IDS: ReadonlySet<string> = new Set(Object.values(UnlockSignal));
+
+/**
+ * How a requirement reads the record. 'best' is the high-water mark of a single
+ * run — what "in one run" asks for; 'sum' accumulates over every run ever
+ * played. Same two words the daily objectives use, and for the same reason.
+ */
+export type UnlockMode = 'sum' | 'best';
+
+export interface UnlockRequirement {
+  /** Which signal to read. Always a UnlockSignal value. */
+  id: UnlockSignal;
+  /** What the player has to have done. Always > 0. */
+  target: number;
+  mode: UnlockMode;
+  /** Printed on the locked card, so it reads as an instruction. */
+  label: string;
+}
+
+export interface CharacterUnlock {
+  /** Gold price, charged only once the requirement is met. */
+  gold: number;
+  /** The feat that has to be earned first, or null when gold is the only gate. */
+  requirement: UnlockRequirement | null;
+}
+
 export interface CharacterDef {
   id: string;
   name: string;
@@ -840,10 +893,39 @@ export interface CharacterDef {
   startingWeapon: string;
   radius: number;
   stats: BaseStats;
-  /** Gold price to unlock in the Sanctum era, or null when the character is free. */
-  unlock: { gold: number } | null;
+  /** What it takes to unlock in the Sanctum era, or null when free. */
+  unlock: CharacterUnlock | null;
   /** The character's active ability, or null when the JSON defines none. */
   ability: AbilityDef | null;
+}
+
+/**
+ * Reads one `unlock.requirement` block. Warn-don't-throw, like every other
+ * normalizer here — but the failure direction matters more than usual: a
+ * malformed or unknown-signal requirement resolves to null, which leaves the
+ * character on gold alone. Guessing the other way would price a character
+ * behind a feat that nothing can ever complete.
+ */
+export function normalizeUnlockRequirement(raw: unknown, id: string): UnlockRequirement | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object') {
+    console.warn(`[content] character "${id}" has a non-object unlock requirement; ignoring it`);
+    return null;
+  }
+  const rec = raw as Record<string, unknown>;
+  const signal = rec['id'];
+  if (typeof signal !== 'string' || !UNLOCK_SIGNAL_IDS.has(signal)) {
+    console.warn(`[content] character "${id}" requires unknown signal "${String(signal)}"; ignoring it`);
+    return null;
+  }
+  const target = rec['target'];
+  if (typeof target !== 'number' || !Number.isFinite(target) || target <= 0) {
+    console.warn(`[content] character "${id}" has a non-positive unlock target; ignoring it`);
+    return null;
+  }
+  const mode = rec['mode'] === 'sum' ? 'sum' : 'best';
+  const label = typeof rec['label'] === 'string' && rec['label'] !== '' ? rec['label'] : signal;
+  return { id: signal as UnlockSignal, target, mode, label };
 }
 
 function normalizeCharacters(): { list: CharacterDef[]; byId: Map<string, CharacterDef> } {
@@ -868,14 +950,18 @@ function normalizeCharacters(): { list: CharacterDef[]; byId: Map<string, Charac
     }
 
     const unlockRaw = def['unlock'];
-    let unlock: { gold: number } | null = null;
+    let unlock: CharacterUnlock | null = null;
     if (unlockRaw !== undefined) {
-      const goldCost =
+      const block =
         typeof unlockRaw === 'object' && unlockRaw !== null
-          ? (unlockRaw as Record<string, unknown>)['gold']
-          : undefined;
+          ? (unlockRaw as Record<string, unknown>)
+          : null;
+      const goldCost = block?.['gold'];
       if (typeof goldCost === 'number' && Number.isFinite(goldCost) && goldCost > 0) {
-        unlock = { gold: Math.round(goldCost) };
+        unlock = {
+          gold: Math.round(goldCost),
+          requirement: normalizeUnlockRequirement(block?.['requirement'], id),
+        };
       } else {
         console.warn(`[content] character "${id}" has an invalid unlock block; treating as unlocked`);
       }

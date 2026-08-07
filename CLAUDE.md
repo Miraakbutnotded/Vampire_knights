@@ -163,6 +163,21 @@ focusable, `.screen-main` holds everything actionable. They stack into one centr
 and become lanes under `@media (max-height: 560px)` — a phone in landscape. That media query asks
 about vertical room, which is a different question from `.coarse`, not a second answer to it.
 
+### Persistence (`src/services/`)
+
+`MetaService` owns the one `SaveData` and is the only thing that persists it; `daily.ts` and
+`feats.ts` are pure functions over plain data for that reason. **Nothing under `services/` reachable
+from `save.ts` or `telemetry.ts` may import `gameplay/` or `ui/`** — telemetry.test.ts walks that
+import closure and fails on any edge that leaves `services/` and `core/`. A field added to `SaveData`
+must also be added to `encodeSave`'s explicit literal and to `migrate()`, or it typechecks and
+silently never persists.
+
+Characters are gated twice: a feat (`unlock.requirement`, read off the permanent `feats` record) and
+then a gold price. `MetaService.lockStateOf` is the single answer to "why is this locked" — the title
+card renders it and `unlockCharacter` enforces it, so the screen and the purchase cannot disagree.
+Only a finished run folds into the record (`recordFeats`, guarded by the same run token as
+`bankRun`); quitting mid-run records nothing, exactly as it banks nothing.
+
 ### Content pipeline (`src/gameplay/content.ts`)
 
 The only importer of the raw JSON. Normalizes once at module load into typed defs
@@ -201,6 +216,12 @@ directly.
   frames, and any off-palette pixel. Every strip in the repo passes today, the character sheets
   included — a failure is a regression, never a pre-existing exception to wave through.
 - **New game event**: add to the `GameEvents` interface in `src/core/events.ts`.
+- **New unlock signal** (what a character's `unlock.requirement` may measure): add to the
+  `UnlockSignal` const in content.ts (this whitelists it for JSON validation) **and** emit it from
+  `featDelta` in `services/feats.ts`. The two lists are duplicated rather than imported because
+  save.ts's import closure is walled off from `gameplay/` by telemetry.test.ts; feats.test.ts asserts
+  they stay equal. Requirements resolve against the same per-run signals the daily oaths use, so a
+  new one needs a signal `dailyDelta` already derives — nothing new is tracked in the sim.
 - **New Ctx field**: initialize in Game's constructor **and** `makeHarness()` in
   simulation.test.ts, reset in `startRun()`.
 

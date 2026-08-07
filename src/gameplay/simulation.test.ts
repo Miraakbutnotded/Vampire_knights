@@ -30,6 +30,7 @@ import {
   normalizeAbility,
   normalizeBlood,
   normalizeMeta,
+  normalizeUnlockRequirement,
   parseEvolutionBlock,
   passiveDef,
   structureDef,
@@ -2224,10 +2225,60 @@ describe('meta progression', () => {
 
   it('parses unlock costs, defaults to free, and keeps the first character free', () => {
     expect(characterDef('wanderer').unlock).toBeNull();
-    expect(characterDef('acolyte').unlock).toEqual({ gold: 2500 });
-    expect(characterDef('outrider').unlock).toEqual({ gold: 4000 });
-    expect(characterDef('warden_knight').unlock).toEqual({ gold: 6000 });
-    expect(characterDef('dragos').unlock).toEqual({ gold: 12000 });
+    expect(characterDef('acolyte').unlock).toMatchObject({ gold: 2500 });
+    expect(characterDef('outrider').unlock).toMatchObject({ gold: 4000 });
+    expect(characterDef('warden_knight').unlock).toMatchObject({ gold: 6000 });
+    expect(characterDef('dragos').unlock).toMatchObject({ gold: 12000 });
+  });
+
+  /**
+   * The requirement gating each price. Fail-soft on the way in — a malformed or
+   * unknown-signal block normalizes to null and leaves the character on gold
+   * alone — so this pins the roster's four feats rather than trusting that the
+   * JSON was read at all. What the signals mean, and that a run can actually
+   * score them, is feats.test.ts' half.
+   */
+  it('parses the unlock requirement gating each price', () => {
+    expect(characterDef('acolyte').unlock!.requirement).toEqual({
+      id: 'level',
+      target: 20,
+      mode: 'best',
+      label: 'Reach level 20 in one run',
+    });
+    expect(characterDef('outrider').unlock!.requirement).toMatchObject({
+      id: 'survive',
+      target: 600,
+      mode: 'best',
+    });
+    expect(characterDef('warden_knight').unlock!.requirement).toMatchObject({
+      id: 'walls',
+      target: 1,
+    });
+    expect(characterDef('dragos').unlock!.requirement).toMatchObject({
+      id: 'victory',
+      target: 1,
+    });
+  });
+
+  it('drops an unlock requirement it cannot resolve, leaving the price standing', () => {
+    // Both halves of the fail-soft contract: an unknown signal and a
+    // non-positive target each cost the requirement, never the character.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(normalizeUnlockRequirement({ id: 'nonsense', target: 5 }, 'x')).toBeNull();
+      expect(normalizeUnlockRequirement({ id: 'kills', target: 0 }, 'x')).toBeNull();
+      expect(normalizeUnlockRequirement('level 20', 'x')).toBeNull();
+      // A block missing only its optional parts still resolves: mode defaults
+      // to 'best' and the label falls back to the signal id.
+      expect(normalizeUnlockRequirement({ id: 'kills', target: 5 }, 'x')).toEqual({
+        id: 'kills',
+        target: 5,
+        mode: 'best',
+        label: 'kills',
+      });
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

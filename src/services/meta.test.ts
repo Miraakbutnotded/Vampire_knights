@@ -9,6 +9,7 @@ import {
   dailySet,
   defaultDaily,
 } from './daily.ts';
+import { defaultFeats } from './feats.ts';
 import {
   SAVE_BACKUP_KEY,
   SAVE_KEY,
@@ -51,6 +52,7 @@ describe('save codec', () => {
       sanctum: { greed: 2, haste: 1 },
       daily: { day: 20447, progress: { kills: 120 }, claimed: ['gold'], bonusClaimed: false },
       coach: { seen: ['move', 'auto'] },
+      feats: { sum: { kills: 4200 }, best: { level: 18, survive: 540 } },
     };
     expect(decodeSave(encodeSave(data))).toEqual(data);
   });
@@ -94,6 +96,7 @@ describe('save codec', () => {
       sanctum: {},
       daily: defaultDaily(),
       coach: defaultCoach(),
+      feats: defaultFeats(),
     });
     // Garbage fields sanitize instead of poisoning the state: negative gold
     // clamps, fractional ranks drop, non-strings fall out of the unlock list.
@@ -104,13 +107,15 @@ describe('save codec', () => {
       sanctum: { haste: 2 },
       daily: defaultDaily(),
       coach: defaultCoach(),
+      feats: defaultFeats(),
     });
   });
 
   /**
-   * The v1 → v2 → v3 steps, and the reason migrate() still branches on nothing:
-   * a real v1 save has no `daily` and no `coach` at all, and both absent fields
-   * fall to defaults exactly the way `sanctum` did on v0 → v1.
+   * The v1 → v2 → v3 → v4 steps, and the reason migrate() still branches on
+   * nothing: a real v1 save has no `daily`, no `coach` and no `feats` at all,
+   * and every absent field falls to defaults exactly the way `sanctum` did on
+   * v0 → v1.
    */
   it('migrates a real v1 save forward, adopting a fresh daily record', () => {
     const v1 = { version: 1, gold: 3200, unlockedCharacters: ['acolyte'], sanctum: { greed: 2 } };
@@ -121,10 +126,43 @@ describe('save codec', () => {
       sanctum: { greed: 2 },
       daily: { day: 0, progress: {}, claimed: [], bonusClaimed: false },
       coach: { seen: [] },
+      feats: { sum: {}, best: {} },
     });
     // day 0 reads as "never rolled": the first rollover adopts the observed day
     // without paying out for the set it replaces.
     expect(migrate(v1)!.daily.day).toBe(0);
+  });
+
+  /**
+   * The v3 → v4 step specifically: an existing player keeps every character
+   * they already bought, and starts the feat record empty rather than having
+   * one backfilled from runs played before the requirements existed.
+   */
+  it('carries an existing roster across the feats migration without crediting feats', () => {
+    const v3 = {
+      version: 3,
+      gold: 500,
+      unlockedCharacters: ['acolyte', 'dragos'],
+      sanctum: { greed: 1 },
+      daily: { day: 20447, progress: { kills: 40 }, claimed: [], bonusClaimed: false },
+      coach: { seen: ['move'] },
+    };
+    const migrated = migrate(v3)!;
+    expect(migrated.unlockedCharacters).toEqual(['acolyte', 'dragos']);
+    expect(migrated.feats).toEqual(defaultFeats());
+  });
+
+  it('sanitizes a hand-edited feat record on the way in', () => {
+    const migrated = migrate({
+      version: 3,
+      gold: 0,
+      feats: {
+        sum: { kills: 900, madeUpSignal: 1e9, gold: -1 },
+        best: { level: 22, survive: 0 },
+        extraSection: { level: 99 },
+      },
+    })!;
+    expect(migrated.feats).toEqual({ sum: { kills: 900 }, best: { level: 22 } });
   });
 
   it('sanitizes a hand-edited daily record on the way in', () => {
@@ -261,6 +299,11 @@ describe('meta service — sanctum', () => {
 });
 
 describe('meta service — character unlocks', () => {
+  /** The feat Morrigan asks for: level 20 in one run. */
+  const earnAcolyteFeat = (meta: MetaService, token: number): void => {
+    meta.recordFeats({ level: 20 }, token);
+  };
+
   it('treats free characters as always unlocked', async () => {
     const meta = new MetaService(new MemoryStorageAdapter());
     await meta.load();
@@ -268,12 +311,14 @@ describe('meta service — character unlocks', () => {
     expect(meta.isUnlocked(characterDef('acolyte'))).toBe(false);
     // Unlocking a free character is a no-op, not a purchase.
     expect(meta.unlockCharacter(characterDef('wanderer'))).toBe(false);
+    expect(meta.lockStateOf(characterDef('wanderer'))).toBeNull();
   });
 
   it('unlocks a character at the exact gold cost exactly once', async () => {
     const meta = new MetaService(new MemoryStorageAdapter());
     await meta.load();
     meta.bankRun(3000, 1);
+    earnAcolyteFeat(meta, 1);
     const acolyte = characterDef('acolyte'); // costs 2500
     expect(meta.unlockCharacter(acolyte)).toBe(true);
     expect(meta.gold).toBe(500);
@@ -283,17 +328,98 @@ describe('meta service — character unlocks', () => {
     expect(meta.unlockCharacter(characterDef('dragos'))).toBe(false); // 12000 > 500
   });
 
-  it('persists unlocks across a reload', async () => {
+  /**
+   * The requirement is a gate on the purchase, not a decoration on the card:
+   * gold alone buys nothing, and the wallet is not touched by the refusal.
+   */
+  it('refuses to sell a character whose requirement is unearned', async () => {
+    const meta = new MetaService(new MemoryStorageAdapter());
+    await meta.load();
+    meta.bankRun(9000, 1);
+    const acolyte = characterDef('acolyte');
+    expect(meta.unlockCharacter(acolyte)).toBe(false);
+    expect(meta.gold).toBe(9000);
+    expect(meta.isUnlocked(acolyte)).toBe(false);
+
+    // One run short of the target still does not open it.
+    meta.recordFeats({ level: 19 }, 1);
+    expect(meta.unlockCharacter(acolyte)).toBe(false);
+
+    meta.recordFeats({ level: 20 }, 2);
+    expect(meta.unlockCharacter(acolyte)).toBe(true);
+    expect(meta.gold).toBe(6500);
+  });
+
+  it('reports both gates, and the progress toward the feat, in one lock state', async () => {
+    const meta = new MetaService(new MemoryStorageAdapter());
+    await meta.load();
+    const acolyte = characterDef('acolyte');
+
+    expect(meta.lockStateOf(acolyte)).toEqual({
+      gold: 2500,
+      affordable: false,
+      requirement: {
+        label: 'Reach level 20 in one run',
+        target: 20,
+        progress: 0,
+        met: false,
+      },
+    });
+
+    meta.recordFeats({ level: 14 }, 1);
+    expect(meta.lockStateOf(acolyte)?.requirement).toMatchObject({ progress: 14, met: false });
+
+    // 'best' keeps the high-water mark, so a worse run after a better one does
+    // not walk the card backwards — and progress is clamped, never 24/20.
+    meta.recordFeats({ level: 24 }, 2);
+    meta.recordFeats({ level: 3 }, 3);
+    expect(meta.lockStateOf(acolyte)?.requirement).toMatchObject({ progress: 20, met: true });
+
+    meta.bankRun(2500, 4);
+    expect(meta.lockStateOf(acolyte)?.affordable).toBe(true);
+    meta.unlockCharacter(acolyte);
+    // Owned characters have no lock state at all — that is what "playable" is.
+    expect(meta.lockStateOf(acolyte)).toBeNull();
+  });
+
+  /**
+   * The settle can be reached twice for one run, and a doubled fold would
+   * inflate every 'sum' requirement. Same token guard as bankRun.
+   */
+  it('records a run into the feat record exactly once per run token', async () => {
+    const meta = new MetaService(new MemoryStorageAdapter());
+    await meta.load();
+    meta.recordFeats({ kills: 120, victory: 1 }, 7);
+    meta.recordFeats({ kills: 120, victory: 1 }, 7);
+    expect(meta.feats.sum).toEqual({ kills: 120, victory: 1 });
+    meta.recordFeats({ kills: 80 }, 8);
+    expect(meta.feats.sum).toEqual({ kills: 200, victory: 1 });
+    expect(meta.feats.best).toEqual({ kills: 120, victory: 1 });
+  });
+
+  it('persists unlocks and the feat record across a reload', async () => {
     const adapter = new MemoryStorageAdapter();
     const meta = new MetaService(adapter);
     await meta.load();
     meta.bankRun(2500, 1);
+    earnAcolyteFeat(meta, 1);
+    meta.recordFeats({ survive: 420 }, 2);
     meta.unlockCharacter(characterDef('acolyte'));
     await meta.flush();
     const rebooted = new MetaService(adapter);
     await rebooted.load();
     expect(rebooted.isUnlocked(characterDef('acolyte'))).toBe(true);
     expect(rebooted.gold).toBe(0);
+    // Progress toward a requirement outlives the session that earned it, and
+    // arrives as whole seconds rather than the sim's fractional ones.
+    expect(rebooted.lockStateOf(characterDef('outrider'))?.requirement).toMatchObject({
+      progress: 420,
+      met: false,
+    });
+    rebooted.recordFeats({ survive: 107.78333333333285 }, 9);
+    expect(rebooted.lockStateOf(characterDef('outrider'))?.requirement?.progress).toBe(420);
+    rebooted.recordFeats({ survive: 512.6 }, 10);
+    expect(rebooted.lockStateOf(characterDef('outrider'))?.requirement?.progress).toBe(512);
   });
 });
 

@@ -6,6 +6,7 @@ import type { Offer } from '../gameplay/upgrades.ts';
 import type { Run } from '../gameplay/run.ts';
 import type { SpriteTable } from '../render/sprites.ts';
 import type { MapChoice } from '../render/tilemap.ts';
+import type { LockState } from '../services/meta.ts';
 
 import { NUMBER_KEYS, choiceLabel, titleSelection, wrapIndex } from './navigation.ts';
 
@@ -36,7 +37,8 @@ export interface TitleDailyRow {
 /** Read-only meta the title screen renders from; owned by MetaService. */
 export interface TitleMeta {
   gold: number;
-  isUnlocked(character: CharacterDef): boolean;
+  /** Why this character is locked, or null when it is playable. */
+  lockState(character: CharacterDef): LockState | null;
   /** Today's three oaths, in set order. Empty before the first rollover. */
   daily: TitleDailyRow[];
 }
@@ -261,28 +263,35 @@ export class Screens {
     mapPicker.appendChild(mapCards);
     main.appendChild(mapPicker);
 
-    // Character picker: locked cards render greyed with their price and route
-    // to the unlock flow instead of starting a run.
+    // Character picker: locked cards render greyed with whatever still stands
+    // between the player and the character, and route to the unlock flow
+    // instead of starting a run.
     const charPicker = el('div', 'picker');
     charPicker.appendChild(el('div', 'picker-label', 'SURVIVOR'));
     const cards = el('div', 'cards');
     for (let i = 0; i < this.characters.length; i++) {
       const character = this.characters[i]!;
-      const locked = !(this.titleMeta?.isUnlocked(character) ?? true);
+      const lock = this.titleMeta?.lockState(character) ?? null;
       const card = el('button', 'card');
       card.type = 'button';
-      if (locked) card.classList.add('locked');
+      if (lock) card.classList.add('locked');
 
       const head = el('div', 'card-head');
       head.appendChild(this.sprites.iconCanvas(character.sprite, 32));
       const titles = el('div');
       titles.appendChild(el('div', 'card-title', character.name));
+      // The tag says the one thing standing in the way, so the card leads with
+      // the next action rather than with the further of the two gates: the feat
+      // while it is unearned, the price once it is.
+      const pending = lock?.requirement && !lock.requirement.met ? lock.requirement : null;
       titles.appendChild(
         el(
           'div',
           'card-tag',
-          locked
-            ? `LOCKED — ${character.unlock!.gold} GOLD`
+          lock
+            ? pending
+              ? `LOCKED — ${pending.label}`
+              : `LOCKED — ${lock.gold} GOLD`
             : `HP ${character.stats.maxHp} · SPD ${Math.round(character.stats.moveSpeed)}`,
         ),
       );
@@ -290,6 +299,29 @@ export class Screens {
       card.appendChild(head);
 
       card.appendChild(el('div', 'card-body', character.description));
+      if (lock?.requirement) {
+        const row = el('div', 'card-req');
+        if (lock.requirement.met) row.classList.add('done');
+        const pip = el('div', 'pip');
+        if (lock.requirement.met) pip.classList.add('on');
+        pip.setAttribute('aria-hidden', 'true');
+        row.appendChild(pip);
+        row.appendChild(
+          el('div', 'card-req-label', lock.requirement.met ? 'Oath kept' : 'Oath'),
+        );
+        row.appendChild(
+          el('div', 'card-req-count', `${lock.requirement.progress}/${lock.requirement.target}`),
+        );
+        card.appendChild(row);
+      }
+      // The price, printed under the feat once there is a feat, so an unearned
+      // card reads "do this, then pay that" in the order the player has to do
+      // them. `poor` is the same red the Sanctum uses for a cost out of reach.
+      if (lock) {
+        const cost = el('div', 'card-cost', pending ? `THEN ${lock.gold} GOLD` : `${lock.gold} GOLD`);
+        if (!lock.affordable) cost.classList.add('short');
+        card.appendChild(cost);
+      }
       appendCardKey(card, focusables.length);
 
       cards.appendChild(card);
@@ -328,7 +360,10 @@ export class Screens {
       if (choice.kind === 'character') {
         const character = this.characters[choice.at];
         if (!character) return;
-        if (!(this.titleMeta?.isUnlocked(character) ?? true)) {
+        if (this.titleMeta?.lockState(character)) {
+          // Routed even when the requirement is unearned: the service refuses
+          // the purchase, the re-render is a no-op, and the card is already
+          // showing why. Deciding that here would put the gate in two places.
           this.titleCallbacks?.onUnlock(character.id);
           return;
         }

@@ -47,7 +47,13 @@
     "description": "Frail but quick to learn. Calls the night's swarm to hunt for her.",
     "startingWeapon": "wand",
     "unlock": {
-      "gold": 2500
+      "gold": 2500,
+      "requirement": {
+        "id": "level",
+        "target": 20,
+        "mode": "best",
+        "label": "Reach level 20 in one run"
+      }
     },
     "radius": 5,
     "stats": {
@@ -93,7 +99,13 @@
     "description": "Slow and armoured. His vow hardens to iron when it matters.",
     "startingWeapon": "garlic",
     "unlock": {
-      "gold": 6000
+      "gold": 6000,
+      "requirement": {
+        "id": "walls",
+        "target": 1,
+        "mode": "best",
+        "label": "Hold the Bastion with every wall standing"
+      }
     },
     "radius": 6,
     "stats": {
@@ -136,7 +148,13 @@
     "description": "Built to kite. Steps through the mist and leaves it burning behind her.",
     "startingWeapon": "knife",
     "unlock": {
-      "gold": 4000
+      "gold": 4000,
+      "requirement": {
+        "id": "survive",
+        "target": 600,
+        "mode": "best",
+        "label": "Last ten minutes in one run"
+      }
     },
     "radius": 5,
     "stats": {
@@ -182,7 +200,13 @@
     "description": "The castle's old master. Ground he claims stays claimed, and blood comes easier to him.",
     "startingWeapon": "brazier",
     "unlock": {
-      "gold": 12000
+      "gold": 12000,
+      "requirement": {
+        "id": "victory",
+        "target": 1,
+        "mode": "best",
+        "label": "Survive a full night"
+      }
     },
     "radius": 6,
     "stats": {

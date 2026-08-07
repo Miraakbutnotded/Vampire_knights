@@ -4,9 +4,26 @@ import { coachPrompt } from './coach.ts';
 import type { CoachSave } from './coach.ts';
 import { foldDaily, rolloverDaily } from './daily.ts';
 import type { DailyPayout, DailySave } from './daily.ts';
+import { featMet, featProgress, foldFeats } from './feats.ts';
+import type { FeatSave } from './feats.ts';
 import { SaveStore, defaultSave } from './save.ts';
 import type { SaveData } from './save.ts';
 import type { StorageAdapter } from './storage.ts';
+
+/** Why a character is still locked, and how close the player is to fixing it. */
+export interface LockState {
+  gold: number;
+  /** Whether the wallet covers the price today. */
+  affordable: boolean;
+  /** The feat gating the purchase, with progress, or null when gold is the only gate. */
+  requirement: {
+    label: string;
+    target: number;
+    /** Whole units, clamped to target — a card never prints 34/20 or 107.78/600. */
+    progress: number;
+    met: boolean;
+  } | null;
+}
 
 /**
  * The persistent wallet and Sanctum progression, wrapped around one SaveData.
@@ -24,6 +41,8 @@ export class MetaService {
   private lastBankedToken = 0;
   /** Last daily-committed run token — the same guard, for the same reason. */
   private lastDailyToken = 0;
+  /** Last feat-recorded run token — the same guard again. */
+  private lastFeatToken = 0;
   /** Serialized write chain; flush() awaits it (tests + future lifecycle hooks). */
   private pending: Promise<void> = Promise.resolve();
 
@@ -115,6 +134,31 @@ export class MetaService {
     return { completed: folded.completed, gold: folded.gold };
   }
 
+  /** The permanent feat record. Replaced on change, so this is safe to hold. */
+  get feats(): Readonly<FeatSave> {
+    return this.data.feats;
+  }
+
+  /**
+   * Folds one finished run into the feat record, exactly once per run token.
+   *
+   * Guarded like bankRun and commitDailyRun, and for the same reason: the
+   * browser-side settle can be reached twice for one run, and a doubled fold
+   * would inflate every 'sum' requirement. Unlike those two this pays nothing —
+   * it only records — so a repeat costs progress accuracy rather than gold,
+   * which is precisely why it must not rely on the caller's own guard.
+   *
+   * Unconditional in the other direction: a run that scored nothing on every
+   * signal still burns the token, because whether it wrote anything is
+   * foldFeats' business and re-folding an empty delta later is not.
+   */
+  recordFeats(delta: Record<string, number>, runToken: number): void {
+    if (runToken === this.lastFeatToken) return;
+    this.lastFeatToken = runToken;
+    this.data = { ...this.data, feats: foldFeats(this.data.feats, delta) };
+    this.persist();
+  }
+
   /** Which coach lines have already been said. Replaced on change, safe to hold. */
   get coachState(): Readonly<CoachSave> {
     return this.data.coach;
@@ -173,19 +217,60 @@ export class MetaService {
     return mods;
   }
 
+  /** Playable, whether because it is free or because it was bought. */
   isUnlocked(character: CharacterDef): boolean {
-    return character.unlock === null || this.data.unlockedCharacters.includes(character.id);
+    return this.lockStateOf(character) === null;
   }
 
-  /** Spends gold to unlock a character. False = free, already owned, or too poor. */
+  /**
+   * Everything the title screen needs to print a locked card, or null when the
+   * character is free or already owned.
+   *
+   * The one answer to "why is this locked", which is what `isUnlocked` above
+   * and `unlockCharacter` below both read: the card and the purchase cannot
+   * disagree about a gate neither of them evaluates for itself.
+   */
+  lockStateOf(character: CharacterDef): LockState | null {
+    const unlock = character.unlock;
+    if (unlock === null || this.data.unlockedCharacters.includes(character.id)) return null;
+    const requirement =
+      unlock.requirement === null
+        ? null
+        : {
+            label: unlock.requirement.label,
+            target: unlock.requirement.target,
+            // Floored as well as clamped: `survive` accumulates in fractional
+            // simulation seconds, and a card is a place for "107/600", not for
+            // 107.78333333333285.
+            progress: Math.floor(
+              Math.min(featProgress(this.data.feats, unlock.requirement), unlock.requirement.target),
+            ),
+            met: featMet(this.data.feats, unlock.requirement),
+          };
+    return {
+      gold: unlock.gold,
+      affordable: this.data.gold >= unlock.gold,
+      requirement,
+    };
+  }
+
+  /**
+   * Buys a character. False = free, already owned, requirement unearned, or too
+   * poor.
+   *
+   * Both gates are checked here rather than only at the card: the screen is one
+   * caller, and a gate that lives in the UI is a gate a second caller walks
+   * straight past. They are read off the same LockState the card renders, in
+   * the order the player has to satisfy them — feat first, then price.
+   */
   unlockCharacter(character: CharacterDef): boolean {
-    const cost = character.unlock?.gold;
-    if (cost === undefined) return false;
-    if (this.data.unlockedCharacters.includes(character.id)) return false;
-    if (this.data.gold < cost) return false;
+    const lock = this.lockStateOf(character);
+    if (lock === null) return false;
+    if (lock.requirement !== null && !lock.requirement.met) return false;
+    if (!lock.affordable) return false;
     this.data = {
       ...this.data,
-      gold: this.data.gold - cost,
+      gold: this.data.gold - lock.gold,
       unlockedCharacters: [...this.data.unlockedCharacters, character.id],
     };
     this.persist();
