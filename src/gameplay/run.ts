@@ -265,6 +265,7 @@ export class Run {
       critChance: 0,
       critMult: 0,
       bloodGain: 0,
+      pierce: 0,
     };
 
     // First source: persistent Sanctum mods. Seeding the accumulator rather
@@ -296,7 +297,9 @@ export class Run {
     const previousMaxHp = this.stats.maxHp;
 
     this.stats = {
-      maxHp: Math.round(base.maxHp * (1 + sum.maxHpMul)),
+      // Floored at 1: maxHpMul can now be negative (a vow that sells health for
+      // damage), and a cap of zero would be a death the player never took.
+      maxHp: Math.max(1, Math.round(base.maxHp * (1 + sum.maxHpMul))),
       recovery: base.recovery + sum.recovery,
       armor: base.armor + sum.armor,
       moveSpeed: base.moveSpeed * (1 + sum.moveSpeedMul),
@@ -313,6 +316,9 @@ export class Run {
       critChance: clamp(base.critChance + sum.critChance, 0, 0.95),
       critMult: base.critMult + sum.critMult,
       bloodGain: Math.max(0, base.bloodGain + sum.bloodGain),
+      // Whole bodies, never negative: it is added to a weapon's own pierce
+      // budget, and a fractional or negative one would take shots away.
+      pierce: Math.max(0, Math.round(base.pierce + sum.pierce)),
       revives: base.revives,
     };
 

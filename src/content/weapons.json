@@ -228,6 +228,152 @@
       { "damage": 22, "cooldown": -0.4, "note": "+22 damage, -0.4s cooldown" }
     ]
   },
+  "bloodlink": {
+    "name": "Bloodlink",
+    "sprite": "hazard_cord",
+    "behavior": "tether",
+    "description": "Strings a cord of blood from you to the nearest throat. Everything standing on it is cut.",
+    "evolution": { "passive": "bloodthirst", "into": "meridian" },
+    "weight": 85,
+    "base": {
+      "damage": 15,
+      "cooldown": 1.5,
+      "count": 1,
+      "pierce": -1,
+      "area": 1,
+      "duration": 0.2,
+      "radius": 5,
+      "reach": 100,
+      "knockback": 10
+    },
+    "levels": [
+      { "damage": 6, "note": "+6 damage" },
+      { "count": 1, "note": "+1 cord" },
+      { "reach": 22, "note": "+22 reach" },
+      { "cooldown": -0.2, "note": "-0.2s cooldown" },
+      { "damage": 8, "radius": 1, "note": "+8 damage, thicker cord" },
+      { "count": 1, "note": "+1 cord" },
+      { "damage": 10, "knockback": 14, "note": "+10 damage, +14 knockback" }
+    ]
+  },
+
+  "corpselight": {
+    "name": "Corpselight",
+    "sprite": "fx_corpselight",
+    "behavior": "chain",
+    "description": "A pale fire that leaps from body to body. Worth most where they crowd.",
+    "evolution": { "passive": "duelistspoise", "into": "wildfire" },
+    "weight": 85,
+    "base": {
+      "damage": 19,
+      "cooldown": 2.2,
+      "count": 3,
+      "pierce": -1,
+      "area": 1,
+      "duration": 0.2,
+      "radius": 14,
+      "spawnRadius": 70,
+      "knockback": 8
+    },
+    "levels": [
+      { "damage": 7, "note": "+7 damage" },
+      { "count": 1, "note": "+1 leap" },
+      { "cooldown": -0.3, "note": "-0.3s cooldown" },
+      { "count": 1, "spawnRadius": 20, "note": "+1 leap, +20 leap range" },
+      { "damage": 9, "note": "+9 damage" },
+      { "count": 2, "note": "+2 leaps" },
+      { "damage": 12, "cooldown": -0.3, "note": "+12 damage, -0.3s cooldown" }
+    ]
+  },
+
+  "wake": {
+    "name": "Red Wake",
+    "sprite": "hazard_wake",
+    "behavior": "trail",
+    "description": "You bleed as you walk, and the ground remembers it.",
+    "evolution": { "passive": "swiftboots", "into": "hemorrhage" },
+    "weight": 80,
+    "base": {
+      "damage": 9,
+      "cooldown": 0.45,
+      "count": 1,
+      "pierce": -1,
+      "area": 1,
+      "duration": 2.2,
+      "radius": 11,
+      "interval": 0.45,
+      "spawnRadius": 14,
+      "knockback": 0
+    },
+    "levels": [
+      { "damage": 3, "note": "+3 damage" },
+      { "duration": 0.8, "note": "+0.8s lingering" },
+      { "count": 1, "note": "Wider wake" },
+      { "interval": -0.1, "note": "Burns faster" },
+      { "damage": 4, "area": 0.2, "note": "+4 damage, +20% area" },
+      { "count": 1, "note": "Wider wake" },
+      { "damage": 5, "duration": 0.8, "note": "+5 damage, +0.8s lingering" }
+    ]
+  },
+
+  "ironfall": {
+    "name": "Ironfall",
+    "sprite": "fx_ironfall",
+    "behavior": "slam",
+    "description": "Drop your weight through the ground. The ring goes out and takes the front rank with it.",
+    "evolution": { "passive": "graveiron", "into": "ruinbell" },
+    "weight": 80,
+    "base": {
+      "damage": 28,
+      "cooldown": 3.4,
+      "count": 1,
+      "pierce": -1,
+      "area": 1,
+      "duration": 0.55,
+      "radius": 14,
+      "spawnRadius": 92,
+      "knockback": 65
+    },
+    "levels": [
+      { "damage": 10, "note": "+10 damage" },
+      { "spawnRadius": 20, "note": "+20 reach" },
+      { "cooldown": -0.4, "note": "-0.4s cooldown" },
+      { "count": 1, "note": "+1 ring" },
+      { "damage": 14, "note": "+14 damage" },
+      { "spawnRadius": 24, "knockback": 25, "note": "+24 reach, +25 knockback" },
+      { "damage": 18, "count": 1, "note": "+18 damage, +1 ring" }
+    ]
+  },
+
+  "moonshear": {
+    "name": "Moonshear",
+    "sprite": "proj_moonshear",
+    "behavior": "spiral",
+    "description": "Blades that never stop turning, sweeping the field in a widening spiral.",
+    "evolution": { "passive": "serratededge", "into": "eclipse" },
+    "weight": 80,
+    "base": {
+      "damage": 13,
+      "cooldown": 2.4,
+      "count": 4,
+      "pierce": 2,
+      "area": 1,
+      "speed": 95,
+      "lifetime": 2.4,
+      "turnRate": 1.6,
+      "knockback": 14
+    },
+    "levels": [
+      { "count": 2, "note": "+2 blades" },
+      { "damage": 5, "note": "+5 damage" },
+      { "pierce": 1, "note": "+1 pierce" },
+      { "cooldown": -0.35, "note": "-0.35s cooldown" },
+      { "damage": 6, "lifetime": 0.5, "note": "+6 damage, +0.5s flight" },
+      { "count": 2, "note": "+2 blades" },
+      { "damage": 8, "pierce": 1, "note": "+8 damage, +1 pierce" }
+    ]
+  },
+
   "reap": {
     "name": "Crimson Reap",
     "sprite": "fx_reap",
@@ -382,6 +528,107 @@
       "radius": 22,
       "duration": 0.24,
       "knockback": 45
+    },
+    "levels": []
+  },
+
+  "meridian": {
+    "name": "Crimson Meridian",
+    "sprite": "hazard_meridian",
+    "behavior": "tether",
+    "description": "Five cords at once. The field is drawn in lines that belong to you.",
+    "weight": 0,
+    "base": {
+      "damage": 78,
+      "cooldown": 0.9,
+      "count": 5,
+      "pierce": -1,
+      "area": 1,
+      "duration": 0.24,
+      "radius": 7,
+      "reach": 165,
+      "knockback": 45
+    },
+    "levels": []
+  },
+
+  "wildfire": {
+    "name": "Wildfire Sermon",
+    "sprite": "fx_wildfire",
+    "behavior": "chain",
+    "description": "Fourteen leaps, and it only stops when it runs out of congregation.",
+    "weight": 0,
+    "base": {
+      "damage": 66,
+      "cooldown": 1.2,
+      "count": 14,
+      "pierce": -1,
+      "area": 1,
+      "duration": 0.24,
+      "radius": 19,
+      "spawnRadius": 120,
+      "knockback": 18
+    },
+    "levels": []
+  },
+
+  "hemorrhage": {
+    "name": "Hemorrhage",
+    "sprite": "hazard_hemorrhage",
+    "behavior": "trail",
+    "description": "Three lanes of ruin behind you, and nothing follows for long.",
+    "weight": 0,
+    "base": {
+      "damage": 34,
+      "cooldown": 0.3,
+      "count": 3,
+      "pierce": -1,
+      "area": 1,
+      "duration": 3.6,
+      "radius": 15,
+      "interval": 0.3,
+      "spawnRadius": 16,
+      "knockback": 0
+    },
+    "levels": []
+  },
+
+  "ruinbell": {
+    "name": "Ruinbell",
+    "sprite": "fx_ruinbell",
+    "behavior": "slam",
+    "description": "Three rings and one note, and the crowd is thrown to the far side of the field.",
+    "weight": 0,
+    "base": {
+      "damage": 96,
+      "cooldown": 2.0,
+      "count": 3,
+      "pierce": -1,
+      "area": 1,
+      "duration": 0.6,
+      "radius": 16,
+      "spawnRadius": 155,
+      "knockback": 130
+    },
+    "levels": []
+  },
+
+  "eclipse": {
+    "name": "Eclipse",
+    "sprite": "proj_eclipse",
+    "behavior": "spiral",
+    "description": "Twelve blades turning at once, and the whole arena is inside the turn.",
+    "weight": 0,
+    "base": {
+      "damage": 52,
+      "cooldown": 1.4,
+      "count": 12,
+      "pierce": 6,
+      "area": 1,
+      "speed": 110,
+      "lifetime": 3.2,
+      "turnRate": 2,
+      "knockback": 24
     },
     "levels": []
   }

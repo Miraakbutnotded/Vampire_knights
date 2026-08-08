@@ -103,5 +103,40 @@
     "maxLevel": 5,
     "weight": 70,
     "perLevel": { "bloodGain": 0.1 }
+  },
+  "duelistspoise": {
+    "name": "Duelist's Poise",
+    "description": "+4% critical chance per level.",
+    "maxLevel": 5,
+    "weight": 70,
+    "perLevel": { "critChance": 0.04 }
+  },
+  "executionersmark": {
+    "name": "Executioner's Mark",
+    "description": "+35% critical damage per level.",
+    "maxLevel": 3,
+    "weight": 50,
+    "perLevel": { "critMult": 0.35 }
+  },
+  "serratededge": {
+    "name": "Serrated Edge",
+    "description": "Every projectile passes through +1 more enemy per level.",
+    "maxLevel": 3,
+    "weight": 45,
+    "perLevel": { "pierce": 1 }
+  },
+  "hollowvow": {
+    "name": "Hollow Vow",
+    "description": "+20% damage and -8% max health per level. Spend the blood you have.",
+    "maxLevel": 5,
+    "weight": 45,
+    "perLevel": { "might": 0.2, "maxHpMul": -0.08 }
+  },
+  "graveiron": {
+    "name": "Grave Iron",
+    "description": "+2 armour and -3% movement speed per level.",
+    "maxLevel": 3,
+    "weight": 60,
+    "perLevel": { "armor": 2, "moveSpeedMul": -0.03 }
   }
 }

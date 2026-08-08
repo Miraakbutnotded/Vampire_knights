@@ -54,7 +54,16 @@ export interface MapJson {
   tileSize?: number;
   bounds?: { left: number; top: number; right: number; bottom: number } | null;
   spawnPoint?: [number, number];
-  ground?: { mode?: 'scatter' | 'grid' };
+  ground?: {
+    mode?: 'scatter' | 'grid';
+    /**
+     * Scatter mode only. Side of one material patch, in tiles. Zero — the
+     * default — picks every tile independently, which reads as noise once the
+     * tileset spans more than one material. Above zero the tileset is drawn in
+     * contiguous areas instead: grass here, bare earth there.
+     */
+    patchScale?: number;
+  };
   tileset?: TileJson[];
   /** Grid mode only: row-major tile indices, 1-based into `tileset`; 0 = void. */
   gridWidth?: number;
@@ -70,7 +79,11 @@ export interface MapJson {
   voidColor?: string;
 }
 
-/** A static circular obstacle. Hand-placed props only; scattered decor is passable. */
+/**
+ * A static circular obstacle. Hand-placed props always; scattered decor too,
+ * but only on a bounded map — see `buildSolids`, which has to materialise the
+ * whole field up front and so cannot serve an infinite one.
+ */
 export interface Solid {
   x: number;
   y: number;
@@ -168,6 +181,7 @@ export class TileMap {
   readonly structures: { type: string; x: number; y: number }[];
 
   private mode: 'scatter' | 'grid';
+  private patchScale = 0;
   private propSolidCount = 0;
   private hasSolidTiles = false;
   private textures: TileTexture[] = [];
@@ -189,6 +203,7 @@ export class TileMap {
     this.name = def.name ?? id;
     this.tileSize = def.tileSize ?? 16;
     this.mode = def.ground?.mode ?? 'scatter';
+    this.patchScale = Math.max(0, def.ground?.patchScale ?? 0);
     this.spawnX = def.spawnPoint?.[0] ?? 0;
     this.spawnY = def.spawnPoint?.[1] ?? 0;
     this.wavesTable = def.waves ?? 'default';
@@ -355,9 +370,47 @@ export class TileMap {
         this.solids.push({ x: prop.x, y: prop.y, r: prop.solid });
       }
     }
+    this.buildDecorSolids();
     // Everything below this index is hand-authored and permanent; everything
     // above is a runtime structure solid and lives run-to-run.
     this.propSolidCount = this.solids.length;
+  }
+
+  /**
+   * Turns scattered decor that asked for a collision radius into real solids.
+   *
+   * Scatter decor is generated on demand from a hash as the camera moves, but
+   * `resolveSolids` scans a flat array, so a collider has to exist before
+   * anything can walk into it. That is affordable exactly once: over a bounded
+   * map, where the cell range is finite and can be swept at load. An unbounded
+   * map would need a solid for every cell out to infinity, so `solid` on decor
+   * is ignored there — warned about rather than silently dropped, because the
+   * failure otherwise looks like collision that mysteriously does not work.
+   */
+  private buildDecorSolids(): void {
+    if (!this.decor.some((d) => (d.solid ?? 0) > 0)) return;
+
+    if (!this.bounds) {
+      console.warn(
+        `[map ${this.name}] decor asks for "solid" but the map is unbounded, so no collider can be built for it. ` +
+          `Give the map "bounds", or hand-place it in "props" instead.`,
+      );
+      return;
+    }
+
+    const b = this.bounds;
+    const gx0 = Math.floor(b.left / DECOR_CELL);
+    const gx1 = Math.floor(b.right / DECOR_CELL);
+    const gy0 = Math.floor(b.top / DECOR_CELL);
+    const gy1 = Math.floor(b.bottom / DECOR_CELL);
+
+    for (let gy = gy0; gy <= gy1; gy++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        const placed = this.decorAt(gx, gy);
+        const r = placed?.decor.solid ?? 0;
+        if (placed && r > 0) this.solids.push({ x: placed.x, y: placed.y, r });
+      }
+    }
   }
 
   /** Keeps a circle of radius `r` inside the map bounds. Returns the clamped position. */
@@ -490,11 +543,67 @@ export class TileMap {
     // Scatter mode: pick deterministically from the weighted tileset so the
     // ground is stable across chunk cache evictions and infinite in extent.
     if (this.totalWeight <= 0) return this.textures[0] ?? null;
-    const roll = (hash2(tx, ty) / 4294967296) * this.totalWeight;
+    if (this.patchScale <= 0) return this.weightedTile(hash2(tx, ty) / 4294967296);
+    return this.patchTile(tx, ty);
+  }
+
+  /** Indexes the cumulative weights with a uniform sample in [0,1). */
+  private weightedTile(u: number): TileTexture | null {
+    const roll = u * this.totalWeight;
     for (let i = 0; i < this.cumulativeWeights.length; i++) {
       if (roll < this.cumulativeWeights[i]!) return this.textures[i]!;
     }
     return this.textures[this.textures.length - 1] ?? null;
+  }
+
+  /**
+   * Draws the tileset in contiguous areas rather than per-tile static.
+   *
+   * Each corner of the patch lattice makes its own weighted draw; a tile then
+   * picks *which corner it belongs to*, using the bilinear share of the four
+   * around it as the probabilities. Near a corner that corner nearly always
+   * wins, which is what makes an area of one material; halfway between two, the
+   * draw is close to a coin flip, which dithers the border into an organic edge
+   * instead of a straight contour.
+   *
+   * Choosing among four independent weighted draws leaves the marginal
+   * distribution exactly the weighted one, so `weight` still means the same
+   * share of ground it meant before — patches change where a tile lands, never
+   * how much of it there is. That is the reason for this shape rather than the
+   * obvious one of smoothing a noise field and thresholding it: interpolated
+   * noise is bell-shaped, so it would quietly starve the first and last entries
+   * of the tileset and over-serve the middle.
+   */
+  private patchTile(tx: number, ty: number): TileTexture | null {
+    const fx = tx / this.patchScale;
+    const fy = ty / this.patchScale;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const dx = fx - x0;
+    const dy = fy - y0;
+    // Smoothstep, so patch interiors stay pure and only the seams mix.
+    const sx = dx * dx * (3 - 2 * dx);
+    const sy = dy * dy * (3 - 2 * dy);
+
+    const w00 = (1 - sx) * (1 - sy);
+    const w10 = sx * (1 - sy);
+    const w01 = (1 - sx) * sy;
+
+    const pick = hash2(tx + 0x9e37, ty + 0x85eb) / 4294967296;
+    let cx = x0 + 1;
+    let cy = y0 + 1;
+    if (pick < w00) {
+      cx = x0;
+      cy = y0;
+    } else if (pick < w00 + w10) {
+      cx = x0 + 1;
+      cy = y0;
+    } else if (pick < w00 + w10 + w01) {
+      cx = x0;
+      cy = y0 + 1;
+    }
+
+    return this.weightedTile(hash2(cx * 0x51ed, cy * 0x27d4) / 4294967296);
   }
 
   /**
@@ -525,33 +634,44 @@ export class TileMap {
 
     for (let gy = gy0; gy <= gy1; gy++) {
       for (let gx = gx0; gx <= gx1; gx++) {
-        // One deterministic hash per cell drives choice, placement and rejection,
-        // so decor never flickers as the camera moves.
-        const h = hash2(gx * 73856093, gy * 19349663);
-        const roll = h / 4294967296;
-
-        let acc = 0;
-        for (const decor of this.decor) {
-          const density = decor.density ?? 0.05;
-          if (roll >= acc && roll < acc + density) {
-            const jx = ((hash2(gx, gy + 1013) / 4294967296) - 0.5) * DECOR_CELL * 0.8;
-            const jy = ((hash2(gx + 7919, gy) / 4294967296) - 0.5) * DECOR_CELL * 0.8;
-            const wx = gx * DECOR_CELL + DECOR_CELL / 2 + jx;
-            const wy = gy * DECOR_CELL + DECOR_CELL / 2 + jy;
-            if (this.bounds) {
-              const b = this.bounds;
-              if (wx < b.left || wx > b.right || wy < b.top || wy > b.bottom) break;
-            }
-            renderer.queue(sprites.id(decor.sprite), 0, 0, wx, wy, {
-              // `flat` decor sits under everything; -1e6 keeps it below any entity y.
-              depth: decor.flat ? -1e6 : wy,
-            });
-            break;
-          }
-          acc += density;
-        }
+        const placed = this.decorAt(gx, gy);
+        if (!placed) continue;
+        renderer.queue(sprites.id(placed.decor.sprite), 0, 0, placed.x, placed.y, {
+          // `flat` decor sits under everything; -1e6 keeps it below any entity y.
+          depth: placed.decor.flat ? -1e6 : placed.y,
+        });
       }
     }
+  }
+
+  /**
+   * What decor, if any, occupies one scatter cell, and exactly where.
+   *
+   * One deterministic hash per cell drives choice, placement and rejection, so
+   * decor never flickers as the camera moves. Both the renderer and
+   * `buildSolids` read placement through here, because a collider that computed
+   * its own jitter would drift off the sprite it is supposed to be.
+   */
+  private decorAt(gx: number, gy: number): { decor: DecorJson; x: number; y: number } | null {
+    const roll = hash2(gx * 73856093, gy * 19349663) / 4294967296;
+
+    let acc = 0;
+    for (const decor of this.decor) {
+      const density = decor.density ?? 0.05;
+      if (roll >= acc && roll < acc + density) {
+        const jx = (hash2(gx, gy + 1013) / 4294967296 - 0.5) * DECOR_CELL * 0.8;
+        const jy = (hash2(gx + 7919, gy) / 4294967296 - 0.5) * DECOR_CELL * 0.8;
+        const x = gx * DECOR_CELL + DECOR_CELL / 2 + jx;
+        const y = gy * DECOR_CELL + DECOR_CELL / 2 + jy;
+        if (this.bounds) {
+          const b = this.bounds;
+          if (x < b.left || x > b.right || y < b.top || y > b.bottom) return null;
+        }
+        return { decor, x, y };
+      }
+      acc += density;
+    }
+    return null;
   }
 }
 

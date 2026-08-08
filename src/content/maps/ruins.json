@@ -1,0 +1,92 @@
+{
+  "name": "The Ruined Courtyard",
+  "order": 3,
+  "blurb": "A castle the earth is swallowing. The walls still decide where you can run.",
+  "tileSize": 16,
+  "ground": { "mode": "scatter", "patchScale": 7 },
+  "bounds": { "left": -720, "top": -520, "right": 720, "bottom": 520 },
+  "spawnPoint": [0, 0],
+  "waves": "default",
+  "voidColor": "#0b0812",
+  "tileset": [
+    { "src": "tiles/ruin_dirt.png", "weight": 30, "placeholder": { "color": "#311d35", "detail": 0.6 } },
+    { "src": "tiles/ruin_dirt_rut.png", "weight": 16, "placeholder": { "color": "#2a1a30", "detail": 0.9 } },
+    { "src": "tiles/ruin_grass_patchy.png", "weight": 13, "placeholder": { "color": "#221e39", "detail": 0.8 } },
+    { "src": "tiles/ruin_gravel.png", "weight": 8, "placeholder": { "color": "#402946", "detail": 1 } },
+    { "src": "tiles/ruin_paving_buried.png", "weight": 7, "placeholder": { "color": "#443569", "detail": 0.5 } },
+    { "src": "tiles/ruin_grass.png", "weight": 7, "placeholder": { "color": "#26332a", "detail": 0.7 } },
+    { "src": "tiles/ruin_grass_dry.png", "weight": 4, "placeholder": { "color": "#3a3324", "detail": 0.8 } },
+    { "src": "tiles/ruin_paving_moss.png", "weight": 3, "placeholder": { "color": "#26332a", "detail": 0.55 } }
+  ],
+  "decor": [
+    { "sprite": "ruin_thistle", "density": 0.06 },
+    { "sprite": "ruin_stones", "density": 0.045, "solid": 5 },
+    { "sprite": "ruin_slab", "density": 0.05, "flat": true },
+    { "sprite": "ruin_rubble", "density": 0.025, "solid": 8 }
+  ],
+  "props": [
+    { "sprite": "ruin_wall_corner", "x": -420, "y": -300, "solid": 16 },
+    { "sprite": "ruin_wall_corner", "x": 420, "y": -300, "solid": 16 },
+    { "sprite": "ruin_wall_corner", "x": -420, "y": 300, "solid": 16 },
+    { "sprite": "ruin_wall_corner", "x": 420, "y": 300, "solid": 16 },
+
+    { "sprite": "ruin_wall", "x": -376, "y": -300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": -332, "y": -300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": -288, "y": -300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": 288, "y": -300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": 332, "y": -300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": 376, "y": -300, "solid": 16 },
+
+    { "sprite": "ruin_wall", "x": -376, "y": 300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": -332, "y": 300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": -288, "y": 300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": 288, "y": 300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": 332, "y": 300, "solid": 16 },
+    { "sprite": "ruin_wall", "x": 376, "y": 300, "solid": 16 },
+
+    { "sprite": "ruin_pillar", "x": -420, "y": -220, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": -420, "y": -150, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": -420, "y": -80, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": -420, "y": 80, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": -420, "y": 150, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": -420, "y": 220, "solid": 9 },
+
+    { "sprite": "ruin_pillar", "x": 420, "y": -220, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": 420, "y": -150, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": 420, "y": -80, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": 420, "y": 80, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": 420, "y": 150, "solid": 9 },
+    { "sprite": "ruin_pillar", "x": 420, "y": 220, "solid": 9 },
+
+    { "sprite": "ruin_arch", "x": 0, "y": -300 },
+    { "sprite": "ruin_arch", "x": 0, "y": 300 },
+    { "sprite": "ruin_arch", "x": -420, "y": 0 },
+    { "sprite": "ruin_arch", "x": 420, "y": 0 },
+
+    { "sprite": "ruin_stones", "x": -19, "y": -294, "solid": 7 },
+    { "sprite": "ruin_stones", "x": 19, "y": -294, "solid": 7 },
+    { "sprite": "ruin_stones", "x": -19, "y": 306, "solid": 7 },
+    { "sprite": "ruin_stones", "x": 19, "y": 306, "solid": 7 },
+    { "sprite": "ruin_stones", "x": -439, "y": 6, "solid": 7 },
+    { "sprite": "ruin_stones", "x": -401, "y": 6, "solid": 7 },
+    { "sprite": "ruin_stones", "x": 401, "y": 6, "solid": 7 },
+    { "sprite": "ruin_stones", "x": 439, "y": 6, "solid": 7 },
+
+    { "sprite": "ruin_statue", "x": 0, "y": -170, "solid": 9 },
+    { "sprite": "ruin_brazier", "x": -48, "y": -170, "solid": 5 },
+    { "sprite": "ruin_brazier", "x": 48, "y": -170, "solid": 5 },
+
+    { "sprite": "ruin_well", "x": -230, "y": 120, "solid": 11 },
+    { "sprite": "ruin_stair", "x": 230, "y": 120, "solid": 10 },
+
+    { "sprite": "ruin_rubble", "x": -250, "y": -110, "solid": 8 },
+    { "sprite": "ruin_rubble", "x": 250, "y": -110, "solid": 8 },
+    { "sprite": "ruin_rubble", "x": -120, "y": 210, "solid": 8 },
+    { "sprite": "ruin_rubble", "x": 120, "y": 210, "solid": 8 },
+
+    { "sprite": "ruin_rubble", "x": -560, "y": -420, "solid": 8 },
+    { "sprite": "ruin_rubble", "x": 560, "y": -420, "solid": 8 },
+    { "sprite": "ruin_rubble", "x": -560, "y": 420, "solid": 8 },
+    { "sprite": "ruin_rubble", "x": 560, "y": 420, "solid": 8 }
+  ]
+}

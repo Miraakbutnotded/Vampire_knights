@@ -33,7 +33,9 @@ export function effectiveStats(run: Run, weapon: OwnedWeapon): WeaponStats {
     cooldown: Math.max(0.08, base.cooldown * s.cooldown * frenzyCooldown),
     // The +projectile stat is meaningless for a single persistent ring.
     count: Math.max(1, Math.round(base.count + (isAura ? 0 : s.amount))),
-    pierce: base.pierce,
+    // -1 is a sentinel for "unlimited", not a number to add to: a weapon that
+    // already passes through everything gains nothing from more pierce.
+    pierce: base.pierce < 0 ? -1 : base.pierce + s.pierce,
     area: base.area * s.area,
     duration: base.duration * s.duration,
     knockback: base.knockback,
@@ -96,6 +98,21 @@ function fire(ctx: Ctx, weapon: OwnedWeapon, stats: WeaponStats): void {
       break;
     case WeaponBehavior.Lightning:
       fireLightning(ctx, weapon, stats);
+      break;
+    case WeaponBehavior.Tether:
+      fireTether(ctx, weapon, stats);
+      break;
+    case WeaponBehavior.Chain:
+      fireChain(ctx, weapon, stats);
+      break;
+    case WeaponBehavior.Trail:
+      fireTrail(ctx, weapon, stats);
+      break;
+    case WeaponBehavior.Slam:
+      fireSlam(ctx, weapon, stats);
+      break;
+    case WeaponBehavior.Spiral:
+      fireSpiral(ctx, weapon, stats);
       break;
     default:
       break;
@@ -198,6 +215,55 @@ export function nearestEnemy(ctx: Ctx, x: number, y: number, range = TARGET_RANG
     }
   }
   return best;
+}
+
+/**
+ * The nearest living enemies to a point, closest first, written into `out`.
+ * Returns how many were found, which may be fewer than `max`.
+ *
+ * Only enemies the camera frames are eligible, so a weapon that picks its own
+ * targets can never spend one on something the player cannot see — the same
+ * rule `resolveDamageArea` applies when the damage actually lands.
+ *
+ * Insertion into a list this short beats sorting the query: `max` is a weapon's
+ * count, so single digits, while the query behind it can return hundreds.
+ */
+function nearestEnemies(
+  ctx: Ctx,
+  x: number,
+  y: number,
+  range: number,
+  max: number,
+  out: number[],
+  distances: number[],
+): number {
+  out.length = 0;
+  distances.length = 0;
+  if (max <= 0) return 0;
+
+  const found = ctx.enemyHash.query(x, y, range, ctx.scratch);
+  const limit = range * range;
+  for (let i = 0; i < found; i++) {
+    const id = ctx.scratch[i]!;
+    if (!ctx.world.isAlive(id)) continue;
+    if (!withinEngagement(ctx, id)) continue;
+    const dx = ctx.world.x[id]! - x;
+    const dy = ctx.world.y[id]! - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > limit) continue;
+    // Already full and further away than the worst kept: nothing to do.
+    if (out.length === max && d2 >= distances[max - 1]!) continue;
+
+    let slot = out.length < max ? out.length : max - 1;
+    while (slot > 0 && distances[slot - 1]! > d2) {
+      out[slot] = out[slot - 1]!;
+      distances[slot] = distances[slot - 1]!;
+      slot--;
+    }
+    out[slot] = id;
+    distances[slot] = d2;
+  }
+  return out.length;
 }
 
 // --- behaviours -----------------------------------------------------------
@@ -410,6 +476,200 @@ function fireLightning(ctx: Ctx, weapon: OwnedWeapon, stats: WeaponStats): void 
   ctx.camera.shake(1.5, 0.15);
 }
 
+/** Beads a tether can be built from, so a long cord cannot flood the world. */
+const MAX_TETHER_BEADS = 22;
+
+/**
+ * Cords strung from the player to the nearest enemies, cutting everything along
+ * their length.
+ *
+ * A cord is a line of small single-hit beads rather than one long collider,
+ * because a hazard is a circle: beads are how a line becomes hittable at all,
+ * and they are spaced a diameter apart so a body standing on the cord is caught
+ * by one of them rather than shredded by several.
+ *
+ * `count` is cords, not beads — an upgrade opens another throat, which is what
+ * makes it the answer to an elite escort rather than to a crowd.
+ */
+function fireTether(ctx: Ctx, weapon: OwnedWeapon, stats: WeaponStats): void {
+  const { world } = ctx;
+  const player = ctx.player;
+  const px = world.x[player]!;
+  const py = world.y[player]!;
+  const bead = Math.max(2, stats.radius);
+
+  const targets: number[] = [];
+  const distances: number[] = [];
+  const anchors = nearestEnemies(ctx, px, py, stats.reach, stats.count, targets, distances);
+  if (anchors === 0) return;
+
+  for (let t = 0; t < anchors; t++) {
+    const target = targets[t]!;
+    const dx = world.x[target]! - px;
+    const dy = world.y[target]! - py;
+    const length = Math.hypot(dx, dy);
+    const beads = Math.max(1, Math.min(MAX_TETHER_BEADS, Math.round(length / (bead * 2))));
+
+    // From one step out to the anchor itself: a bead centred on the player is
+    // hidden under their own sprite and covers ground nothing stands on.
+    for (let i = 1; i <= beads; i++) {
+      const f = i / beads;
+      spawnHazard(ctx, weapon.def.sprite, px + dx * f, py + dy * f, bead, stats.duration, stats, 0);
+    }
+    ctx.fx.burst(world.x[target]!, world.y[target]!, 4, 55, '#d94a5e', 0.22, 1);
+  }
+}
+
+/**
+ * A strike that leaps from body to body: the first jump starts at the player,
+ * every one after it starts where the last landed.
+ *
+ * Distinct from `lightning`, which samples the whole screen at once — a chain
+ * follows the crowd's own shape, so it is worth most exactly where the bodies
+ * are packed and worth nothing against a single straggler.
+ */
+function fireChain(ctx: Ctx, weapon: OwnedWeapon, stats: WeaponStats): void {
+  const { world } = ctx;
+  const player = ctx.player;
+  let x = world.x[player]!;
+  let y = world.y[player]!;
+
+  const struck: number[] = [];
+  const jumps = Math.max(1, stats.count);
+  // The first link reaches as far as the screen; every later one only as far as
+  // the next body, so the chain has to walk the crowd instead of teleporting.
+  let range = TARGET_RANGE;
+
+  for (let i = 0; i < jumps; i++) {
+    const node = nearestUnstruck(ctx, x, y, range, struck);
+    if (node < 0) break;
+
+    x = world.x[node]!;
+    y = world.y[node]!;
+    struck.push(node);
+    spawnHazard(ctx, weapon.def.sprite, x, y, stats.radius, stats.duration, stats, 0);
+    ctx.fx.burst(x, y, 6, 70, '#aab7c9', 0.25, 1);
+    range = Math.max(1, stats.spawnRadius);
+  }
+}
+
+/** Nearest on-screen enemy this chain has not already hit, or -1. */
+function nearestUnstruck(ctx: Ctx, x: number, y: number, range: number, struck: readonly number[]): number {
+  const found = ctx.enemyHash.query(x, y, range, ctx.scratch);
+  let best = -1;
+  let bestD2 = range * range;
+  for (let i = 0; i < found; i++) {
+    const id = ctx.scratch[i]!;
+    if (!ctx.world.isAlive(id)) continue;
+    if (struck.includes(id)) continue;
+    if (!withinEngagement(ctx, id)) continue;
+    const dx = ctx.world.x[id]! - x;
+    const dy = ctx.world.y[id]! - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = id;
+    }
+  }
+  return best;
+}
+
+/**
+ * Lays lingering ground in the player's wake.
+ *
+ * Placed behind the aim direction rather than underfoot, so walking draws a
+ * line and standing still stacks one spot: the weapon pays out for kiting,
+ * which is the one thing the arena always wants you doing anyway.
+ */
+function fireTrail(ctx: Ctx, weapon: OwnedWeapon, stats: WeaponStats): void {
+  const { world } = ctx;
+  const player = ctx.player;
+  const px = world.x[player]!;
+  const py = world.y[player]!;
+  const behind = Math.atan2(ctx.aimY, ctx.aimX) + Math.PI;
+  const bx = px + Math.cos(behind) * stats.spawnRadius;
+  const by = py + Math.sin(behind) * stats.spawnRadius;
+
+  for (let i = 0; i < stats.count; i++) {
+    // Extra drops widen the wake across the path rather than lengthening it,
+    // so upgrades make the trail harder to walk around, not merely longer.
+    const lateral = (i - (stats.count - 1) / 2) * stats.radius * 1.5;
+    const id = spawnHazard(
+      ctx,
+      weapon.def.sprite,
+      bx - Math.sin(behind) * lateral,
+      by + Math.cos(behind) * lateral,
+      stats.radius,
+      stats.duration,
+      stats,
+      stats.interval,
+    );
+    // Ground-level, under everything that walks over it.
+    if (id >= 0) world.drawBias[id] = -1e5;
+  }
+}
+
+/**
+ * Shockwave rings that expand outward from the player.
+ *
+ * Each ring hits a body once, as it passes — the sweep is the weapon, so its
+ * damage lands in the order the crowd is standing rather than all at once, and
+ * the knockback opens a hole around the player instead of scattering them
+ * evenly. Extra `count` starts further out and finishes with the first, so the
+ * volley reads as one wave with echoes.
+ */
+function fireSlam(ctx: Ctx, weapon: OwnedWeapon, stats: WeaponStats): void {
+  const { world } = ctx;
+  const player = ctx.player;
+  const px = world.x[player]!;
+  const py = world.y[player]!;
+
+  const start = Math.max(2, stats.radius);
+  const finish = Math.max(start + 8, stats.spawnRadius * stats.area);
+  const seconds = Math.max(0.05, stats.duration);
+  const speed = (finish - start) / seconds;
+  const gap = (finish - start) / (stats.count + 1);
+
+  for (let i = 0; i < stats.count; i++) {
+    const from = start + gap * i;
+    const id = spawnHazard(ctx, weapon.def.sprite, px, py, from, (finish - from) / speed, stats, 0);
+    if (id < 0) break;
+    world.growRate[id] = speed;
+    world.drawBias[id] = -1e5;
+  }
+
+  ctx.fx.shockwave(px, py, '#d1d8e2', 0.4, 7);
+  ctx.camera.shake(2, 0.18);
+}
+
+/**
+ * Projectiles launched radially that keep turning as they fly, so each one
+ * sweeps a spiral outward instead of leaving a gap between lanes the way a
+ * `nova` does. Slow and patient: the coverage is the point, not the velocity.
+ */
+function fireSpiral(ctx: Ctx, weapon: OwnedWeapon, stats: WeaponStats): void {
+  const { world } = ctx;
+  const player = ctx.player;
+  const px = world.x[player]!;
+  const py = world.y[player]!;
+  const phase = ctx.rng.angle();
+
+  for (let i = 0; i < stats.count; i++) {
+    const angle = phase + (i / stats.count) * TAU;
+    const id = spawnProjectile(
+      ctx,
+      weapon.def.sprite,
+      px,
+      py,
+      Math.cos(angle) * stats.speed,
+      Math.sin(angle) * stats.speed,
+      stats,
+      false,
+    );
+    if (id >= 0) world.spin[id] = stats.turnRate;
+  }
+}
+
 /**
  * Keeps the persistent aura alive, centred, and matched to current stats.
  *
@@ -479,6 +739,15 @@ export function updatePlayerProjectiles(ctx: Ctx, dt: number): void {
       }
     }
 
+    const spin = world.spin[id]!;
+    if (spin !== 0) {
+      const speed = Math.hypot(world.vx[id]!, world.vy[id]!);
+      const next = Math.atan2(world.vy[id]!, world.vx[id]!) + spin * dt;
+      world.vx[id] = Math.cos(next) * speed;
+      world.vy[id] = Math.sin(next) * speed;
+      world.rot[id] = next;
+    }
+
     const nx = world.x[id]! + world.vx[id]! * dt;
     const ny = world.y[id]! + world.vy[id]! * dt;
     world.x[id] = nx;
@@ -513,6 +782,16 @@ export function updateHazards(ctx: Ctx, dt: number): void {
         world.destroy(id);
         continue;
       }
+    }
+
+    // Expanding rings: the collider grows and the art is re-fitted to it every
+    // tick, so what the ring looks like is what it hits at any moment of the
+    // sweep. The hit registry does the rest — a body the ring has already
+    // passed is never caught a second time.
+    const grow = world.growRate[id]!;
+    if (grow !== 0) {
+      world.radius[id] = Math.max(0, world.radius[id]! + grow * dt);
+      world.scale[id] = spriteScaleForRadius(ctx, world.spriteId[id]!, world.radius[id]!);
     }
 
     if (world.has(id, Comp.Orbit)) {

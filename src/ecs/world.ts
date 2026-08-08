@@ -43,9 +43,23 @@ export class World {
    */
   readonly kbx = new Float32Array(MAX_ENTITIES);
   readonly kby = new Float32Array(MAX_ENTITIES);
+  /**
+   * Radians per second added to a projectile's heading every tick, curving its
+   * flight. Deliberately separate from `aiPhase`'s homing rate rather than
+   * sign-encoded into it: the two are independent, and a shot may spiral, home,
+   * or do both. Zero — the default — flies straight.
+   */
+  readonly spin = new Float32Array(MAX_ENTITIES);
 
   // --- collider -----------------------------------------------------------
   readonly radius = new Float32Array(MAX_ENTITIES);
+  /**
+   * World units the collider grows per second. Hazards only, and zero for all
+   * but the shockwave rings: a ring that sweeps outward through a crowd hits
+   * each body as it passes, which is a different thing from a blast that
+   * appears at full size and hits everything at once.
+   */
+  readonly growRate = new Float32Array(MAX_ENTITIES);
 
   // --- health -------------------------------------------------------------
   readonly hp = new Float32Array(MAX_ENTITIES);
@@ -168,8 +182,10 @@ export class World {
     this.speed[id] = 0;
     this.kbx[id] = 0;
     this.kby[id] = 0;
+    this.spin[id] = 0;
 
     this.radius[id] = 0;
+    this.growRate[id] = 0;
 
     this.hp[id] = 1;
     this.maxHp[id] = 1;

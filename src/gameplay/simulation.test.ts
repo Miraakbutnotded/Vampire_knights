@@ -2546,10 +2546,10 @@ describe('weapon evolutions — content', () => {
     }
   });
 
-  it('ships eight pairings whose targets are terminal, unweighted and behaviour-preserving', () => {
+  it('ships thirteen pairings whose targets are terminal, unweighted and behaviour-preserving', () => {
     const bases = WEAPON_LIST.filter((def) => def.evolution !== null);
-    expect(bases.length).toBe(8);
-    expect(EVOLVED_WEAPON_IDS.size).toBe(8);
+    expect(bases.length).toBe(13);
+    expect(EVOLVED_WEAPON_IDS.size).toBe(13);
 
     for (const base of bases) {
       const evo = base.evolution!;
@@ -2583,7 +2583,7 @@ describe('weapon evolutions — content', () => {
     // Evolutions get their own art slot rather than reusing the base's, so the
     // fusion reads on screen the moment the PNGs land.
     const evolvedSprites = WEAPON_LIST.filter((d) => EVOLVED_WEAPON_IDS.has(d.id)).map((d) => d.sprite);
-    expect(new Set(evolvedSprites).size).toBe(8);
+    expect(new Set(evolvedSprites).size).toBe(13);
     for (const base of WEAPON_LIST.filter((d) => d.evolution !== null)) {
       expect(weaponDef(base.evolution!.intoId)!.sprite).not.toBe(base.sprite);
     }
@@ -2906,3 +2906,203 @@ describe('weapon evolutions — the chest trigger', () => {
     expect(seen).toEqual([{ baseId: 'storm', intoId: 'judgment', name: 'Judgment' }]);
   });
 });
+
+describe('the weapons that are not projectiles in a line', () => {
+  /**
+   * Health for a test dummy that must survive the whole measurement.
+   *
+   * A million, not a billion: `world.hp` is a Float32Array, and at 1e9 one ulp
+   * is 64 — a weapon dealing less than that lands a hit which rounds straight
+   * back to where it started, and the test reads it as a miss.
+   */
+  const IMMORTAL = 1e6;
+
+  /** A harness carrying exactly `weaponId` at `level`, and nothing else. */
+  function only(weaponId: string, level = 1) {
+    const harness = makeHarness();
+    harness.ctx.run.weapons.length = 0;
+    harness.ctx.run.addWeapon(weaponId);
+    harness.ctx.run.weapons[0]!.level = level;
+    // Fires on the next tick rather than on the anti-sync stagger.
+    harness.ctx.run.weapons[0]!.cooldown = 0;
+    return harness;
+  }
+
+  /** Spawns an immortal enemy at a point and rebuilds the broadphase over it. */
+  function dummy(ctx: Ctx, x: number, y: number): number {
+    const id = spawnEnemy(ctx, enemyDef('bat')!, x, y);
+    ctx.world.flush();
+    ctx.world.hp[id] = IMMORTAL;
+    ctx.enemyHash.build(ctx.world, ctx.world.list(Kind.Enemy));
+    return id;
+  }
+
+  it('strings a cord along its whole length, so the anchor is not the only thing cut', () => {
+    const harness = only('bloodlink');
+    const { ctx, ctx: { world } } = harness;
+    const anchor = dummy(ctx, 70, 0);
+    // Further out than the anchor, so it is never targeted — the nearest body
+    // always is — but close enough to the cord to be caught by it anyway.
+    const grazed = dummy(ctx, 74, 8);
+    const clear = dummy(ctx, 30, 90);
+
+    updateWeapons(ctx, FIXED_DT);
+    const beads = world.list(Kind.Hazard);
+    expect(beads.length, 'no cord was strung').toBeGreaterThan(1);
+    // Strung from the player outward: beads cover the near end of the cord too,
+    // and none of them is thrown past the body the cord is tied to.
+    const xs = beads.map((id) => world.x[id]!);
+    expect(Math.min(...xs)).toBeLessThan(20);
+    expect(Math.max(...xs)).toBeCloseTo(world.x[anchor]!, 5);
+
+    updateHazards(ctx, FIXED_DT);
+
+    expect(world.hp[anchor]!).toBeLessThan(IMMORTAL);
+    expect(world.hp[grazed]!, 'the cord cut only what it was tied to').toBeLessThan(IMMORTAL);
+    expect(world.hp[clear]!, 'the cord reached something nowhere near it').toBe(IMMORTAL);
+  });
+
+  it('strings nothing when the nearest body is out of reach', () => {
+    const harness = only('bloodlink');
+    const { ctx, ctx: { world } } = harness;
+    const stats = effectiveStats(ctx.run, ctx.run.weapons[0]!);
+    dummy(ctx, stats.reach + 40, 0);
+
+    updateWeapons(ctx, FIXED_DT);
+    expect(world.list(Kind.Hazard).length).toBe(0);
+  });
+
+  it('walks a chain through the crowd, one body per leap and none of them twice', () => {
+    const harness = only('corpselight');
+    const { ctx, ctx: { world } } = harness;
+    const jumps = effectiveStats(ctx.run, ctx.run.weapons[0]!).count;
+
+    // A line of bodies, each within leap range of the last but far enough apart
+    // that no single blast covers two of them.
+    const chainable = 3;
+    for (let i = 0; i < chainable; i++) dummy(ctx, 40 + i * 46, 0);
+    expect(jumps).toBeGreaterThanOrEqual(chainable);
+
+    updateWeapons(ctx, FIXED_DT);
+    const nodes = world.list(Kind.Hazard);
+    // One spark per body reached, and no more: the chain cannot re-strike a
+    // body it has already hit, so it runs out of crowd before it runs out of
+    // leaps and stops there.
+    expect(nodes.length).toBe(chainable);
+
+    const seen = new Set(nodes.map((id) => `${world.x[id]},${world.y[id]}`));
+    expect(seen.size, 'two leaps landed on the same body').toBe(chainable);
+  });
+
+  it('lays its wake behind the player rather than underfoot', () => {
+    const harness = only('wake');
+    const { ctx, ctx: { world } } = harness;
+    ctx.aimX = 1;
+    ctx.aimY = 0;
+
+    updateWeapons(ctx, FIXED_DT);
+    const drops = world.list(Kind.Hazard);
+    expect(drops.length).toBeGreaterThan(0);
+    for (const id of drops) {
+      expect(world.x[id]!, 'the wake landed in front of the player').toBeLessThan(world.x[ctx.player]!);
+      // Ground level, so bodies walk over the pool rather than behind it.
+      expect(world.drawBias[id]!).toBeLessThan(0);
+    }
+  });
+
+  it('sweeps a slam ring outward, hitting each body once as it arrives', () => {
+    const harness = only('ironfall');
+    const { ctx, ctx: { world } } = harness;
+    // Crits would double an arbitrary subset of the hits and make "exactly one
+    // hit each" unmeasurable; the ring's cadence is what is under test here.
+    ctx.run.stats.critChance = 0;
+    const stats = effectiveStats(ctx.run, ctx.run.weapons[0]!);
+    const near = dummy(ctx, 30, 0);
+    const far = dummy(ctx, stats.spawnRadius - 6, 0);
+
+    updateWeapons(ctx, FIXED_DT);
+    const ring = world.list(Kind.Hazard)[0]!;
+    expect(world.growRate[ring]!).toBeGreaterThan(0);
+    const started = world.radius[ring]!;
+    const blow = world.damage[ring]!;
+
+    // One tick: the ring is still small, so nothing out at the rim is touched.
+    updateHazards(ctx, FIXED_DT);
+    expect(world.radius[ring]!).toBeGreaterThan(started);
+    expect(world.hp[far]!, 'the ring hit past its own radius').toBe(IMMORTAL);
+
+    harness.run(stats.duration);
+    // Both were reached, and each took exactly one blow: a ring that hits as it
+    // passes must not go on grinding whatever ends up inside it.
+    expect(IMMORTAL - world.hp[near]!, 'the near body was not swept once').toBeCloseTo(blow, 1);
+    expect(IMMORTAL - world.hp[far]!, 'the sweep never arrived').toBeCloseTo(blow, 1);
+  });
+
+  it('curves spiral blades instead of flying them straight', () => {
+    const harness = only('moonshear');
+    const { ctx, ctx: { world } } = harness;
+
+    updateWeapons(ctx, FIXED_DT);
+    const blade = world.list(Kind.Projectile)[0]!;
+    expect(world.spin[blade]!).not.toBe(0);
+    const heading = Math.atan2(world.vy[blade]!, world.vx[blade]!);
+    const speed = Math.hypot(world.vx[blade]!, world.vy[blade]!);
+
+    for (let i = 0; i < 30; i++) updatePlayerProjectiles(ctx, FIXED_DT);
+
+    expect(Math.atan2(world.vy[blade]!, world.vx[blade]!)).not.toBeCloseTo(heading, 3);
+    // Turning only: a curving shot must not accelerate as it turns.
+    expect(Math.hypot(world.vx[blade]!, world.vy[blade]!)).toBeCloseTo(speed, 3);
+  });
+});
+
+describe('the passives that are not plain multipliers', () => {
+  it('spends pierce from Serrated Edge on weapons that can use it, and not on the ones that cannot', () => {
+    const harness = makeHarness();
+    const { run } = harness.ctx;
+    run.weapons.length = 0;
+    run.addWeapon('knife');
+    run.addWeapon('whip');
+    const knife = run.weapons[0]!;
+    const whip = run.weapons[1]!;
+    const before = effectiveStats(run, knife).pierce;
+
+    run.addPassive('serratededge');
+    run.passives[0]!.level = passiveDef('serratededge')!.maxLevel;
+    run.recomputeStats();
+
+    expect(run.stats.pierce).toBe(passiveDef('serratededge')!.maxLevel);
+    expect(effectiveStats(run, knife).pierce).toBe(before + run.stats.pierce);
+    // -1 is "passes through everything" — there is nothing to add to.
+    expect(effectiveStats(run, whip).pierce).toBe(-1);
+  });
+
+  it('follows the health cap down when Hollow Vow sells health for damage', () => {
+    const harness = makeHarness();
+    const { ctx, ctx: { run, world } } = harness;
+    const fullHp = run.stats.maxHp;
+    expect(world.hp[ctx.player]!).toBe(fullHp);
+
+    const vow = passiveDef('hollowvow')!;
+    const offer = rollOffers(ctx).find((o) => o.id === 'hollowvow') ?? {
+      kind: 'passive' as const,
+      id: 'hollowvow',
+      name: vow.name,
+      description: vow.description,
+      level: 1,
+      maxLevel: vow.maxLevel,
+      isNew: true,
+      sprite: null,
+    };
+    run.pendingLevelUps = 1;
+    applyOffer(ctx, offer, [offer]);
+
+    expect(run.stats.might).toBeGreaterThan(1);
+    expect(run.stats.maxHp).toBeLessThan(fullHp);
+    // The HUD reads hp against stats.maxHp, so an unclamped hp would print a
+    // health bar past its own end.
+    expect(world.hp[ctx.player]!).toBe(run.stats.maxHp);
+  });
+});
+
+

@@ -7,6 +7,12 @@ Thumbs.db
 tsconfig.tsbuildinfo
 __pycache__/
 
+# Generated source art before spritify/tilify bring it down. Megabytes of
+# 1280px PNGs that only exist to be re-converted; the committed art is the
+# 16-48px result, and re-running the converters needs these on disk, not in
+# history.
+raw/
+
 # Capacitor iOS — the project is committed, build artifacts are not
 ios/App/Pods/
 ios/App/build/

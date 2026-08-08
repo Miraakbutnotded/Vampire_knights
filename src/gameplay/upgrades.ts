@@ -184,8 +184,14 @@ export function applyOffer(ctx: Ctx, offer: Offer, offered: readonly Offer[]): v
       run.addPassive(offer.id);
       // A max-health passive should feel immediate, so grant the new headroom
       // as current health rather than leaving the player at their old value.
-      if (run.maxHpDelta > 0 && ctx.player >= 0) {
-        world.hp[ctx.player] = Math.min(run.stats.maxHp, world.hp[ctx.player]! + run.maxHpDelta);
+      // A passive that trades health away lands in the same expression: only a
+      // positive delta is granted, and the clamp then follows the cap down, so
+      // the HUD can never read more health than the bar holds.
+      if (ctx.player >= 0) {
+        world.hp[ctx.player] = Math.min(
+          run.stats.maxHp,
+          world.hp[ctx.player]! + Math.max(0, run.maxHpDelta),
+        );
       }
       break;
     }

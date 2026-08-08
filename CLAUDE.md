@@ -211,7 +211,10 @@ directly.
   is the map id. No registration.
 - **New art**: colour comes from `docs/art/palette.md` and nowhere else — never start a second
   palette. Bring generated images down with `scripts/spritify.py` (sprites) or `scripts/tilify.py`
-  (tiles) instead of hand-placing PNGs, then run `npm run validate:art`: it fails on a missing PNG
+  (tiles) instead of hand-placing PNGs — the exception is the geometric weapon FX (rings, beads,
+  pools, crescents), whose drawn edge is their collider and which `scripts/drawfx.py` draws from the
+  palette in code; edit that script rather than the PNGs, and `--check` proves the two still agree.
+  Then run `npm run validate:art`: it fails on a missing PNG
   (which otherwise silently falls back to a placeholder), a strip that doesn't divide into whole
   frames, and any off-palette pixel. Every strip in the repo passes today, the character sheets
   included — a failure is a regression, never a pre-existing exception to wave through.

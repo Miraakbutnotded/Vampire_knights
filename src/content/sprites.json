@@ -912,6 +912,196 @@
       "size": 15
     }
   },
+  "hazard_cord": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/cord.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "orb",
+      "color": "#d94a5e",
+      "accent": "#802331",
+      "size": 10,
+      "bob": 0
+    }
+  },
+  "hazard_meridian": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/meridian.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "orb",
+      "color": "#d4a15a",
+      "accent": "#802331",
+      "size": 14,
+      "bob": 0
+    }
+  },
+  "fx_corpselight": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "fx/corpselight.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "star",
+      "color": "#d1d8e2",
+      "accent": "#443569",
+      "size": 29
+    }
+  },
+  "fx_wildfire": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "fx/wildfire.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "star",
+      "color": "#ff8c42",
+      "accent": "#8a6a34",
+      "size": 39
+    }
+  },
+  "hazard_wake": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/wake.png",
+        "fps": 10
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#802331",
+      "accent": "#311d35",
+      "size": 22,
+      "bob": 0
+    }
+  },
+  "hazard_hemorrhage": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/hemorrhage.png",
+        "fps": 10
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#d94a5e",
+      "accent": "#802331",
+      "size": 30,
+      "bob": 0
+    }
+  },
+  "fx_ironfall": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "fx/ironfall.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "ring",
+      "color": "#aab7c9",
+      "accent": "#6a6980",
+      "size": 64,
+      "bob": 0
+    }
+  },
+  "fx_ruinbell": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "fx/ruinbell.png",
+        "fps": 12
+      }
+    },
+    "placeholder": {
+      "shape": "ring",
+      "color": "#d4a15a",
+      "accent": "#8a6a34",
+      "size": 96,
+      "bob": 0
+    }
+  },
+  "proj_moonshear": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/moonshear.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "knife",
+      "color": "#d1d8e2",
+      "accent": "#6a6980",
+      "size": 11,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "proj_eclipse": {
+    "origin": [
+      0.5,
+      0.5
+    ],
+    "anims": {
+      "idle": {
+        "src": "weapons/eclipse.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "knife",
+      "color": "#d4a15a",
+      "accent": "#8a6a34",
+      "size": 15,
+      "frames": 1,
+      "bob": 0
+    }
+  },
   "ability_cleave": {
     "origin": [
       0.5,
@@ -1158,6 +1348,246 @@
       "color": "#2a4a5a",
       "accent": "#16303c",
       "size": 22,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_wall": {
+    "origin": [
+      0.5,
+      0.9
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_wall.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#555073",
+      "accent": "#221e39",
+      "size": 48,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_wall_corner": {
+    "origin": [
+      0.5,
+      0.9
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_wall_corner.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#555073",
+      "accent": "#221e39",
+      "size": 48,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_arch": {
+    "origin": [
+      0.5,
+      0.94
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_arch.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#6a6980",
+      "accent": "#311d35",
+      "size": 48,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_pillar": {
+    "origin": [
+      0.5,
+      0.92
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_pillar.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#6a6980",
+      "accent": "#311d35",
+      "size": 32,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_rubble": {
+    "origin": [
+      0.5,
+      0.8
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_rubble.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#555073",
+      "accent": "#221e39",
+      "size": 24,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_statue": {
+    "origin": [
+      0.5,
+      0.92
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_statue.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#867797",
+      "accent": "#34264f",
+      "size": 32,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_stair": {
+    "origin": [
+      0.5,
+      0.88
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_stair.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#555073",
+      "accent": "#221e39",
+      "size": 32,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_well": {
+    "origin": [
+      0.5,
+      0.88
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_well.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#6a6980",
+      "accent": "#110c1a",
+      "size": 28,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_slab": {
+    "origin": [
+      0.5,
+      0.6
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_slab.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#555073",
+      "accent": "#26332a",
+      "size": 16,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_thistle": {
+    "origin": [
+      0.5,
+      0.85
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_thistle.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#8a6a34",
+      "accent": "#311d35",
+      "size": 16,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_brazier": {
+    "origin": [
+      0.5,
+      0.92
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_brazier.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#443569",
+      "accent": "#110c1a",
+      "size": 18,
+      "frames": 1,
+      "bob": 0
+    }
+  },
+  "ruin_stones": {
+    "origin": [
+      0.5,
+      0.6
+    ],
+    "anims": {
+      "idle": {
+        "src": "props/ruin_stones.png",
+        "fps": 1
+      }
+    },
+    "placeholder": {
+      "shape": "blob",
+      "color": "#6a6980",
+      "accent": "#221e39",
+      "size": 14,
       "frames": 1,
       "bob": 0
     }

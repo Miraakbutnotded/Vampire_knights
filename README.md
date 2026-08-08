@@ -79,6 +79,19 @@ holds the style together across batches — the prompt only nudges the model, th
 so a texture repeats without printing a grid over the map. `--preview` on either writes a
 nearest-neighbour blow-up worth actually looking at before you commit the result.
 
+One category does not come down that road: the geometric weapon effects — tether beads, chain sparks,
+shockwave rings, blood pools, crescent blades. Their drawn edge *is* their collider
+(`spriteScaleForRadius` fits the two together by width), so quantising a painted circle back into a
+circle loses the one property they have to keep. Those are drawn in code instead, from the same
+palette table:
+
+```bash
+node scripts/python.mjs scripts/drawfx.py --preview look.png   # redraw them
+node scripts/python.mjs scripts/drawfx.py --check              # committed PNGs still match the source
+```
+
+Nothing there is exempt from the rules below — the output is validated exactly like hand-drawn art.
+
 Then gate it:
 
 ```bash
@@ -187,9 +200,18 @@ level-up card shows, so write it for the player.
 | `drop` | Lobs lingering ground hazards; the first favours a nearby enemy. | `spawnRadius`, `radius`, `duration`, `interval` |
 | `nova` | Radial burst in every direction. | `speed`, `lifetime`, `pierce` |
 | `lightning` | Instant strikes on random enemies on screen, ignoring cover. | `radius`, `duration` |
+| `tether` | Cords strung to the `count` nearest enemies, cutting along their whole length. | `reach`, `radius`, `duration`, `count` |
+| `chain` | A strike that leaps `count` times, each jump starting where the last landed. | `radius`, `duration`, `spawnRadius` (leap range) |
+| `trail` | Lingering ground dropped behind you; `count` widens the wake. | `spawnRadius` (how far behind), `radius`, `duration`, `interval` |
+| `slam` | Shockwave rings expanding from `radius` out to `spawnRadius`, hitting bodies as they sweep past. | `radius`, `spawnRadius`, `duration`, `knockback`, `count` |
+| `spiral` | Radial shot that keeps turning as it flies, sweeping a spiral. | `speed`, `lifetime`, `pierce`, `turnRate` |
 
 `interval` is the re-hit cadence for anything persistent. `pierce: -1` means unlimited. A weapon whose
-`interval` is 0 hits each enemy exactly once per instance.
+`interval` is 0 hits each enemy exactly once per instance — which is what makes `slam` a sweep rather
+than a grinder: the ring passes over a body once and is done with it.
+
+`tether` and `chain` pick their own targets, and both only ever choose enemies the camera frames — the
+same rule that decides whether damage lands at all.
 
 #### Evolutions
 
@@ -239,8 +261,14 @@ bases sharing one target (the later one loses). The weapons themselves keep work
 | `growth`, `greed`, `luck` | Experience, gold, and crit/drop rates. |
 | `critChance`, `critMult` | Crit rate and crit damage. |
 | `bloodGain` | Blood gained from kills (`0.1` = +10%). |
+| `pierce` | Extra bodies every projectile passes through. Whole numbers; a weapon whose own `pierce` is `-1` already passes through everything and gains nothing. |
 
 Unknown keys are warned about on startup rather than silently ignored.
+
+Values may be **negative**, which is how a passive charges a price for what it grants (Hollow Vow
+sells max health for damage, Grave Iron sells movement for armour). Max health is floored at 1 and
+current health follows the cap down when it moves, so the trade can never read as a health bar past
+its own end.
 
 ### `blood.json`
 
@@ -362,7 +390,7 @@ shimmers or repeats visibly. This is what an endless arena wants.
   "blurb": "Open ground under a full moon.",       // picker line
   "order": 1,                                      // picker position; first = default run
   "tileSize": 16,
-  "ground": { "mode": "scatter" },
+  "ground": { "mode": "scatter", "patchScale": 7 }, // patchScale: side of one material area, in tiles
   "bounds": null,                                  // null = unbounded
   "spawnPoint": [0, 0],
   "waves": "default",
@@ -371,7 +399,8 @@ shimmers or repeats visibly. This is what an endless arena wants.
     { "src": "tiles/grass_b.png", "weight": 14, "placeholder": { "color": "#2c3b23", "detail": 0.7 } }
   ],
   "decor": [
-    { "sprite": "tree",   "density": 0.055 },      // scattered, decorative, depth-sorted
+    { "sprite": "tree",   "density": 0.055 },      // scattered, depth-sorted
+    { "sprite": "rock",   "density": 0.03, "solid": 8 },    // solid = collision radius; needs bounds
     { "sprite": "flower", "density": 0.09, "flat": true }   // flat = always drawn under entities
   ],
   "props": [
@@ -379,6 +408,20 @@ shimmers or repeats visibly. This is what an endless arena wants.
   ]
 }
 ```
+
+**`patchScale`** decides whether the tileset reads as *material* or as *static*. Omit it (or use 0)
+and every tile is drawn independently, which is right for a tileset that is all one material — the
+four greens of `meadow`, the four stones of `crypt`. Set it and the tileset is laid down in
+contiguous areas instead, roughly `patchScale` tiles across, which is what a mixed tileset needs:
+without it, grass and bare earth shuffle per cell into a checkerboard. **Patches change where a tile
+lands, never how much of it there is** — the `weight` shares are preserved to within a fifth of a
+percentage point, so the two settings are interchangeable without re-tuning weights.
+
+**`solid` on decor needs `bounds`.** Scattered decor is generated from a hash as the camera moves,
+but collision is resolved against a flat array that has to exist up front, so the field is only
+honoured on a bounded map, where the cell range is finite and can be swept once at load. On an
+unbounded map it warns and is ignored — hand-place that obstacle in `props` instead. Every solid is
+scanned per entity per tick, so keep the total in the low hundreds; `ruins` runs 97.
 
 **`grid`** — a hand-authored tile map. `tiles` is row-major, **1-based** into `tileset`; `0` is void.
 A tileset entry with `"solid": true` blocks movement for both you and enemies. Bounds default to the

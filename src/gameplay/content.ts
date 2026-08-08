@@ -245,6 +245,16 @@ export const WeaponBehavior = {
   Nova: 'nova',
   /** Instant strikes on random on-screen enemies. */
   Lightning: 'lightning',
+  /** Cords strung from the player to the nearest enemies, cutting along their length. */
+  Tether: 'tether',
+  /** A strike that leaps from body to body, each jump starting where the last landed. */
+  Chain: 'chain',
+  /** Lingering ground left behind the player as they move. */
+  Trail: 'trail',
+  /** Shockwave rings that expand outward from the player, hitting as they sweep past. */
+  Slam: 'slam',
+  /** Projectiles that curve continuously, sweeping outward in a spiral. */
+  Spiral: 'spiral',
 } as const;
 export type WeaponBehavior = (typeof WeaponBehavior)[keyof typeof WeaponBehavior];
 
@@ -552,6 +562,11 @@ export interface StatMods {
   critChance: number;
   critMult: number;
   bloodGain: number;
+  /**
+   * Extra bodies every projectile passes through. Whole numbers only in
+   * practice; a weapon whose own pierce is -1 (unlimited) ignores it.
+   */
+  pierce: number;
 }
 
 const STAT_MOD_KEYS: readonly (keyof StatMods)[] = [
@@ -572,6 +587,7 @@ const STAT_MOD_KEYS: readonly (keyof StatMods)[] = [
   'critChance',
   'critMult',
   'bloodGain',
+  'pierce',
 ];
 
 export interface PassiveDef {
@@ -808,6 +824,8 @@ export interface BaseStats {
   critChance: number;
   critMult: number;
   bloodGain: number;
+  /** Bodies every projectile passes through, on top of the weapon's own pierce. */
+  pierce: number;
   revives: number;
 }
 
@@ -829,6 +847,7 @@ const BASE_STAT_DEFAULTS: BaseStats = {
   critChance: 0.05,
   critMult: 2,
   bloodGain: 1,
+  pierce: 0,
   revives: 0,
 };
 
