@@ -17,7 +17,7 @@ import type { SpriteTable } from './render/sprites.ts';
 
 import { MAX_QUERY_RESULTS, SpatialHash } from './gameplay/collision.ts';
 import { CHARACTER_LIST, META_LIST, characterDef, structureDef, waveTable } from './gameplay/content.ts';
-import { updateEnemies, updateEnemyProjectiles } from './gameplay/enemies.ts';
+import { updateCorpses, updateEnemies, updateEnemyProjectiles } from './gameplay/enemies.ts';
 import { playerAlpha, spawnPlayer, updatePlayer } from './gameplay/player.ts';
 import { updatePickups } from './gameplay/pickups.ts';
 import { updateBlood } from './gameplay/blood.ts';
@@ -834,6 +834,10 @@ export class Game implements LoopHooks {
     ctx.pickupHash.build(this.world, this.world.list(Kind.Pickup));
     updatePickups(ctx, dt);
     updateBlood(ctx, dt);
+    // Cosmetic, and last of the sim systems: every kill for this tick has
+    // already happened, so the bodies they left start ageing on the same tick
+    // they fell rather than a tick later.
+    updateCorpses(ctx, dt);
 
     this.fx.update(dt);
 
@@ -893,6 +897,9 @@ export class Game implements LoopHooks {
     // Hazards first: auras and burning ground use a large negative draw bias so
     // they sit under everything, while orbiting tomes sort normally.
     this.queueKind(Kind.Hazard, alpha);
+    // Bodies before anything that can stand on them; their negative drawBias
+    // is what actually keeps them underfoot at the same row.
+    this.queueKind(Kind.Corpse, alpha);
     this.queueKind(Kind.Structure, alpha);
     this.queueKind(Kind.Pickup, alpha);
     this.queueKind(Kind.Enemy, alpha);
@@ -1012,6 +1019,7 @@ export class Game implements LoopHooks {
       `shots    ${world.list(Kind.Projectile).length}`,
       `hazards  ${world.list(Kind.Hazard).length}`,
       `structures ${world.list(Kind.Structure).length}`,
+      `corpses  ${world.list(Kind.Corpse).length}`,
       `particles ${this.fx.activeParticles}`,
       `hp x${this.ctx.hpScale.toFixed(2)}  dmg x${this.ctx.damageScale.toFixed(2)}`,
     ];

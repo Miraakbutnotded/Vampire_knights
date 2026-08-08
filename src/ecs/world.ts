@@ -2,7 +2,7 @@ import { Kind } from './components.ts';
 
 export const MAX_ENTITIES = 16384;
 
-const KIND_COUNT = 7;
+const KIND_COUNT = 8;
 
 /**
  * Entity store. Every array below is indexed by entity id; see components.ts

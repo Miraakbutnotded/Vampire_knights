@@ -60,6 +60,26 @@ export interface EnemyDef {
   projectileDamage: number;
   projectileRadius: number;
   projectileLifetime: number;
+
+  // exploder
+  /** Distance at which the fuse lights. */
+  fuseRange: number;
+  /** Seconds it stands still and flashes before detonating — the answerable window. */
+  fuseTime: number;
+  /** Blast radius. The damage it deals is `damage`, spent here instead of on contact. */
+  blastRadius: number;
+
+  // splitter
+  /** Enemy id spawned on death; '' for none. */
+  splitInto: string;
+  /** How many children. */
+  splitCount: number;
+  /**
+   * `splitInto` resolved to a list index, or -1 when the split is disabled.
+   * Linked in a second pass, because a splitter cannot reference an enemy that
+   * may not be normalized yet during its own normalization.
+   */
+  splitIndex: number;
 }
 
 function normalizeEnemies(): { list: EnemyDef[]; byId: Map<string, EnemyDef> } {
@@ -113,6 +133,14 @@ function normalizeEnemies(): { list: EnemyDef[]; byId: Map<string, EnemyDef> } {
       projectileDamage: num('projectileDamage', 6),
       projectileRadius: num('projectileRadius', 4),
       projectileLifetime: num('projectileLifetime', 4),
+
+      fuseRange: Math.max(1, num('fuseRange', 26)),
+      fuseTime: Math.max(0.05, num('fuseTime', 0.85)),
+      blastRadius: Math.max(1, num('blastRadius', 42)),
+
+      splitInto: str('splitInto', ''),
+      splitCount: Math.max(0, Math.round(num('splitCount', 0))),
+      splitIndex: -1,
     };
 
     list.push(entry);
@@ -120,6 +148,46 @@ function normalizeEnemies(): { list: EnemyDef[]; byId: Map<string, EnemyDef> } {
   }
 
   if (list.length === 0) throw new Error('content/enemies.json defines no enemies');
+
+  // Second pass: resolve `splitInto` now that every id is known. Same shape as
+  // linkEvolutions, and the same refusal to allow chains — a splitter whose
+  // child also splits can multiply without bound, and one typo should not be
+  // able to turn a wave into an entity-pool exhaustion. Every rejection warns
+  // and disables that one split; the enemy still spawns and fights normally.
+  for (const def of list) {
+    if (def.behavior !== Behavior.Splitter) {
+      if (def.splitInto) {
+        console.warn(
+          `[content] enemy "${def.id}" sets splitInto but its behavior is not "splitter"; ignored`,
+        );
+      }
+      continue;
+    }
+    if (!def.splitInto || def.splitCount <= 0) {
+      console.warn(
+        `[content] splitter "${def.id}" has no usable splitInto/splitCount; it will die without splitting`,
+      );
+      continue;
+    }
+    const child = byId.get(def.splitInto);
+    if (!child) {
+      console.warn(`[content] splitter "${def.id}" splits into unknown enemy "${def.splitInto}"; split disabled`);
+      continue;
+    }
+    if (child.id === def.id) {
+      console.warn(`[content] splitter "${def.id}" splits into itself; split disabled`);
+      continue;
+    }
+    if (child.behavior === Behavior.Splitter) {
+      console.warn(
+        `[content] splitter "${def.id}" splits into "${child.id}", which is itself a splitter ` +
+          `(no chains — the population would be unbounded); split disabled`,
+      );
+      continue;
+    }
+    def.splitIndex = child.index;
+  }
+
   return { list, byId };
 }
 

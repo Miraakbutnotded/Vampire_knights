@@ -16,8 +16,10 @@ npm run cap:sync                   # build, then copy dist/ + regenerate the SPM
 npm run verify:ios                 # cap:sync, then actually compile and link the iOS target
 ```
 
-All simulation tests live in `src/gameplay/simulation.test.ts`; the UI has its own three (see Tests).
-There is no linter configured; `tsc` is the gate.
+There is no linter configured; `tsc` is the gate. `npm test` is 20 files / 439 tests, all green —
+a red one is a regression, never a known failure to wave through. Most of them are *gates* rather
+than feature tests: they parse the source tree or the stylesheet and fail the build on an
+architectural violation (see Tests).
 
 `cap:sync` and `verify:ios` are **not** the same gate. `cap sync` rewrites
 `ios/App/CapApp-SPM/Package.swift` and copies web assets without ever invoking the Swift toolchain,
@@ -28,24 +30,41 @@ non-Mac session cannot run; say so plainly rather than inferring the build from 
 
 ## What this is
 
-A Vampire Survivors-style arena game: custom TypeScript engine on Canvas2D, no framework, no runtime
-dependencies. All game content (enemies, weapons, passives, characters, waves, maps) is data-driven
-JSON in `src/content/`. **The README documents every content JSON format in detail — read it before
-editing content files.** This file covers the code architecture instead.
+A Vampire Survivors-style arena game: custom TypeScript engine on Canvas2D, no framework. The only
+runtime dependencies are the Capacitor packages that ship it as an iOS app, and every one of them is
+reached through a dynamic import behind a fallback, so the web build and the headless tests run
+identically when none of them resolve. All game content (enemies, weapons, passives, characters,
+abilities, waves, maps, structures, blood, meta) is data-driven JSON in `src/content/`. **The README
+documents every content JSON format in detail — read it before editing content files.** This file
+covers the code architecture instead.
 
 ## Architecture
 
 ### Ownership and flow
 
-`src/main.ts` `boot()` → awaits `SpriteTable.load()` (the only async startup step) → constructs
-`Game` (`src/game.ts`) → wraps it in `Loop` (`src/core/loop.ts`). There are **no module-level
-singletons**: all state (World, Run, Ctx, Input, Renderer, Hud, Screens, EventBus, Rng, Spawner)
-lives on the `Game` instance. The HMR `dispose()` wiring in main.ts is load-bearing — removing it
-stacks loops and duplicates input listeners on every hot reload.
+`src/main.ts` `boot()` → `SpriteTable.load()` and `selectStorage()` → `meta.load()` +
+`telemetry.load()` (together) → `meta.rollDaily()` → constructs `Game` (`src/game.ts`) → wraps it in
+`Loop` (`src/core/loop.ts`) → attaches the platform drivers (audio, haptics, lifecycle). There are
+**no module-level singletons**: all state (World, Run, Ctx, Input, Renderer, Hud, Screens, EventBus,
+Rng, Spawner) lives on the `Game` instance. The HMR `dispose()` wiring in main.ts is load-bearing —
+removing it stacks loops, duplicates input listeners and leaks an AudioContext on every hot reload.
 
-`Game` owns a state machine (`title | loading | playing | levelup | paused | results`). `update(dt)`
-early-returns unless `state === 'playing'` — that is how pause/menus freeze the sim. ESC closes
-pause only; on the level-up draft it is deliberately ignored.
+**main.ts is the only module allowed to choose a `StorageAdapter`** — services take one, they never
+construct one. Every native bridge it touches races a 2.5s deadline and *loses by default*: a plugin
+that never answers is silence, not a rejection, and unbounded waiting means a black screen on boot.
+
+`Game` owns a state machine: `title | loading | playing | levelup | paused | dying | results |
+sanctum`. `update(dt)` runs `tick()` only in `playing` and routes `dying` to `updateDying` — every
+other state freezes the sim, which is how pause and menus work. ESC closes pause only; on the
+level-up draft it is deliberately ignored. **`this.state` is assigned in exactly one place,
+`setState()`**, which also latches the frame gate; `repaint.test.ts` scans game.ts's source and
+fails if a second assignment or a raw state entry appears.
+
+**`gameplay/` is a DAG and should stay one.** The one place that pressures it is enemy spawning:
+`enemies.ts` imports `damage.ts` for contact damage, while `damage.ts` has to spawn enemies when a
+splitter breaks apart. `spawnEnemy` therefore lives in its own leaf, **`spawn.ts`** (imports content
+and the ECS, nothing else in `gameplay/`), so the chain reads `enemies → damage → spawn` instead of
+closing a cycle. `enemies.ts` re-exports it, so call sites don't care.
 
 Gameplay systems (`src/gameplay/*.ts`) are stateless free functions `fn(ctx: Ctx, dt)` (exceptions:
 `Run` and `Spawner` classes). `Ctx` (`src/gameplay/context.ts`) is the single shared bag, built once
@@ -61,15 +80,25 @@ per frame**, so edge-triggered input (menu keys, pause, F3) is handled only in `
 
 `Game.tick()` order (the test harness in `simulation.test.ts` duplicates it verbatim — change both):
 
-1. `difficultyAt()` → writes `ctx.hpScale/damageScale/speedScale` (consumed at spawn time only; existing enemies never rescale)
+1. `run.time += dt`, then `difficultyAt()` → writes `ctx.hpScale/damageScale/speedScale` (consumed at spawn time only; existing enemies never rescale)
 2. `world.snapshotPositions()` — first, so the renderer can lerp prev→current by alpha
 3. `enemyHash.build()` **rebuild #1** (pre-movement: crowd separation + contact damage)
 4. `updatePlayer` → `spawner.update` → `updateEnemies`
 5. `enemyHash.build()` **rebuild #2** (post-movement: all weapon/damage resolution — new damage systems go after this)
-6. `updateEnemyProjectiles` → `updateWeapons` → `updatePlayerProjectiles` → `updateHazards`
-7. `pickupHash.build()` → `updatePickups` → fx → camera
+6. `updateAbility` → `updateEnemyProjectiles` → `updateWeapons` → `updatePlayerProjectiles` → `updateHazards` → `updateStructures`
+7. `pickupHash.build()` → `updatePickups` → `updateBlood` → `updateCorpses` → fx → camera
 8. `world.flush()` — **last, exactly once**
-9. Deferred state changes: open level-up if `run.pendingLevelUps > 0`, else victory check
+9. Deferred state changes, in this precedence: a death mid-tick already moved us to `dying` and
+   outranks both others (`return`), then level-up if `run.pendingLevelUps > 0`, then victory
+
+Two placements in that list are arguments, not accidents. `updateAbility` runs *before*
+`updateEnemyProjectiles` so dash i-frames granted this tick already cover this tick's enemy fire.
+`updateBlood` runs *after* `updatePickups` so every kill and collection for the tick has landed
+before intake, decay and the latched Feast/Frenzy spend are resolved.
+
+Input the sim must not miss is **latched** on `Ctx` by the frame side and consumed by the sim
+(`ctx.bloodIntent`, `ctx.abilityQueued`). A frame can run `update` zero times, so a press written
+straight into a system would be dropped; menus clear the latches so no cast survives a pause.
 
 ### ECS contracts (`src/ecs/world.ts`, `components.ts`)
 
@@ -93,7 +122,48 @@ indexed by entity id. Rules that hold everything together:
 - `aiPhase` is polymorphic by Kind (charger phase / projectile turnRate+homing flag / pickup magnet
   latch) — don't repurpose it on an existing Kind.
 - Enums are `const object + type union` (Kind, Comp, Team, Behavior, AnimState), not TS `enum`.
-  `KIND_COUNT` in world.ts must match the Kind values in components.ts.
+  `KIND_COUNT` in world.ts must match the Kind values in components.ts — 8 today, `Kind.Corpse`
+  being the newest.
+
+### Blood, abilities, sieges
+
+Three systems sit beside weapons and share one rule: **nothing they add may reach `run.stats` per
+tick**. `Run.recomputeStats()` has exactly three sources — meta mods, passives, and an active buff
+ability's `abilityMods` — and runs only on a state change (loadout, buff start, buff expiry).
+
+- **Blood** (`blood.ts`, `blood.json`) — kills fill a bar; at `threshold` the whole bar is spent on
+  Feast (heal) or Frenzy (timed buff + one-tick nova). Frenzy folds in **read-side** off
+  `run.frenzyT`, never written into `run.stats`. Every timer advances on sim `dt`; the anti-farm
+  intake window is keyed to `run.time` crossing a whole second, never to wall clock.
+- **Abilities** (`abilities.ts`) — one active per character, off `characterDef().ability`. Scaling is
+  a deliberately narrow guardrail: damage ×might, sizes ×area, lifetime ×duration, and nothing else.
+  The ability's own cooldown lives raw on `AbilityDef`, immune to cooldown scaling. Casts ride
+  `spawnProjectile`/`spawnHazard` so every downstream updater works unchanged.
+- **Structures** (`structures.ts`, `structures.json`) — `Kind.Structure`, static, `Team.Player`, with
+  HP; a map that ships a `structures` array is a siege map and the picker derives its tag from that.
+  Towers shoot from `TOWER_STATS`, built from `WEAPON_STAT_DEFAULTS` and **never** `effectiveStats()`
+  — a passive or Frenzy multiplier reaching a tower turns terrain into part of the build.
+
+### Corpses (`Kind.Corpse`)
+
+A killed enemy leaves a body that plays a death animation and is then gone —
+`spawnCorpse` (spawn.ts) copies position, sprite and facing off the dying entity while it is still
+readable, and `updateCorpses` (enemies.ts) is the **only** system that touches the Kind. That is the
+whole reason it is its own Kind rather than a flag on an enemy: the broadphase, contact damage,
+weapon targeting and the wave cap all keep ignoring it for free, by iterating a list it is not on.
+
+Bodies are cosmetic — no collider, no health, no team — and carry a negative `drawBias` so they lie
+under anything still standing on the same row. `spawnCorpse` returns -1 when the sprite has no death
+art of its own (`sprites.anim` resolves Death to the *same object* as Idle in that case, which is how
+both this and `game.ts` detect it), because a frozen standing sprite on the floor reads as a bug.
+Culling and the revive nuke both bypass it, so only a real kill leaves a body.
+
+### Frame gate (`src/render/repaint.ts`)
+
+The world only advances in `playing` and `dying`, so a repaint in any other state reproduces pixels
+already on the canvas. `FrameGate.claim()` skips those frames. It is a **latch** (`enter()` on every
+state entry), not a `state !== lastPainted` comparison, because a chained level-up draft re-enters
+`levelup` without leaving it and the second draft's frame carries real HUD changes.
 
 ### Input (`src/core/input.ts`)
 
@@ -165,12 +235,44 @@ about vertical room, which is a different question from `.coarse`, not a second 
 
 ### Persistence (`src/services/`)
 
-`MetaService` owns the one `SaveData` and is the only thing that persists it; `daily.ts` and
-`feats.ts` are pure functions over plain data for that reason. **Nothing under `services/` reachable
-from `save.ts` or `telemetry.ts` may import `gameplay/` or `ui/`** — telemetry.test.ts walks that
-import closure and fails on any edge that leaves `services/` and `core/`. A field added to `SaveData`
-must also be added to `encodeSave`'s explicit literal and to `migrate()`, or it typechecks and
-silently never persists.
+`MetaService` owns the one `SaveData` and is the only thing that persists it; `daily.ts`, `feats.ts`
+and `coach.ts` are pure functions (plus one director class) over plain data for that reason. A field
+added to `SaveData` must also be added to `encodeSave`'s explicit literal and to `migrate()`, or it
+typechecks and silently never persists.
+
+Everything persists through the async `StorageAdapter` interface (`storage.ts`) — three
+implementations, chosen once in main.ts: `Preferences` on device, `localStorage` on web, memory in
+vitest. The interface is Promise-based even though localStorage is synchronous, which is what let
+Capacitor Preferences slot in underneath without touching a call site. `migration.ts` is the one-time
+lift of an existing localStorage save onto that store: the marker lives in the **destination** (a
+marker in the source would be erased by the eviction the lift exists to survive), the destination
+always wins key by key, the source is never deleted, and values are copied verbatim.
+
+When resolving a Capacitor plugin, `await` the **module namespace** and destructure the plugin only
+afterwards. `registerPlugin` returns a Proxy whose get-trap manufactures a method for any name —
+`then` included — so it is accidentally a thenable; resolving a promise with it makes the promise
+machinery call `proxy.then(...)` and await forever. That hang shipped once as a black screen.
+`storage.test.ts` pins it.
+
+### The two isolation gates (`services/isolation.test.ts`)
+
+Both are enforced by scanning source text for every module-specifier form (static, side-effect,
+dynamic, `require`, re-export), so they cannot be evaded by import style:
+
+1. **Engine code (`core/`, `ecs/`, `gameplay/`, `render/`) may not import `services/` or
+   `platform/`.** That is what keeps the sim headless-testable.
+2. **`platform/` is a leaf**: it may import only `./` siblings, `../core/`, and `../content/`. This
+   one is an *allowlist*, so reaching for `game.ts` or `ui/` is a violation by default rather than by
+   omission — which is what stops a platform module closing a cycle back into `Game`.
+
+### Platform layer (`src/platform/`)
+
+Native and device concerns, attached in main.ts and driven **entirely off the event bus** — gameplay
+neither knows nor imports any of it. `audio.ts` is a WebAudio synth with no asset files (an
+AudioContext may only start from a user gesture, so it unlocks on first pointer/touch/**keydown** —
+keyboard and gamepad players would otherwise be silent for the whole session). `haptics.ts` and
+`lifecycle.ts` use the same memoized dynamic-import idiom as storage. Auto-pause never *un*pauses:
+the app returns to the pause screen and the player resumes.
 
 Characters are gated twice: a feat (`unlock.requirement`, read off the permanent `feats` record) and
 then a gold price. `MetaService.lockStateOf` is the single answer to "why is this locked" — the title
@@ -198,8 +300,10 @@ directly.
 ### Extending
 
 - **New enemy behavior**: add to `Behavior` + `behaviorFromName` (components.ts), init case in
-  `spawnEnemy`, AI case in `updateEnemies`; new tunables get defaulted fields in `EnemyDef` +
-  `normalizeEnemies` (content.ts).
+  `spawnEnemy` (**`spawn.ts`**, not enemies.ts), AI case in `updateEnemies`; new tunables get
+  defaulted fields in `EnemyDef` + `normalizeEnemies` (content.ts). AI phase vocabularies
+  (`ChargePhase`, `FusePhase`) live in components.ts because the spawn path seeds them and the
+  update path advances them, and those are deliberately different modules.
 - **New weapon behavior**: add to the `WeaponBehavior` const in content.ts (this whitelists it for
   JSON validation), write a `fireX()` + case in the `fire()` switch in weapons.ts; new tunables go
   in `WeaponStats` + `WEAPON_STAT_KEYS` + `WEAPON_STAT_DEFAULTS`.
@@ -218,7 +322,16 @@ directly.
   (which otherwise silently falls back to a placeholder), a strip that doesn't divide into whole
   frames, and any off-palette pixel. Every strip in the repo passes today, the character sheets
   included — a failure is a regression, never a pre-existing exception to wave through.
-- **New game event**: add to the `GameEvents` interface in `src/core/events.ts`.
+- **New game event**: add to the `GameEvents` interface in `src/core/events.ts`. That interface is
+  the whole contract between the sim and every listener — HUD, audio, haptics, daily tally, feats,
+  coach and telemetry all subscribe, none of them are imported by gameplay.
+- **New sound**: add a `SoundDef` to `AUDIO_MAP` in `platform/audio-map.ts` naming an existing event.
+  No code, no asset — it is synthesized. Over-budget or throttled sounds are **dropped, never
+  queued**, the same policy as the fx pools.
+- **New ability**: a block on a character in `characters.json`; a new *kind* means adding to
+  `AbilityKind` (content.ts, which whitelists it for JSON validation) plus a case in `abilities.ts`.
+- **New structure**: an entry in `structures.json` plus a `structures` array on the map. A positive
+  `range` arms it (`Comp.Shooter`); `0` makes it a passive wall.
 - **New unlock signal** (what a character's `unlock.requirement` may measure): add to the
   `UnlockSignal` const in content.ts (this whitelists it for JSON validation) **and** emit it from
   `featDelta` in `services/feats.ts`. The two lists are duplicated rather than imported because
@@ -230,19 +343,36 @@ directly.
 
 ## Tests
 
-`simulation.test.ts` runs the real gameplay systems in the real tick order with exactly two stubs
-(`stubSprites()`, `stubMap()` — the browser-bound deps). `makeHarness(characterId?, seed)` builds a
-real `Ctx` with a fixed seed and returns `{ctx, spawner, run(seconds), levelUpsTaken}`; level-ups
-auto-resolve by taking the first offer. To write a test: `makeHarness()`, mutate state directly
-(e.g. `ctx.run.time = 860` to jump waves, `world.hp[ctx.player] = 1e9` for immortality,
-`spawnEnemy(ctx, enemyDef('brute')!, x, y)`), `harness.run(seconds)`, assert on `ctx.run`,
-`world.list(Kind.X)`, or bus events. The 15-minute full-run test treats >4000 concurrent entities
-as a leak.
+`simulation.test.ts` (the bulk of the suite) runs the real gameplay systems in the real tick order
+with exactly two stubs (`stubSprites()`, `stubMap()` — the browser-bound deps). **Its harness
+duplicates `Game.tick()` verbatim: a change to one is a change to both.**
+`makeHarness(characterId?, seed?, metaMods?)` builds a real `Ctx` and returns
+`{ctx, spawner, run(seconds), levelUpsTaken}`; level-ups auto-resolve by taking the first offer. To
+write a test: `makeHarness()`, mutate state directly (e.g. `ctx.run.time = 860` to jump waves,
+`world.hp[ctx.player] = 1e9` for immortality, `spawnEnemy(ctx, enemyDef('brute')!, x, y)`),
+`harness.run(seconds)`, assert on `ctx.run`, `world.list(Kind.X)`, or bus events. The 15-minute
+full-run test treats >4000 concurrent entities as a leak, and a few tests pin exact numbers from a
+fixed seed (banked gold, for one) — those are **balance tripwires**, so a diff there means the
+economy moved and wants a look, not a number to update reflexively.
 
-Renderer, Hud, Screens, Input, TileMap and SpriteTable need a browser, so their DOM work is verified
-with `npm run dev`. What can be pulled out of them is: `src/ui/navigation.test.ts` covers the menu
-cursor and the title screen's flat-index-to-meaning mapping (`src/ui/navigation.ts`), and
-`src/ui/metrics.test.ts` / `src/ui/layout.test.ts` parse `style.css` itself — the art-unit allowlist,
-the physical size every token resolves to at the touch floor, and whether each cross-element
-clearance is still composed rather than a literal. New UI arithmetic belongs in one of those two
-rather than in a comment.
+One content gate lives there too: **no wave stage may drop below 75% of the pressure the stage
+before it set** (mean enemy hp × spawn rate × the hp scaling at that point). Every other assertion
+about a run is a safety bound — no leak, no stall, cap respected — and a run that gets *easier*
+violates none of them, which is how `default`'s 780s stage sat at a 44% collapse unnoticed. Dips are
+legal; collapses are not.
+
+Renderer, Hud, Screens, TileMap and SpriteTable need a browser, so their DOM work is verified with
+`npm run dev`. Everything that can be pulled out of them has been, into gates that read source or
+CSS as text:
+
+| file | what it fails the build on |
+| --- | --- |
+| `services/isolation.test.ts` | engine importing `services/`/`platform/`; `platform/` reaching outside its allowlist |
+| `services/telemetry.test.ts` | telemetry leaving the device, and the record's own bounds |
+| `services/storage.test.ts` | the accidentally-thenable plugin proxy regressing |
+| `render/repaint.test.ts` | a `this.state` assignment outside `setState`, or a state entered around it |
+| `ui/metrics.test.ts` | any rule but `.xp-track` spending the art unit `--u` |
+| `ui/layout.test.ts` | a cross-element clearance turning back into a literal; a layer composing safe-area insets in the wrong frame |
+| `ui/navigation.test.ts` | the menu cursor and the title screen's flat-index-to-meaning mapping |
+
+New UI arithmetic belongs in `metrics.test.ts` or `layout.test.ts` rather than in a comment.

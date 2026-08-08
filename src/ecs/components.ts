@@ -24,6 +24,13 @@ export const Kind = {
   Hazard: 5,
   /** Defendable castle objective — gates, shrines. Static, player-team, has HP. */
   Structure: 6,
+  /**
+   * A body playing out its death animation. Purely cosmetic: no collider, no
+   * health, no team. It is its own Kind rather than a flagged enemy precisely
+   * so every enemy system — the broadphase, contact damage, weapon targeting,
+   * the wave cap — keeps ignoring it for free, by iterating a list it is not on.
+   */
+  Corpse: 7,
 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
@@ -81,8 +88,41 @@ export const Behavior = {
   Drifter: 4,
   /** Chase, but in bursts with pauses — reads as hopping. */
   Hopper: 5,
+  /**
+   * Closes to touching range, lights a fuse, then detonates in an area.
+   * Deals no contact damage: the blast is its entire damage budget, so killing
+   * it on the fuse costs the player nothing.
+   */
+  Exploder: 6,
+  /** Chases like the baseline swarm, but breaks into smaller enemies on death. */
+  Splitter: 7,
 } as const;
 export type Behavior = (typeof Behavior)[keyof typeof Behavior];
+
+/**
+ * Charger phases, stored in `aiPhase`.
+ *
+ * The AI phase vocabularies live beside `Behavior` rather than in the system
+ * that reads them, because both the spawn path (which seeds a phase) and the
+ * update path (which advances it) need them, and those two are deliberately in
+ * different modules — see the note atop `gameplay/spawn.ts`.
+ */
+export const ChargePhase = {
+  Approach: 0,
+  Windup: 1,
+  Dash: 2,
+  Rest: 3,
+} as const;
+export type ChargePhase = (typeof ChargePhase)[keyof typeof ChargePhase];
+
+/** Exploder phases, stored in `aiPhase`. */
+export const FusePhase = {
+  /** Closing on the target, harmless. */
+  Approach: 0,
+  /** Stopped, flashing, counting down `aiTimer` to the blast. */
+  Lit: 1,
+} as const;
+export type FusePhase = (typeof FusePhase)[keyof typeof FusePhase];
 
 export function behaviorFromName(name: string | undefined): Behavior {
   switch (name) {
@@ -96,6 +136,10 @@ export function behaviorFromName(name: string | undefined): Behavior {
       return Behavior.Drifter;
     case 'hopper':
       return Behavior.Hopper;
+    case 'exploder':
+      return Behavior.Exploder;
+    case 'splitter':
+      return Behavior.Splitter;
     case 'chase':
     case undefined:
       return Behavior.Chase;

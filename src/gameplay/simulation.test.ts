@@ -4,10 +4,11 @@ import { EventBus } from '../core/events.ts';
 import type { GameEvents } from '../core/events.ts';
 import { Rng } from '../core/rng.ts';
 import { FIXED_DT } from '../core/loop.ts';
-import { Comp, Kind, Team } from '../ecs/components.ts';
+import { AnimState, Behavior, Comp, Kind, Team } from '../ecs/components.ts';
 import { World } from '../ecs/world.ts';
 import bastionMap from '../content/maps/bastion.json';
 import spritesJson from '../content/sprites.json';
+import wavesJson from '../content/waves.json';
 import { Camera } from '../render/camera.ts';
 import { Fx } from '../render/fx.ts';
 import type { SpriteTable } from '../render/sprites.ts';
@@ -18,6 +19,7 @@ import { MAX_QUERY_RESULTS, SpatialHash } from './collision.ts';
 import {
   BLOOD_CONFIG,
   CHARACTER_LIST,
+  ENEMY_LIST,
   EVOLVED_WEAPON_IDS,
   META_LIST,
   STRUCTURE_LIST,
@@ -25,6 +27,7 @@ import {
   WEAPON_STAT_DEFAULTS,
   characterDef,
   enemyDef,
+  enemyDefByIndex,
   linkEvolutions,
   metaNodeDef,
   normalizeAbility,
@@ -40,8 +43,8 @@ import {
   weaponStatsAtLevel,
 } from './content.ts';
 import type { MetaMods, PassiveDef, StructureDef, WeaponDef } from './content.ts';
-import { updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
-import { damageEnemy } from './damage.ts';
+import { updateCorpses, updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
+import { clearNearbyEnemies, damageEnemy } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
 import { PickupKind, spawnBloodVial, spawnChest, spawnCoin, spawnGem, updatePickups } from './pickups.ts';
 import { withinEngagement } from './damage.ts';
@@ -77,20 +80,32 @@ function stubSprites(): SpriteTable {
     originY: 0.5,
     generated: true,
   };
+  /**
+   * One shared anim object for every state, returned by identity.
+   *
+   * The real table resolves a state with no art of its own to the *same*
+   * AnimClip object as Idle (`sprite.anims[state] ?? sprite.anims[Idle]`), and
+   * callers detect "this sprite has no death art" by comparing the two by
+   * reference — game.ts does it for the player, spawnCorpse does it for enemies.
+   * Handing back a fresh literal per call quietly broke that test for every
+   * sprite in the suite, so the stub has to preserve the identity, not just the
+   * shape.
+   */
+  const anim = {
+    source: null as unknown as CanvasImageSource,
+    frameW: 16,
+    frameH: 16,
+    frames: 1,
+    fps: 8,
+    loop: true,
+    duration: 1,
+  };
   return {
     missing: [],
     id: () => 0,
     has: () => true,
     get: () => sprite,
-    anim: () => ({
-      source: null as unknown as CanvasImageSource,
-      frameW: 16,
-      frameH: 16,
-      frames: 1,
-      fps: 8,
-      loop: true,
-      duration: 1,
-    }),
+    anim: () => anim,
     iconCanvas: () => null as unknown as HTMLCanvasElement,
   } as unknown as SpriteTable;
 }
@@ -203,6 +218,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345, metaMods
         ctx.pickupHash.build(world, world.list(Kind.Pickup));
         updatePickups(ctx, FIXED_DT);
         updateBlood(ctx, FIXED_DT);
+        updateCorpses(ctx, FIXED_DT);
 
         ctx.fx.update(FIXED_DT);
         world.flush();
@@ -246,6 +262,364 @@ describe('content', () => {
     for (const stage of waveTable('default').stages) {
       expect(stage.enemies.length).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * Pressure a stage applies = mean enemy hp x spawn rate x the hp scaling in
+   * force when it opens. It is the quantity the player's damage output has to
+   * chew through, and it is the one number that says whether a run escalates.
+   *
+   * A *dip* is legal and deliberate — the 375s stage of `default` is a swarm
+   * breather that trades hp per body for bodies, and reads as a change of
+   * texture rather than a lull. A *collapse* is not. This gate exists because
+   * `default`'s 780s stage used to be 80% swarmling and bat: pressure fell 44%
+   * for the seventy-five seconds before the final boss, so the run deflated
+   * exactly where it should have crested. Nothing in the suite noticed, because
+   * every other assertion here is a safety bound (no leak, no stall, cap
+   * respected) and a run that gets *easier* violates none of them.
+   *
+   * 25% is chosen to clear the deliberate breathers with room (the largest today
+   * is 16%) while catching anything that reads as a hole in the curve. If a
+   * future stage wants a deeper trough on purpose, move the threshold and say
+   * why here — that is the conversation this gate is meant to force.
+   */
+  it('never lets a wave stage collapse the pressure the stage before it set', () => {
+    const MAX_DIP = 0.25;
+    const tableIds = Object.keys(wavesJson as Record<string, unknown>);
+    expect(tableIds.length).toBeGreaterThan(0);
+
+    for (const id of tableIds) {
+      const table = waveTable(id);
+      const hpScaleAt = (seconds: number): number =>
+        Math.pow(1 + table.hpPerMinute * (seconds / 60), table.hpExponent);
+
+      let previous: number | null = null;
+      for (const stage of table.stages) {
+        const weight = stage.enemies.reduce((sum, e) => sum + e.weight, 0);
+        expect(weight).toBeGreaterThan(0);
+        const meanHp =
+          stage.enemies.reduce((sum, e) => sum + e.weight * enemyDef(e.type)!.hp, 0) / weight;
+        const pressure = (meanHp * stage.perSpawn) / stage.spawnInterval * hpScaleAt(stage.at);
+
+        if (previous !== null) {
+          const drop = (previous - pressure) / previous;
+          expect(
+            drop,
+            `wave table "${id}" stage at ${stage.at}s drops pressure ${Math.round(drop * 100)}% ` +
+              `(${previous.toFixed(0)} -> ${pressure.toFixed(0)}); the run deflates here`,
+          ).toBeLessThan(MAX_DIP);
+        }
+        previous = pressure;
+      }
+    }
+  });
+});
+
+describe('exploder', () => {
+  /** Parks an armed fusebearer next to the player and returns the harness. */
+  const fusebearerAt = (harness: ReturnType<typeof makeHarness>, x: number, y: number): number => {
+    const def = enemyDef('fusebearer')!;
+    return spawnEnemy(harness.ctx, def, x, y);
+  };
+
+  it('deals no contact damage — walking into one is free', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.run.weapons.length = 0; // nothing may kill it before the point is made
+    const def = enemyDef('fusebearer')!;
+    const id = fusebearerAt(harness, ctx.world.x[ctx.player]! + 2, ctx.world.y[ctx.player]!);
+    expect(id).toBeGreaterThanOrEqual(0);
+
+    const hpBefore = ctx.world.hp[ctx.player]!;
+    // Less than the fuse: it is touching the player and has not gone off yet.
+    harness.run(def.fuseTime * 0.5);
+    expect(ctx.world.hp[ctx.player]).toBe(hpBefore);
+  });
+
+  it('lights its fuse on proximity, then detonates for its damage', () => {
+    const harness = makeHarness();
+    const { ctx, world } = { ctx: harness.ctx, world: harness.ctx.world };
+    ctx.run.weapons.length = 0;
+    const def = enemyDef('fusebearer')!;
+    const id = fusebearerAt(harness, world.x[ctx.player]! + 6, world.y[ctx.player]!);
+
+    harness.run(FIXED_DT * 2);
+    expect(world.aiPhase[id], 'inside fuseRange, the fuse should be lit').toBe(1);
+
+    const hpBefore = world.hp[ctx.player]!;
+    harness.run(def.fuseTime + FIXED_DT * 2);
+    expect(world.isAlive(id), 'it consumes itself in the blast').toBe(false);
+    expect(world.hp[ctx.player]!).toBeLessThan(hpBefore);
+  });
+
+  it('does not arm while it is still out of range', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.run.weapons.length = 0;
+    const def = enemyDef('fusebearer')!;
+    // Far enough that it cannot close the gap within the window we watch.
+    const id = fusebearerAt(harness, ctx.world.x[ctx.player]! + def.fuseRange + 400, 0);
+    harness.run(0.5);
+    expect(ctx.world.aiPhase[id]).toBe(0);
+    expect(ctx.world.isAlive(id)).toBe(true);
+  });
+
+  it('killing it on the fuse cancels the blast entirely', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+    const def = enemyDef('fusebearer')!;
+    const id = fusebearerAt(harness, world.x[ctx.player]! + 6, world.y[ctx.player]!);
+
+    harness.run(FIXED_DT * 2);
+    expect(world.aiPhase[id]).toBe(1);
+
+    const hpBefore = world.hp[ctx.player]!;
+    damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    expect(world.isAlive(id)).toBe(false);
+
+    // Well past when it would have gone off: the player is untouched.
+    harness.run(def.fuseTime * 2);
+    expect(world.hp[ctx.player]).toBe(hpBefore);
+  });
+
+  it('detonating grants no kill credit, xp or drops', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.run.weapons.length = 0;
+    const def = enemyDef('fusebearer')!;
+    fusebearerAt(harness, ctx.world.x[ctx.player]! + 6, ctx.world.y[ctx.player]!);
+
+    const killsBefore = ctx.run.kills;
+    const gemsBefore = ctx.world.list(Kind.Pickup).length;
+    harness.run(def.fuseTime + FIXED_DT * 3);
+
+    // Stopping the fuse is the reward; letting it land pays the player nothing.
+    expect(ctx.run.kills).toBe(killsBefore);
+    expect(ctx.world.list(Kind.Pickup).length).toBe(gemsBefore);
+  });
+});
+
+describe('splitter', () => {
+  it('breaks into its children when killed', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    const def = enemyDef('prior')!;
+    const child = enemyDef(def.splitInto)!;
+
+    const id = spawnEnemy(ctx, def, 400, 400);
+    const before = world.list(Kind.Enemy).length;
+    damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    world.flush();
+
+    const after = world.list(Kind.Enemy);
+    expect(after.length).toBe(before - 1 + def.splitCount);
+    const children = after.filter((e) => world.defIndex[e] === child.index);
+    expect(children.length).toBeGreaterThanOrEqual(def.splitCount);
+  });
+
+  it('links splitInto to a real enemy and refuses chains', () => {
+    const prior = enemyDef('prior')!;
+    expect(prior.splitIndex).toBeGreaterThanOrEqual(0);
+    const child = enemyDefByIndex(prior.splitIndex);
+    expect(child.id).toBe(prior.splitInto);
+    // The whole point of the no-chains rule: a child that also splits would
+    // make the population unbounded.
+    expect(child.behavior).not.toBe(Behavior.Splitter);
+  });
+
+  it('leaves non-splitters alone', () => {
+    for (const def of ENEMY_LIST) {
+      if (def.behavior !== Behavior.Splitter) expect(def.splitIndex).toBe(-1);
+    }
+  });
+
+  it('does not split when culled off screen', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    const child = enemyDef(enemyDef('prior')!.splitInto)!;
+    // Well beyond the cull distance, so it is removed rather than killed.
+    const id = spawnEnemy(ctx, enemyDef('prior')!, 5000, 5000);
+    harness.run(FIXED_DT * 3);
+
+    // Asserted on the entity, not on a headcount: the spawner is also running
+    // and feeding the opening wave in, so the list only ever grows here.
+    expect(world.isAlive(id)).toBe(false);
+    // A cull is a silent removal — no drops, no kill credit, and no children.
+    const spawned = world.list(Kind.Enemy).filter((e) => world.defIndex[e] === child.index);
+    expect(spawned).toHaveLength(0);
+  });
+
+  it('does not hand the player a fresh crop of children on a revive', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0; // only the revive nuke may kill it
+    const child = enemyDef(enemyDef('prior')!.splitInto)!;
+    const px = world.x[ctx.player]!;
+    const py = world.y[ctx.player]!;
+    const id = spawnEnemy(ctx, enemyDef('prior')!, px + 10, py);
+
+    // One tick first: clearNearbyEnemies reads the broadphase, which is only
+    // populated by a tick, so nuking before one runs would find nothing.
+    harness.run(FIXED_DT);
+    expect(world.isAlive(id)).toBe(true);
+
+    clearNearbyEnemies(ctx, px, py, 90);
+    world.flush();
+    expect(world.isAlive(id)).toBe(false);
+    const spawned = world.list(Kind.Enemy).filter((e) => world.defIndex[e] === child.index);
+    expect(spawned).toHaveLength(0);
+  });
+
+  it('honours the concurrent cap that the wave director enforces', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0;
+    const def = enemyDef('prior')!;
+
+    // Fill the field to the cap, then kill a splitter inside it.
+    const bat = enemyDef('bat')!;
+    while (world.list(Kind.Enemy).length < ctx.wave.maxAlive - 1) {
+      if (spawnEnemy(ctx, bat, 4000, 4000) < 0) break;
+    }
+    const id = spawnEnemy(ctx, def, 4000, 4000);
+    expect(id).toBeGreaterThanOrEqual(0);
+
+    damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    world.flush();
+    expect(world.list(Kind.Enemy).length).toBeLessThanOrEqual(ctx.wave.maxAlive);
+  });
+});
+
+describe('enemy animation state', () => {
+  it('walks while it is moving and stands still while it is not', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    ctx.run.weapons.length = 0; // nothing may kill the subject mid-observation
+
+    // A plain chaser, far enough out that it just walks at the player.
+    const walker = spawnEnemy(ctx, enemyDef('skeleton')!, 200, 0);
+    harness.run(FIXED_DT * 2);
+    expect(world.animState[walker]).toBe(AnimState.Walk);
+
+    // A fusebearer inside its fuse range stops dead, and the animation has to
+    // agree — the whole exploder design is that standing still is the tell.
+    const bomber = spawnEnemy(ctx, enemyDef('fusebearer')!, world.x[ctx.player]! + 6, world.y[ctx.player]!);
+    harness.run(FIXED_DT * 2);
+    expect(world.vx[bomber], 'lit fuses hold position').toBe(0);
+    expect(world.vy[bomber]).toBe(0);
+    expect(world.animState[bomber]).toBe(AnimState.Idle);
+
+    // And the walker is still walking, so this is a per-entity decision rather
+    // than a global one.
+    expect(world.animState[walker]).toBe(AnimState.Walk);
+  });
+});
+
+describe('corpses', () => {
+  const DEATH_SECONDS = 0.5;
+
+  /**
+   * Swaps in a sprite table whose Death slot is genuinely distinct from Idle.
+   *
+   * stubSprites returns one shared anim for every state, so `anim(id, Death)`
+   * and `anim(id, Idle)` are the same object and spawnCorpse correctly declines
+   * to leave a body. That is what keeps every other test in this file free of
+   * corpses — and therefore free of the entity-id churn that would perturb the
+   * seeded runs — so the distinction is opted into here rather than globally.
+   */
+  const giveDeathArt = (ctx: Ctx): void => {
+    const frame = { source: null as unknown as CanvasImageSource, frameW: 16, frameH: 16 };
+    const idle = { ...frame, frames: 1, fps: 8, loop: true, duration: 1 };
+    const death = { ...frame, frames: 5, fps: 10, loop: false, duration: DEATH_SECONDS };
+    ctx.sprites = {
+      missing: [],
+      id: () => 0,
+      has: () => true,
+      get: () => ({ name: 'stub', anims: [], width: 16, height: 16, originX: 0.5, originY: 0.5, generated: true }),
+      anim: (_id: number, state: number) => (state === AnimState.Death ? death : idle),
+      iconCanvas: () => null as unknown as HTMLCanvasElement,
+    } as unknown as SpriteTable;
+  };
+
+  it('leaves a body when an enemy with death art is killed', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    giveDeathArt(ctx);
+
+    const id = spawnEnemy(ctx, enemyDef('skeleton')!, 300, 300);
+    expect(world.list(Kind.Corpse)).toHaveLength(0);
+
+    damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    const corpses = world.list(Kind.Corpse);
+    expect(corpses).toHaveLength(1);
+
+    // A body is scenery: it must not be on the list any enemy system iterates.
+    expect(world.list(Kind.Enemy)).not.toContain(corpses[0]);
+    expect(world.animState[corpses[0]!]).toBe(AnimState.Death);
+  });
+
+  it('gives the body no collider, no damage and no health', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    giveDeathArt(ctx);
+
+    const id = spawnEnemy(ctx, enemyDef('brute')!, 300, 300);
+    damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    const corpse = world.list(Kind.Corpse)[0]!;
+
+    expect(world.has(corpse, Comp.Collider)).toBe(false);
+    expect(world.has(corpse, Comp.Damaging)).toBe(false);
+    expect(world.has(corpse, Comp.Health)).toBe(false);
+  });
+
+  it('clears the body when its death animation ends', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    giveDeathArt(ctx);
+    ctx.run.weapons.length = 0; // no stray kills adding bodies mid-test
+
+    const id = spawnEnemy(ctx, enemyDef('skeleton')!, 300, 300);
+    damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    const corpse = world.list(Kind.Corpse)[0]!;
+
+    harness.run(DEATH_SECONDS * 0.5);
+    expect(world.isAlive(corpse), 'still falling half way through').toBe(true);
+
+    harness.run(DEATH_SECONDS);
+    expect(world.isAlive(corpse), 'gone once the animation has played out').toBe(false);
+  });
+
+  it('leaves nothing behind when the sprite has no death art', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    // Default stub: Death resolves to the Idle anim, so a body would just be a
+    // frozen standing sprite lying on the floor.
+    const id = spawnEnemy(ctx, enemyDef('skeleton')!, 300, 300);
+    damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
+    expect(ctx.world.list(Kind.Corpse)).toHaveLength(0);
+  });
+
+  it('leaves nothing behind when an enemy is culled off screen', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    giveDeathArt(ctx);
+    ctx.run.weapons.length = 0;
+
+    const id = spawnEnemy(ctx, enemyDef('skeleton')!, 5000, 5000);
+    harness.run(FIXED_DT * 3);
+    // Culling is a silent removal — no drops, no kill credit, and no body.
+    expect(ctx.world.isAlive(id)).toBe(false);
+    expect(ctx.world.list(Kind.Corpse)).toHaveLength(0);
   });
 });
 
@@ -387,7 +761,11 @@ describe('simulation', () => {
     expect(died || world.hp[ctx.player]! < ctx.run.stats.maxHp).toBe(true);
   });
 
-  it('fires every weapon behaviour without error', () => {
+  // Builds a fresh harness per weapon and runs each one, so it scales with the
+  // weapon list rather than with anything this test controls. Every other test
+  // in this file that costs seconds declares a budget; this one was missed, and
+  // rode just under the 5s default until a loaded machine tipped it over.
+  it('fires every weapon behaviour without error', { timeout: 60_000 }, () => {
     for (const def of WEAPON_LIST) {
       const harness = makeHarness();
       const { ctx } = harness;
@@ -2205,7 +2583,9 @@ describe('meta progression', () => {
     expect(empty.revivesLeft).toBe(plain.revivesLeft);
   });
 
-  it('applies meta greed to banked run gold deterministically', () => {
+  // Two full seeded runs, one per mod set — the same budget the other full-run
+  // tests declare, for the same reason.
+  it('applies meta greed to banked run gold deterministically', { timeout: 60_000 }, () => {
     const goldAfter = (mods: MetaMods): number => {
       const harness = makeHarness('wanderer', 4141, mods);
       const { ctx } = harness;

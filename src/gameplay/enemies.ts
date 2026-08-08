@@ -1,11 +1,16 @@
-import { AnimState, Behavior, Comp, Kind, Team } from '../ecs/components.ts';
+import { AnimState, Behavior, ChargePhase, Comp, FusePhase, Kind, Team } from '../ecs/components.ts';
 import { TAU } from '../core/math.ts';
 import { enemyDefByIndex } from './content.ts';
 import { damagePlayer } from './damage.ts';
+import { spawnEnemy } from './spawn.ts';
 import { damageStructure } from './structures.ts';
 import { separateCrowd } from './collision.ts';
 import type { EnemyDef } from './content.ts';
 import type { Ctx } from './context.ts';
+
+// Lives in spawn.ts so damage.ts can spawn splitter children without making
+// gameplay/ cyclic; re-exported here because this is where callers expect it.
+export { spawnEnemy };
 
 /** Enemies further than this from the player are removed, drops and all. */
 const CULL_DISTANCE = 620;
@@ -18,90 +23,39 @@ const PEEL_DISTANCE = 56;
 /** Seconds between structure hits while parked at the wall. */
 const SIEGE_HIT_INTERVAL = 0.8;
 
-/** Charger phases, stored in `aiPhase`. */
-const ChargePhase = {
-  Approach: 0,
-  Windup: 1,
-  Dash: 2,
-  Rest: 3,
-} as const;
+/** Seconds an armed exploder holds its white flash — long enough to re-arm each tick. */
+const ARMED_FLASH = 0.1;
 
 /**
- * Spawns an enemy at a world position, scaling its stats by elapsed-time
- * difficulty. Returns the entity id, or -1 if the pool is full.
+ * Detonates an exploder: one area hit on the player, then the entity is gone.
+ *
+ * `world.damage` is the blast, not a contact hit — an exploder never touches
+ * for damage — so the number here is already scaled by the difficulty that was
+ * in force when it spawned, exactly like every other enemy's damage.
+ *
+ * Detonating is deliberately *not* a kill: no xp, no drops, no kill credit. The
+ * reward for handling a fusebearer is that it never goes off, which is what makes
+ * target priority the counterplay rather than raw damage output.
  */
-export function spawnEnemy(ctx: Ctx, def: EnemyDef, x: number, y: number): number {
+function detonate(ctx: Ctx, id: number, def: EnemyDef): void {
   const { world } = ctx;
-  const id = world.create(Kind.Enemy);
-  if (id < 0) return -1;
+  const x = world.x[id]!;
+  const y = world.y[id]!;
+  const player = ctx.player;
 
-  let comps =
-    Comp.Transform |
-    Comp.Velocity |
-    Comp.Sprite |
-    Comp.Health |
-    Comp.Collider |
-    Comp.Damaging |
-    Comp.Pushable;
-  if (def.behavior === Behavior.Ranged) comps |= Comp.Shooter;
-  // Bosses and elites are expensive to earn, so they never get culled for
-  // wandering off screen.
-  if (def.boss || def.elite) comps |= Comp.Persistent;
-  world.add(id, comps);
-
-  world.place(id, x, y);
-  world.spriteId[id] = ctx.sprites.id(def.sprite);
-  world.radius[id] = def.radius;
-  world.defIndex[id] = def.index;
-  world.team[id] = Team.Enemy;
-  world.behavior[id] = def.behavior;
-  world.animState[id] = AnimState.Walk;
-  world.animTime[id] = ctx.rng.range(0, 1);
-
-  const hp = Math.max(1, Math.round(def.hp * ctx.hpScale));
-  world.maxHp[id] = hp;
-  world.hp[id] = hp;
-  world.damage[id] = def.damage * ctx.damageScale;
-  world.speed[id] = def.speed * ctx.speedScale;
-
-  switch (def.behavior) {
-    case Behavior.Orbiter:
-      // Randomised spin direction so wraiths don't all circle in formation.
-      world.orbitSpeed[id] = def.orbitSpeed * ctx.rng.sign();
-      world.orbitRadius[id] = def.orbitRadius;
-      break;
-    case Behavior.Drifter: {
-      // Locked-in heading, aimed roughly at the player so it crosses their path.
-      const player = ctx.player;
-      const tx = player >= 0 ? world.x[player]! : 0;
-      const ty = player >= 0 ? world.y[player]! : 0;
-      const angle = Math.atan2(ty - y, tx - x) + ctx.rng.range(-0.5, 0.5);
-      world.vx[id] = Math.cos(angle) * world.speed[id]!;
-      world.vy[id] = Math.sin(angle) * world.speed[id]!;
-      break;
+  if (player >= 0 && world.isAlive(player)) {
+    const reach = def.blastRadius + world.radius[player]!;
+    const dx = world.x[player]! - x;
+    const dy = world.y[player]! - y;
+    if (dx * dx + dy * dy <= reach * reach) {
+      damagePlayer(ctx, world.damage[id]!, id);
     }
-    case Behavior.Hopper:
-      world.aiPhase[id] = 0;
-      world.aiTimer[id] = ctx.rng.range(0, def.hopTime);
-      break;
-    case Behavior.Charger:
-      world.aiPhase[id] = ChargePhase.Approach;
-      world.aiTimer[id] = ctx.rng.range(0.5, 1.4);
-      break;
-    case Behavior.Ranged:
-      world.hitCooldown[id] = ctx.rng.range(0.5, def.shootInterval);
-      break;
-    default:
-      break;
   }
 
-  if (def.boss) {
-    ctx.bus.emit('boss:spawned', { name: def.name });
-    ctx.camera.shake(4, 0.5);
-    ctx.fx.shockwave(x, y, '#ff9ec4', 0.8, 16);
-  }
-
-  return id;
+  ctx.fx.shockwave(x, y, '#ff8c42', 0.45, Math.max(6, Math.round(def.blastRadius / 3)));
+  ctx.fx.burst(x, y, 18, 130, '#ff8c42', 0.5, 2);
+  ctx.camera.shake(3.5, 0.3);
+  world.destroy(id);
 }
 
 /** Fires a projectile from a ranged enemy toward the player. */
@@ -208,9 +162,41 @@ export function updateEnemies(ctx: Ctx, dt: number): void {
     if (world.aiTimer[id]! > 0) world.aiTimer[id] = world.aiTimer[id]! - dt;
 
     switch (world.behavior[id]) {
-      case Behavior.Chase: {
+      // A splitter walks exactly like the baseline swarm; everything that makes
+      // it different happens when it dies (see killEnemy).
+      case Behavior.Chase:
+      case Behavior.Splitter: {
         world.vx[id] = towardX * speed;
         world.vy[id] = towardY * speed;
+        break;
+      }
+
+      case Behavior.Exploder: {
+        if (world.aiPhase[id] === FusePhase.Approach) {
+          if (dist <= def.fuseRange) {
+            world.aiPhase[id] = FusePhase.Lit;
+            world.aiTimer[id] = def.fuseTime;
+            world.vx[id] = 0;
+            world.vy[id] = 0;
+          } else {
+            world.vx[id] = towardX * speed;
+            world.vy[id] = towardY * speed;
+          }
+          break;
+        }
+
+        // Lit: it stops and flashes for `fuseTime`. Standing still is the whole
+        // telegraph — it is what turns "a body in the crowd" into "the thing to
+        // shoot right now", and the blob is exactly where a player who is
+        // ignoring positioning will be standing.
+        world.vx[id] = 0;
+        world.vy[id] = 0;
+        world.hitFlash[id] = ARMED_FLASH;
+        if (world.aiTimer[id]! <= 0) {
+          detonate(ctx, id, def);
+          // Gone: skip movement, knockback and contact for this entity.
+          continue;
+        }
         break;
       }
 
@@ -351,12 +337,27 @@ export function updateEnemies(ctx: Ctx, dt: number): void {
     world.y[id] = ny;
 
     if (world.vx[id]! !== 0) world.facing[id] = world.vx[id]! < 0 ? -1 : 1;
+
+    // Walking vs standing, decided from the velocity this tick's AI just wrote —
+    // the same rule updatePlayer uses. spawnEnemy sets Walk and nothing used to
+    // clear it, so everything that deliberately holds still (a charger's windup,
+    // an exploder on its fuse, a hopper's rest, an attacker parked at a wall)
+    // kept sliding its walk cycle on the spot. Those pauses are all telegraphs,
+    // and a telegraph the animation contradicts is not one.
+    const moving = world.vx[id]! !== 0 || world.vy[id]! !== 0;
+    world.animState[id] = moving ? AnimState.Walk : AnimState.Idle;
+
     world.animTime[id] = world.animTime[id]! + dt;
     if (world.hitFlash[id]! > 0) world.hitFlash[id] = Math.max(0, world.hitFlash[id]! - dt);
 
     // Contact damage. The player's i-frames stop this from firing every tick,
     // so no per-enemy cooldown is needed.
-    if (hasPlayer) {
+    //
+    // Exploders are exempt: their damage budget is the blast, and letting them
+    // also chip on contact would both double-dip and — worse — burn the
+    // player's i-frames on the touch, so the detonation they were supposed to
+    // dodge would land for free.
+    if (hasPlayer && world.behavior[id] !== Behavior.Exploder) {
       const touch = playerRadius + world.radius[id]!;
       const cdx = px - nx;
       const cdy = py - ny;
@@ -368,6 +369,29 @@ export function updateEnemies(ctx: Ctx, dt: number): void {
 
   // Crowd separation runs after movement so it corrects the final positions.
   separateCrowd(ctx.world, ids, ctx.enemyHash, ctx.scratch, CROWD_STRENGTH);
+}
+
+/**
+ * Ages the bodies left behind by killEnemy and clears them when their death
+ * animation ends.
+ *
+ * Deliberately tiny, and deliberately the *only* system that touches
+ * Kind.Corpse: a body is cosmetic, so nothing else should be able to see it.
+ * Corpses live for one animation — a fraction of a second — so they are never
+ * culled by distance and never counted against the wave cap.
+ */
+export function updateCorpses(ctx: Ctx, dt: number): void {
+  const { world } = ctx;
+  const ids = world.list(Kind.Corpse);
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]!;
+    world.lifetime[id] = world.lifetime[id]! - dt;
+    if (world.lifetime[id]! <= 0) {
+      world.destroy(id);
+      continue;
+    }
+    world.animTime[id] = world.animTime[id]! + dt;
+  }
 }
 
 /**

@@ -115,6 +115,37 @@
     "coinChance": 0.06,
     "coin": 2
   },
+  "fusebearer": {
+    "name": "Fusebearer",
+    "sprite": "fusebearer",
+    "behavior": "exploder",
+    "hp": 30,
+    "damage": 26,
+    "speed": 48,
+    "radius": 7,
+    "xp": 4,
+    "fuseRange": 28,
+    "fuseTime": 0.85,
+    "blastRadius": 44,
+    "knockbackResist": 0.15,
+    "coinChance": 0.05,
+    "coin": 2
+  },
+  "prior": {
+    "name": "Censer Prior",
+    "sprite": "prior",
+    "behavior": "splitter",
+    "hp": 58,
+    "damage": 12,
+    "speed": 26,
+    "radius": 9,
+    "xp": 5,
+    "splitInto": "slime",
+    "splitCount": 3,
+    "knockbackResist": 0.45,
+    "coinChance": 0.06,
+    "coin": 2
+  },
 
   "brute": {
     "name": "Brute",

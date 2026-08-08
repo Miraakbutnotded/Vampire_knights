@@ -1,8 +1,11 @@
 import { Kind } from '../ecs/components.ts';
+import { TAU } from '../core/math.ts';
 import type { DeathCause } from '../core/events.ts';
 import { VIEW_H, VIEW_W } from '../render/renderer.ts';
 import { enemyDefByIndex } from './content.ts';
+import type { EnemyDef } from './content.ts';
 import { grantBlood, spawnBloodVial, spawnCoin, spawnChest, spawnGem, spawnMagnet, spawnMeat } from './pickups.ts';
+import { spawnCorpse, spawnEnemy } from './spawn.ts';
 import type { Ctx } from './context.ts';
 
 /**
@@ -101,8 +104,39 @@ export function damageEnemy(
   return dealt;
 }
 
-/** Removes an enemy, spawning its drops and firing the kill event. */
-export function killEnemy(ctx: Ctx, id: number): void {
+/**
+ * Breaks a splitter into its children, in a ring around where it fell.
+ *
+ * Children arrive through the ordinary spawn path, so they carry the difficulty
+ * scaling in force *now* rather than the parent's — they are new enemies, not
+ * pieces of an old one.
+ *
+ * They also bypass the wave director, which is the one place the concurrent cap
+ * is enforced, so the cap is re-checked here. Without it a dense late wave of
+ * splitters could walk the population past a bound the rest of the game treats
+ * as guaranteed.
+ */
+function splitEnemy(ctx: Ctx, def: EnemyDef, x: number, y: number): void {
+  const child = enemyDefByIndex(def.splitIndex);
+  const room = ctx.wave.maxAlive - ctx.world.list(Kind.Enemy).length;
+  const count = Math.min(def.splitCount, Math.max(0, room));
+  if (count <= 0) return;
+
+  const spread = def.radius + child.radius;
+  for (let i = 0; i < count; i++) {
+    const angle = (TAU * i) / count + ctx.rng.range(-0.35, 0.35);
+    spawnEnemy(ctx, child, x + Math.cos(angle) * spread, y + Math.sin(angle) * spread);
+  }
+}
+
+/**
+ * Removes an enemy, spawning its drops and firing the kill event.
+ *
+ * `allowSplit` exists for the revive nuke: clearing the screen to buy the player
+ * a breath must not hand back a fresh crop of children, which would make the
+ * revive actively worse than nothing in a field of splitters.
+ */
+export function killEnemy(ctx: Ctx, id: number, allowSplit = true): void {
   const { world, run, fx, bus } = ctx;
   if (!world.isAlive(id)) return;
 
@@ -145,6 +179,14 @@ export function killEnemy(ctx: Ctx, id: number): void {
   if (def.dropsChest) {
     spawnChest(ctx, x, y + 4);
   }
+
+  // Last, so the children are spawned against a world where this enemy's drops
+  // already exist and its own slot is about to be freed.
+  if (allowSplit && def.splitIndex >= 0) splitEnemy(ctx, def, x, y);
+
+  // The body stays behind to fall over. Read before destroy, which only marks
+  // the entity dead — its position, sprite and facing are all still here.
+  spawnCorpse(ctx, id);
 
   world.destroy(id);
 }
@@ -240,6 +282,6 @@ export function clearNearbyEnemies(ctx: Ctx, x: number, y: number, radius: numbe
     const dx = ctx.world.x[id]! - x;
     const dy = ctx.world.y[id]! - y;
     if (dx * dx + dy * dy > radius * radius) continue;
-    killEnemy(ctx, id);
+    killEnemy(ctx, id, false);
   }
 }

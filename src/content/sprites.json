@@ -159,12 +159,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/bat.png",
-        "fps": 10
+        "src": "enemies/bat_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/bat_walk.png",
         "fps": 12
+      },
+      "death": {
+        "src": "enemies/bat_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -182,12 +187,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/zombie.png",
-        "fps": 5
+        "src": "enemies/zombie_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/zombie_walk.png",
         "fps": 8
+      },
+      "death": {
+        "src": "enemies/zombie_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -204,12 +214,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/skeleton.png",
+        "src": "enemies/skeleton_idle.png",
         "fps": 6
       },
       "walk": {
         "src": "enemies/skeleton_walk.png",
         "fps": 9
+      },
+      "death": {
+        "src": "enemies/skeleton_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -226,12 +241,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/ghost.png",
-        "fps": 7
+        "src": "enemies/ghost_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/ghost_walk.png",
         "fps": 8
+      },
+      "death": {
+        "src": "enemies/ghost_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -249,12 +269,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/slime.png",
-        "fps": 8
+        "src": "enemies/slime_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/slime_walk.png",
         "fps": 8
+      },
+      "death": {
+        "src": "enemies/slime_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -271,12 +296,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/wisp.png",
-        "fps": 12
+        "src": "enemies/wisp_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/wisp_walk.png",
         "fps": 12
+      },
+      "death": {
+        "src": "enemies/wisp_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -294,12 +324,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/swarmling.png",
-        "fps": 10
+        "src": "enemies/swarmling_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/swarmling_walk.png",
         "fps": 12
+      },
+      "death": {
+        "src": "enemies/swarmling_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -309,6 +344,44 @@
       "size": 10
     }
   },
+  "fusebearer": {
+    "origin": [0.5, 0.85],
+    "anims": {
+      "idle": {
+        "src": "enemies/fusebearer_idle.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "enemies/fusebearer_walk.png",
+        "fps": 8
+      },
+      "death": {
+        "src": "enemies/fusebearer_death.png",
+        "fps": 10,
+        "loop": false
+      }
+    },
+    "placeholder": { "shape": "capsule", "color": "#802331", "accent": "#ff8c42", "size": 16 }
+  },
+  "prior": {
+    "origin": [0.5, 0.85],
+    "anims": {
+      "idle": {
+        "src": "enemies/prior_idle.png",
+        "fps": 6
+      },
+      "walk": {
+        "src": "enemies/prior_walk.png",
+        "fps": 6
+      },
+      "death": {
+        "src": "enemies/prior_death.png",
+        "fps": 10,
+        "loop": false
+      }
+    },
+    "placeholder": { "shape": "capsule", "color": "#443569", "accent": "#d4a15a", "size": 20 }
+  },
   "brute": {
     "origin": [
       0.5,
@@ -316,12 +389,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/brute.png",
-        "fps": 4
+        "src": "enemies/brute_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/brute_walk.png",
         "fps": 7
+      },
+      "death": {
+        "src": "enemies/brute_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -338,12 +416,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/reaper.png",
-        "fps": 5
+        "src": "enemies/reaper_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/reaper_walk.png",
         "fps": 8
+      },
+      "death": {
+        "src": "enemies/reaper_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {
@@ -361,12 +444,17 @@
     ],
     "anims": {
       "idle": {
-        "src": "enemies/warden.png",
-        "fps": 5
+        "src": "enemies/warden_idle.png",
+        "fps": 6
       },
       "walk": {
         "src": "enemies/warden_walk.png",
         "fps": 6
+      },
+      "death": {
+        "src": "enemies/warden_death.png",
+        "fps": 10,
+        "loop": false
       }
     },
     "placeholder": {

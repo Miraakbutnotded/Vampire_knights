@@ -62,7 +62,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from spritify import load_palette, read_png, write_png  # noqa: E402
 
-MODES = ('walk', 'float', 'flap', 'blob')
+MODES = ('walk', 'float', 'flap', 'blob', 'collapse')
 
 
 def snap(v: float) -> int:
@@ -183,6 +183,25 @@ def build_frame(size: int, rgba: bytearray, phase: float, args, clamped: list[st
     hip = min(size - 1, y0 + max(1, round(height * args.hip)))
     src = rgba
 
+    if args.mode == 'collapse':
+        # A death, not a cycle. Everything else here samples a sine and returns to
+        # where it started; this one runs 0 -> 1 across the strip and stays down,
+        # so the phase is renormalised to reach a fully flattened last frame.
+        # `resample_height` is already anchored at the bottom row, which is what
+        # makes the body fold into the ground instead of shrinking toward its
+        # middle — the feet stay where they fell.
+        t = phase * args.frames / max(1, args.frames - 1)
+        floor = max(1, int(args.floor))
+        src = resample_height(size, rgba, box, max(floor, height - snap(t * (height - floor))))
+        if not args.lean:
+            return src
+        # A slump: the pile drifts as it settles, so it does not read as the
+        # sprite simply being scaled down on the spot.
+        pile = select(size, src, lambda x, y: True)
+        return compose(size, src, [
+            (pile, *clamp_offset(size, src, pile, snap(args.lean * t), 0, clamped, 'slump')),
+        ])
+
     if args.mode == 'blob':
         src = resample_height(size, rgba, box, height + snap(args.squash * swing))
         box = content_box(size, src)
@@ -250,6 +269,10 @@ def main() -> int:
     ap.add_argument('--bob', type=float, default=0, help='float/flap: body rise and fall, px')
     ap.add_argument('--flap', type=float, default=2, help='flap: wingtip travel, px')
     ap.add_argument('--squash', type=float, default=1, help='blob: height change, px')
+    ap.add_argument('--floor', type=float, default=3,
+                    help='collapse: content height left in the final frame, px')
+    ap.add_argument('--lean', type=float, default=0,
+                    help='collapse: sideways slump across the fall, px')
     ap.add_argument('--preview', help='also write a nearest-neighbour blow-up of the strip')
     ap.add_argument('--preview-scale', type=int, default=6)
     args = ap.parse_args()
