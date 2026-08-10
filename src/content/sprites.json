@@ -11,7 +11,12 @@
       },
       "walk": {
         "src": "player/walk.png",
-        "fps": 10
+        "fps": 8
+      },
+      "hurt": {
+        "src": "player/hurt.png",
+        "fps": 16,
+        "loop": false
       }
     },
     "placeholder": {
@@ -33,7 +38,12 @@
       },
       "walk": {
         "src": "player/morrigan_walk.png",
-        "fps": 10
+        "fps": 8
+      },
+      "hurt": {
+        "src": "player/morrigan_hurt.png",
+        "fps": 16,
+        "loop": false
       },
       "death": {
         "src": "player/morrigan_death.png",
@@ -59,7 +69,12 @@
       },
       "walk": {
         "src": "player/aldric_walk.png",
-        "fps": 10
+        "fps": 8
+      },
+      "hurt": {
+        "src": "player/aldric_hurt.png",
+        "fps": 16,
+        "loop": false
       },
       "death": {
         "src": "player/aldric_death.png",
@@ -85,7 +100,12 @@
       },
       "walk": {
         "src": "player/vespera_walk.png",
-        "fps": 10
+        "fps": 8
+      },
+      "hurt": {
+        "src": "player/vespera_hurt.png",
+        "fps": 16,
+        "loop": false
       },
       "death": {
         "src": "player/vespera_death.png",
@@ -111,7 +131,12 @@
       },
       "walk": {
         "src": "player/dragos_walk.png",
-        "fps": 10
+        "fps": 8
+      },
+      "hurt": {
+        "src": "player/dragos_hurt.png",
+        "fps": 16,
+        "loop": false
       },
       "death": {
         "src": "player/dragos_death.png",
@@ -137,7 +162,12 @@
       },
       "walk": {
         "src": "player/valen_walk.png",
-        "fps": 10
+        "fps": 8
+      },
+      "hurt": {
+        "src": "player/valen_hurt.png",
+        "fps": 16,
+        "loop": false
       },
       "death": {
         "src": "player/valen_death.png",

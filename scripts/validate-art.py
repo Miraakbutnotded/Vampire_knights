@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Check every sprite strip declared in sprites.json against the art contract.
 
-Three things can go wrong between a PNG landing in `public/assets/` and the game
+Four things can go wrong between a PNG landing in `public/assets/` and the game
 drawing it, and not one of them raises. A mistyped `src` falls back to a
 generated placeholder, so the game still runs and the typo hides. A strip whose
 width is not a whole multiple of its frame width gets its last frame silently
-half-cut. And art that never went through spritify.py carries colours the
-canonical palette does not contain — which is how a set drifts off-style one
-sprite at a time, each addition defensible on its own.
+half-cut. Art that never went through spritify.py carries colours the canonical
+palette does not contain — which is how a set drifts off-style one sprite at a
+time, each addition defensible on its own. And a walk strip can be flawless on
+all three counts while never moving a leg, which the game plays back as a
+character skating across the floor.
 
     python3 scripts/validate-art.py [--worst 3] [--quiet]
     npm run validate:art
@@ -75,7 +77,42 @@ def describe_strays(strays: list[tuple[tuple[int, int, int], int]], worst: int) 
     return f'{len(strays)} off-palette {"colour" if len(strays) == 1 else "colours"} over {total} px ({named})'
 
 
-def check_strip(src: str, anim: dict, palette: list[tuple[int, int, int]], cache: dict, worst: int) -> tuple[str, list[str]]:
+def frozen_band(rgba: bytearray, width: int, frame_w: int, frame_h: int, frames: int) -> bool:
+    """True when every frame of the strip carries a byte-identical lower third.
+
+    A walk whose legs never move is invisible to everything else here: the strip
+    divides cleanly, every colour is on-palette, and the game plays it happily —
+    it just plays a character skating across the floor. The usual way to arrive
+    there is a strip built by repeating one pose, or an animation that moves only
+    the head and shoulders.
+
+    The lower third is where the legs are for everything in this project, the
+    sprites being bottom-anchored by their 0.85 origin. Two frames differing
+    anywhere in that band is enough to pass: a cycle is allowed to repeat a pose,
+    and animate.py's four-frame walks legitimately do — their two passing frames
+    are identical by construction.
+
+    This is a floor, not a proof of a good walk. It cannot tell a coherent stride
+    from incoherent jitter, and deliberately does not try: the player strips this
+    check was written after were *not* frozen — they moved a different amount in
+    every frame, because each frame had been generated separately. Measured on
+    foot-column occupancy they scored better than the hand-built cycles that
+    replaced them. A metric that ranked those first would be worse than none, so
+    what is gated here is only the case with an unambiguous answer.
+    """
+    band = max(1, frame_h // 3)
+    seen = set()
+    for n in range(frames):
+        rows = [bytes(rgba[(y * width + n * frame_w) * 4:(y * width + n * frame_w + frame_w) * 4])
+                for y in range(frame_h - band, frame_h)]
+        seen.add(b''.join(rows))
+        if len(seen) > 1:
+            return False
+    return True
+
+
+def check_strip(src: str, anim: dict, anim_name: str, palette: list[tuple[int, int, int]],
+                cache: dict, worst: int) -> tuple[str, list[str]]:
     """Validate one animation strip. Returns its report line and its failure kinds."""
     path = ASSETS_DIR / src
     if not path.is_file():
@@ -102,6 +139,11 @@ def check_strip(src: str, anim: dict, palette: list[tuple[int, int, int]], cache
     elif width % frame_w:
         facts.append(f'width is not a multiple of {frame_w}px — last frame is cut at {width % frame_w}px')
         kinds.append('frame-split')
+
+    if anim_name == 'walk' and frames > 1 and not width % frame_w \
+            and frozen_band(rgba, width, frame_w, frame_h, frames):
+        facts.append(f'all {frames} frames share one lower third — the legs never move')
+        kinds.append('frozen-legs')
 
     strays = off_palette(rgba, palette)
     if strays:
@@ -130,7 +172,7 @@ def main() -> int:
             if not src:
                 continue
             checked += 1
-            report, kinds = check_strip(src, anim, palette, cache, args.worst)
+            report, kinds = check_strip(src, anim, anim_name, palette, cache, args.worst)
             if kinds:
                 failed += 1
                 for kind in kinds:

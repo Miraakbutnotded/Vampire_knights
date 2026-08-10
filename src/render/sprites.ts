@@ -112,6 +112,20 @@ export class SpriteTable {
   }
 
   /**
+   * True when `state` has a strip of its own instead of borrowing Idle's.
+   *
+   * Silently falling back to Idle is right for drawing and wrong for deciding,
+   * and two callers have to decide. A death with no art must not leave a corpse
+   * standing frozen on the floor, and a hurt with no art must not swap a walking
+   * enemy onto its standing pose for the length of the flash — in both cases the
+   * fallback is worse than not entering the state at all. Only Idle is
+   * guaranteed to exist, so every other slot is a real question.
+   */
+  hasOwn(id: number, state: number): boolean {
+    return state === AnimState.Idle || this.get(id).anims[state] !== undefined;
+  }
+
+  /**
    * Renders a sprite's first idle frame into a standalone canvas, for use as a
    * DOM icon in the HUD and level-up cards.
    *

@@ -587,13 +587,11 @@ export class Game implements LoopHooks {
     }
 
     const spriteId = this.world.spriteId[id]!;
-    // SpriteTable.anim falls back to Idle for states with no art of their own,
-    // so an identical strip means this character has no death animation.
-    const death = this.sprites.anim(spriteId, AnimState.Death);
-    if (death === this.sprites.anim(spriteId, AnimState.Idle)) {
+    if (!this.sprites.hasOwn(spriteId, AnimState.Death)) {
       this.showDefeat();
       return;
     }
+    const death = this.sprites.anim(spriteId, AnimState.Death);
 
     this.setState('dying');
     this.deathTimer = 0;

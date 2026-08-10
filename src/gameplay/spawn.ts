@@ -115,8 +115,8 @@ const CORPSE_DEPTH_BIAS = -2;
 export function spawnCorpse(ctx: Ctx, from: number): number {
   const { world } = ctx;
   const spriteId = world.spriteId[from]!;
+  if (!ctx.sprites.hasOwn(spriteId, AnimState.Death)) return -1;
   const death = ctx.sprites.anim(spriteId, AnimState.Death);
-  if (death === ctx.sprites.anim(spriteId, AnimState.Idle)) return -1;
 
   const id = world.create(Kind.Corpse);
   if (id < 0) return -1;

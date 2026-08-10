@@ -345,7 +345,16 @@ export function updateEnemies(ctx: Ctx, dt: number): void {
     // kept sliding its walk cycle on the spot. Those pauses are all telegraphs,
     // and a telegraph the animation contradicts is not one.
     const moving = world.vx[id]! !== 0 || world.vy[id]! !== 0;
-    world.animState[id] = moving ? AnimState.Walk : AnimState.Idle;
+    // A hit outranks both, for exactly as long as the white flash lasts, and
+    // only for an enemy that owns a flinch — Hurt otherwise resolves to Idle and
+    // a charging brute would stand up straight every time it was scratched.
+    const flinching = world.hitFlash[id]! > 0 && ctx.sprites.hasOwn(world.spriteId[id]!, AnimState.Hurt);
+    const nextState = flinching ? AnimState.Hurt : moving ? AnimState.Walk : AnimState.Idle;
+    // Enemies let animTime run continuously across a Walk/Idle swap, which is
+    // fine for two looping strips and wrong for a one-shot: an un-reset clock
+    // drops the flinch straight onto its last frame.
+    if (nextState === AnimState.Hurt && world.animState[id] !== AnimState.Hurt) world.animTime[id] = 0;
+    world.animState[id] = nextState;
 
     world.animTime[id] = world.animTime[id]! + dt;
     if (world.hitFlash[id]! > 0) world.hitFlash[id] = Math.max(0, world.hitFlash[id]! - dt);

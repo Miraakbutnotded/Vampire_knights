@@ -24,6 +24,12 @@ sways a robe hem or flame tail under a bobbing body, `flap` shears columns
 vertically by their distance from the spine so wings beat, `blob` resamples the
 body height (nearest-neighbour, anchored at the feet) for squash and stretch.
 
+Two modes are one-shots rather than cycles, and say so by running their phase
+0 -> 1 across the whole strip instead of sampling a full sine: `collapse` folds a
+body into the ground and stays there, and `flinch` snaps it up and back on a
+half-sine that returns to rest, so the last frame is the source pose again and
+the strip can hand back to walk or idle without a visible snap.
+
     python3 scripts/animate.py in.png out.png --frames 6 --stride 2
     python3 scripts/animate.py bat.png bat_walk.png --mode flap --preview big.png
 
@@ -49,6 +55,23 @@ duplicates poses.
 
 The brute needs --split because its silhouette narrows to one trunk at the floor,
 so the automatic gap search finds the arm rather than the far leg.
+
+The playable characters came from the same engine, off frame 0 of their own idle
+strip, so idle and walk agree on the pose and a character cannot drift off-model
+between the two:
+
+    valen     --mode walk --frames 4 --hip 0.85            --stride 1 --lift 1 --crouch 1 --sway 1
+    morrigan  --mode walk --frames 4 --hip 0.85            --stride 1 --lift 1 --crouch 1 --sway 1
+    aldric    --mode walk --frames 4 --hip 0.85 --split 17 --stride 1 --lift 1 --crouch 1 --sway 1
+    vespera   --mode walk --frames 4 --hip 0.81            --stride 1 --lift 1 --crouch 1 --sway 1
+    dragos    --mode walk --frames 4 --hip 0.81            --stride 1 --lift 1 --crouch 1 --sway 1
+    player    --mode walk --frames 4 --hip 0.85 --split 16 --stride 1 --lift 1 --crouch 1 --sway 1
+
+Aldric and the default player need --split for the brute's reason in reverse: a
+cape and a shield hem reach the floor beside the legs, so the emptiest column is
+a notch under the arm and both feet end up in the same band — they lift together,
+which reads as a hop rather than a step. The explicit column is the real gap
+between the boots, measured off the bottom row of the idle frame.
 """
 
 from __future__ import annotations
@@ -62,7 +85,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from spritify import load_palette, read_png, write_png  # noqa: E402
 
-MODES = ('walk', 'float', 'flap', 'blob', 'collapse')
+MODES = ('walk', 'float', 'flap', 'blob', 'collapse', 'flinch')
 
 
 def snap(v: float) -> int:
@@ -222,6 +245,29 @@ def build_frame(size: int, rgba: bytearray, phase: float, args, clamped: list[st
     lower = select(size, src, lambda x, y: y >= hip)
     upper = select(size, src, lambda x, y: y < hip)
 
+    if args.mode == 'flinch':
+        # A hit, not a cycle. The envelope is half a sine across the whole strip
+        # rather than a full one, so it starts at rest, peaks in the middle and
+        # returns to rest: frame 0 is the source pose because every mode's is,
+        # and the *last* frame is too, which is what lets the strip play once
+        # under loop:false and hand back to walk or idle without snapping.
+        #
+        # The blow lands on the torso alone, over feet that stay planted. Lifting
+        # the *body* is the obvious way to draw an impact and is not available
+        # here: these sprites are drawn flush to the top of their frame, so there
+        # is no headroom, and clamp_offset trims each layer against its own
+        # margin — a shared rise clamps to zero for the torso, keeps its full
+        # value for the legs, and tears the waist open. Settling the torso down
+        # into the legs instead is the same move `crouch` makes in walk mode, and
+        # it is safe for the same reason: the two layers overlap rather than part.
+        t = phase * args.frames / max(1, args.frames - 1)
+        impulse = math.sin(math.pi * t)
+        return compose(size, src, [
+            (lower, 0, 0),
+            (upper, *clamp_offset(size, src, upper, snap(args.recoil * impulse),
+                                  int(args.crouch * impulse), clamped, 'torso')),
+        ])
+
     if args.mode == 'walk':
         stride = snap(args.stride * swing)
         split = args.split if args.split is not None else leg_split(size, src, hip)
@@ -263,12 +309,15 @@ def main() -> int:
     ap.add_argument('--split', type=int, default=None,
                     help='walk: column to part the legs on, when the gap is not obvious')
     ap.add_argument('--lift', type=float, default=1, help='walk: how far the swinging foot rises')
-    ap.add_argument('--crouch', type=float, default=1, help='torso settle at full stride, px')
+    ap.add_argument('--crouch', type=float, default=1,
+                    help='torso settle, px: at full stride in walk, at impact in flinch')
     ap.add_argument('--sway', type=float, default=0, help='torso counter-lean, px')
     ap.add_argument('--hem', type=float, default=1, help='float: robe/tail sway, px')
     ap.add_argument('--bob', type=float, default=0, help='float/flap: body rise and fall, px')
     ap.add_argument('--flap', type=float, default=2, help='flap: wingtip travel, px')
     ap.add_argument('--squash', type=float, default=1, help='blob: height change, px')
+    ap.add_argument('--recoil', type=float, default=1,
+                    help='flinch: how far the torso rocks back over planted feet, px')
     ap.add_argument('--floor', type=float, default=3,
                     help='collapse: content height left in the final frame, px')
     ap.add_argument('--lean', type=float, default=0,

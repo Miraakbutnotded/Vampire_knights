@@ -44,7 +44,7 @@ import {
 } from './content.ts';
 import type { MetaMods, PassiveDef, StructureDef, WeaponDef } from './content.ts';
 import { updateCorpses, updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
-import { clearNearbyEnemies, damageEnemy } from './damage.ts';
+import { clearNearbyEnemies, damageEnemy, damagePlayer } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
 import { PickupKind, spawnBloodVial, spawnChest, spawnCoin, spawnGem, updatePickups } from './pickups.ts';
 import { withinEngagement } from './damage.ts';
@@ -106,6 +106,11 @@ function stubSprites(): SpriteTable {
     has: () => true,
     get: () => sprite,
     anim: () => anim,
+    // Idle and nothing else, matching `anims: []` above. Every state that art
+    // could opt into changes what the sim does — a death leaves a corpse, a
+    // hurt overrides the walk cycle — so the default table opts into none of
+    // them and the seeded runs stay undisturbed.
+    hasOwn: (_id: number, state: number) => state === AnimState.Idle,
     iconCanvas: () => null as unknown as HTMLCanvasElement,
   } as unknown as SpriteTable;
 }
@@ -544,6 +549,8 @@ describe('corpses', () => {
       has: () => true,
       get: () => ({ name: 'stub', anims: [], width: 16, height: 16, originX: 0.5, originY: 0.5, generated: true }),
       anim: (_id: number, state: number) => (state === AnimState.Death ? death : idle),
+      hasOwn: (_id: number, state: number) =>
+        state === AnimState.Idle || state === AnimState.Death,
       iconCanvas: () => null as unknown as HTMLCanvasElement,
     } as unknown as SpriteTable;
   };
@@ -620,6 +627,78 @@ describe('corpses', () => {
     // Culling is a silent removal — no drops, no kill credit, and no body.
     expect(ctx.world.isAlive(id)).toBe(false);
     expect(ctx.world.list(Kind.Corpse)).toHaveLength(0);
+  });
+});
+
+describe('the flinch', () => {
+  /**
+   * Swaps in a table that owns a Hurt strip — the same opt-in `giveDeathArt`
+   * makes, for the same reason. Hurt outranks the walk cycle, so handing it to
+   * every sprite would change what the rest of this file animates.
+   */
+  const giveHurtArt = (ctx: Ctx): void => {
+    const frame = { source: null as unknown as CanvasImageSource, frameW: 16, frameH: 16 };
+    const idle = { ...frame, frames: 1, fps: 8, loop: true, duration: 1 };
+    const hurt = { ...frame, frames: 3, fps: 16, loop: false, duration: 3 / 16 };
+    ctx.sprites = {
+      missing: [],
+      id: () => 0,
+      has: () => true,
+      get: () => ({ name: 'stub', anims: [], width: 16, height: 16, originX: 0.5, originY: 0.5, generated: true }),
+      anim: (_id: number, state: number) => (state === AnimState.Hurt ? hurt : idle),
+      hasOwn: (_id: number, state: number) =>
+        state === AnimState.Idle || state === AnimState.Hurt,
+      iconCanvas: () => null as unknown as HTMLCanvasElement,
+    } as unknown as SpriteTable;
+  };
+
+  it('plays while the hit flash lasts and then hands back', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const player = ctx.player;
+    giveHurtArt(ctx);
+
+    expect(ctx.world.animState[player]).not.toBe(AnimState.Hurt);
+    damagePlayer(ctx, 5);
+    harness.run(FIXED_DT);
+    expect(ctx.world.animState[player]).toBe(AnimState.Hurt);
+
+    // Well inside PLAYER_IFRAME, so nothing can land a second hit and restart
+    // the flash — what expires here is the one being measured.
+    harness.run(0.25);
+    expect(ctx.world.hitFlash[player]).toBe(0);
+    expect(ctx.world.animState[player]).not.toBe(AnimState.Hurt);
+  });
+
+  it('is skipped entirely by a character with no flinch art', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const player = ctx.player;
+
+    // The default stub owns Idle and nothing else. Entering Hurt here would
+    // resolve to the standing pose and stop a running character dead.
+    damagePlayer(ctx, 5);
+    harness.run(FIXED_DT);
+    expect(ctx.world.hitFlash[player]).toBeGreaterThan(0);
+    expect(ctx.world.animState[player]).not.toBe(AnimState.Hurt);
+  });
+
+  it('restarts the clip on entry, so a one-shot does not open on its last frame', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    giveHurtArt(ctx);
+
+    const id = spawnEnemy(ctx, enemyDef('brute')!, 300, 300);
+    // Enemies let animTime run continuously across a Walk/Idle swap, so by the
+    // time one is hit its clock is arbitrarily far along.
+    world.animTime[id] = 5;
+    damageEnemy(ctx, id, 1, 0, 0, 0, false);
+    harness.run(FIXED_DT);
+
+    expect(world.isAlive(id)).toBe(true);
+    expect(world.animState[id]).toBe(AnimState.Hurt);
+    expect(world.animTime[id]).toBeLessThan(3 / 16);
   });
 });
 

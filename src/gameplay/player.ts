@@ -60,8 +60,12 @@ export function updatePlayer(ctx: Ctx, dt: number, input: Input): void {
   world.x[id] = nx;
   world.y[id] = ny;
 
-  // Animation
-  const nextState = moving ? AnimState.Walk : AnimState.Idle;
+  // Animation. A hit outranks movement for as long as the white flash lasts, so
+  // the flinch and the flash are one event rather than two that can disagree.
+  // Gated on the character owning a flinch: without one, Hurt resolves to the
+  // standing pose and being hit mid-run would stop the legs dead.
+  const flinching = world.hitFlash[id]! > 0 && ctx.sprites.hasOwn(world.spriteId[id]!, AnimState.Hurt);
+  const nextState = flinching ? AnimState.Hurt : moving ? AnimState.Walk : AnimState.Idle;
   if (world.animState[id] !== nextState) {
     world.animState[id] = nextState;
     world.animTime[id] = 0;

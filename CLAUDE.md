@@ -16,7 +16,7 @@ npm run cap:sync                   # build, then copy dist/ + regenerate the SPM
 npm run verify:ios                 # cap:sync, then actually compile and link the iOS target
 ```
 
-There is no linter configured; `tsc` is the gate. `npm test` is 20 files / 439 tests, all green —
+There is no linter configured; `tsc` is the gate. `npm test` is 20 files / 457 tests, all green —
 a red one is a regression, never a known failure to wave through. Most of them are *gates* rather
 than feature tests: they parse the source tree or the stylesheet and fail the build on an
 architectural violation (see Tests).
@@ -320,7 +320,10 @@ directly.
   palette in code; edit that script rather than the PNGs, and `--check` proves the two still agree.
   Then run `npm run validate:art`: it fails on a missing PNG
   (which otherwise silently falls back to a placeholder), a strip that doesn't divide into whole
-  frames, and any off-palette pixel. Every strip in the repo passes today, the character sheets
+  frames, any off-palette pixel, and a `walk` whose lower third is identical in every frame — a
+  character skating across the floor is the one art fault the other three cannot see. That last
+  check is a floor, not a proof of a good cycle: it says the legs moved, never that they moved
+  coherently. Every strip in the repo passes today, the character sheets
   included — a failure is a regression, never a pre-existing exception to wave through.
 - **New game event**: add to the `GameEvents` interface in `src/core/events.ts`. That interface is
   the whole contract between the sim and every listener — HUD, audio, haptics, daily tally, feats,
