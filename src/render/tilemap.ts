@@ -1,6 +1,7 @@
 import { generateTileTexture } from '../core/placeholders.ts';
 import type { TilePlaceholderSpec } from '../core/placeholders.ts';
 import { clamp } from '../core/math.ts';
+import { ISO_SX, ISO_SY, isoX, isoY } from './iso.ts';
 import type { Renderer } from './renderer.ts';
 import type { SpriteTable } from './sprites.ts';
 import type { CameraBounds } from './camera.ts';
@@ -470,25 +471,36 @@ export class TileMap {
 
   /** Draws the ground layer. Call before queuing sprites. */
   drawGround(renderer: Renderer): void {
-    const view = renderer.visibleBounds();
     const ctx = renderer.ctx;
+    // The void is painted across the whole buffer first. Under the projection a
+    // chunk is a rhombus, so its cached canvas has to be transparent outside
+    // that rhombus or it would paint over its neighbours' corners — which means
+    // the chunks can no longer carry the backdrop themselves.
+    const screen = renderer.screenBounds();
+    ctx.fillStyle = this.voidColor;
+    ctx.fillRect(screen.left, screen.top, screen.right - screen.left, screen.bottom - screen.top);
+    if (this.textures.length === 0) return;
 
-    if (this.textures.length === 0) {
-      ctx.fillStyle = this.voidColor;
-      ctx.fillRect(view.left, view.top, view.right - view.left, view.bottom - view.top);
-      return;
-    }
-
+    // Chunk selection still happens in world space; `visibleBounds` hands back
+    // the box around the visible diamond, which is generous on purpose.
+    const view = renderer.visibleBounds();
     const chunkSize = this.tileSize * CHUNK_TILES;
     const cx0 = Math.floor(view.left / chunkSize);
     const cx1 = Math.floor(view.right / chunkSize);
     const cy0 = Math.floor(view.top / chunkSize);
     const cy1 = Math.floor(view.bottom / chunkSize);
 
+    // Back to front along the screen's vertical axis, so a chunk nearer the
+    // camera overlaps the one behind it rather than the other way round.
+    const half = chunkSize * ISO_SX;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const chunk = this.chunk(cx, cy);
-        ctx.drawImage(chunk, cx * chunkSize, cy * chunkSize);
+        const ox = cx * chunkSize;
+        const oy = cy * chunkSize;
+        // The chunk's world origin is the rhombus's *top* corner; its canvas is
+        // the bounding box, so the blit lands half a rhombus to the left of it.
+        ctx.drawImage(chunk, Math.round(isoX(ox, oy) - half), Math.round(isoY(ox, oy)));
       }
     }
   }
@@ -504,22 +516,39 @@ export class TileMap {
 
     const size = this.tileSize * CHUNK_TILES;
     const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
+    // The projected chunk is a rhombus; the canvas is its bounding box, twice
+    // as wide as one edge and squashed to match. Left transparent — the void is
+    // painted once across the buffer in drawGround, because anything opaque in
+    // the corners here would cover the neighbouring chunks.
+    canvas.width = Math.ceil(size * ISO_SX * 2) + 2;
+    canvas.height = Math.ceil(size * ISO_SY * 2) + 2;
     const ctx = canvas.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = this.voidColor;
-    ctx.fillRect(0, 0, size, size);
 
+    // Ground lies *on* the plane, so unlike a sprite it should be skewed by the
+    // projection: a square texture drawn through this matrix lands as the 2:1
+    // diamond that tile actually occupies. That is what lets every existing
+    // square tile PNG carry straight over with no new art.
+    const originX = size * ISO_SX;
     for (let ty = 0; ty < CHUNK_TILES; ty++) {
       for (let tx = 0; tx < CHUNK_TILES; tx++) {
         const worldTx = cx * CHUNK_TILES + tx;
         const worldTy = cy * CHUNK_TILES + ty;
         const tex = this.tileAt(worldTx, worldTy);
         if (!tex) continue;
-        ctx.drawImage(tex.source, tx * this.tileSize, ty * this.tileSize);
+        const lx = tx * this.tileSize;
+        const ly = ty * this.tileSize;
+        ctx.setTransform(
+          ISO_SX, ISO_SY,
+          -ISO_SX, ISO_SY,
+          originX + isoX(lx, ly), isoY(lx, ly),
+        );
+        // Half a pixel of overdraw: neighbouring diamonds share an edge, and at
+        // fractional scale the seam between them otherwise shows the void.
+        ctx.drawImage(tex.source, 0, 0, this.tileSize + 0.5, this.tileSize + 0.5);
       }
     }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     this.chunkCache.set(key, canvas);
     this.chunkOrder.push(key);

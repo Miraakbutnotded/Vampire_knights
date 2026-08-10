@@ -1,5 +1,6 @@
 import { clamp, damp } from '../core/math.ts';
 import { fxRng } from '../core/rng.ts';
+import { worldBounds } from './iso.ts';
 import { VIEW_H, VIEW_W } from './renderer.ts';
 
 /** How hard the camera pulls toward the target, in 1/sec. Higher = tighter. */
@@ -102,13 +103,19 @@ export class Camera {
   private applyBounds(): void {
     const b = this.bounds;
     if (!b) return;
-    const halfW = VIEW_W / 2;
-    const halfH = VIEW_H / 2;
+    // How much world the buffer covers along each world axis. Under the
+    // isometric projection a screen rectangle is a diamond in world space, so
+    // the half-extents are taken from that diamond's bounding box rather than
+    // from VIEW_W/VIEW_H directly — using the raw buffer size here would let
+    // the camera sit far enough out to show the void past a wall.
+    const view = worldBounds(0, 0, VIEW_W, VIEW_H);
+    const halfW = (view.right - view.left) / 2;
+    const halfH = (view.bottom - view.top) / 2;
     // If the map is narrower than the view, centre on it rather than clamping
     // to a nonsensical inverted range.
-    if (b.right - b.left <= VIEW_W) this.x = (b.left + b.right) / 2;
+    if (b.right - b.left <= halfW * 2) this.x = (b.left + b.right) / 2;
     else this.x = clamp(this.x, b.left + halfW, b.right - halfW);
-    if (b.bottom - b.top <= VIEW_H) this.y = (b.top + b.bottom) / 2;
+    if (b.bottom - b.top <= halfH * 2) this.y = (b.top + b.bottom) / 2;
     else this.y = clamp(this.y, b.top + halfH, b.bottom - halfH);
   }
 }

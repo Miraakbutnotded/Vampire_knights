@@ -1,6 +1,7 @@
 import { Kind } from '../ecs/components.ts';
 import { TAU } from '../core/math.ts';
 import type { DeathCause } from '../core/events.ts';
+import { isoX, isoY } from '../render/iso.ts';
 import { VIEW_H, VIEW_W } from '../render/renderer.ts';
 import { enemyDefByIndex } from './content.ts';
 import type { EnemyDef } from './content.ts';
@@ -33,10 +34,14 @@ const ENGAGE_HALF_H = VIEW_H / 2 + 24;
  */
 export function withinEngagement(ctx: Ctx, id: number): boolean {
   const { world, camera } = ctx;
-  return (
-    Math.abs(world.x[id]! - camera.x) <= ENGAGE_HALF_W &&
-    Math.abs(world.y[id]! - camera.y) <= ENGAGE_HALF_H
-  );
+  // Measured after projecting, because the rule is about the *buffer*: the box
+  // is 480x270 screen pixels around the camera, and in an isometric view the
+  // world region that covers is a diamond, not a rectangle. Comparing raw world
+  // coordinates would engage things past the left and right points of that
+  // diamond while refusing things plainly visible above and below it.
+  const dx = isoX(world.x[id]!, world.y[id]!) - isoX(camera.x, camera.y);
+  const dy = isoY(world.x[id]!, world.y[id]!) - isoY(camera.x, camera.y);
+  return Math.abs(dx) <= ENGAGE_HALF_W && Math.abs(dy) <= ENGAGE_HALF_H;
 }
 
 /** Seconds of invulnerability granted after the player is hit. */

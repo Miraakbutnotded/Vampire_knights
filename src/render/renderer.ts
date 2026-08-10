@@ -1,5 +1,6 @@
 import { MAX_ENTITIES } from '../ecs/world.ts';
 import { FlashSheetCache } from './flash-sheet.ts';
+import { ISO_SX, ISO_SY, isoDepth, isoX, isoY, worldBounds } from './iso.ts';
 import { frameIndex } from './sprites.ts';
 import type { SpriteTable } from './sprites.ts';
 import type { Camera } from './camera.ts';
@@ -31,8 +32,8 @@ export function viewportScale(bufferW: number, bufferH: number): number {
   return Math.min(bufferW / VIEW_W, bufferH / VIEW_H);
 }
 
-/** Entities this far outside the view are not drawn. */
-const CULL_MARGIN = 48;
+/** Entities this far outside the view are not drawn. Screen pixels. */
+export const CULL_MARGIN = 48;
 
 /**
  * Depth-sorted draw queue. Sprites are collected during the frame and flushed
@@ -54,6 +55,8 @@ class DrawList {
   private readonly flash = new Float32Array(MAX_ENTITIES);
   private readonly alpha = new Float32Array(MAX_ENTITIES);
   private readonly depth = new Float32Array(MAX_ENTITIES);
+  /** 1 when the sprite lies on the ground plane rather than standing upright. */
+  private readonly ground = new Uint8Array(MAX_ENTITIES);
 
   private readonly order = new Uint32Array(MAX_ENTITIES);
   private count = 0;
@@ -76,6 +79,7 @@ class DrawList {
     flash: number,
     alpha: number,
     depth: number,
+    ground: number,
   ): void {
     const i = this.count;
     if (i >= MAX_ENTITIES) return;
@@ -90,6 +94,7 @@ class DrawList {
     this.flash[i] = flash;
     this.alpha[i] = alpha;
     this.depth[i] = depth;
+    this.ground[i] = ground;
     this.count++;
   }
 
@@ -129,7 +134,7 @@ class DrawList {
       const flip = this.facing[i]! < 0;
       const flash = this.flash[i]!;
 
-      const needsTransform = rot !== 0 || flip;
+      const needsTransform = rot !== 0 || flip || this.ground[i] === 1;
 
       // The baked sheet is the whole strip, sampled with the same sx as the
       // strip itself. Resolved before the transform branch so both draw paths
@@ -146,6 +151,15 @@ class DrawList {
       if (needsTransform) {
         ctx.save();
         ctx.translate(this.x[i]!, this.y[i]!);
+        // Ground-plane art is laid flat instead of standing up. An aura, pool,
+        // shockwave ring or sweep is authored as a circle seen from directly
+        // above, and for these the drawn edge *is* the collider — so leaving one
+        // upright would draw a circle over a world region that is actually an
+        // ellipse, and the hitbox would visibly lie. Applying the projection to
+        // the sprite's own quad maps that circle to exactly the ellipse it
+        // covers. Rotation goes after it, so the spin happens in world space and
+        // is then projected, like everything else on the floor.
+        if (this.ground[i]) ctx.transform(ISO_SX, ISO_SY, -ISO_SX, ISO_SY, 0, 0);
         if (rot !== 0) ctx.rotate(rot);
         if (flip) ctx.scale(-1, 1);
         ctx.drawImage(anim.source, sx, 0, w, h, ox, oy, dw, dh);
@@ -323,16 +337,21 @@ export class Renderer {
     ctx.fillStyle = '#0b0d14';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
-    // Round the camera to whole pixels or the whole scene shimmers as it scrolls.
-    this.camX = Math.round(camera.renderX - VIEW_W / 2);
-    this.camY = Math.round(camera.renderY - VIEW_H / 2);
+    // The camera holds a world position; the buffer is screen space. Projecting
+    // here is what keeps the transform a plain translate — the projection must
+    // not go into the context matrix, or it would shear the sprites too, and an
+    // isometric world is drawn with upright art standing on a slanted floor.
+    //
+    // Round to whole pixels or the whole scene shimmers as it scrolls.
+    this.camX = Math.round(isoX(camera.renderX, camera.renderY) - VIEW_W / 2);
+    this.camY = Math.round(isoY(camera.renderX, camera.renderY) - VIEW_H / 2);
     ctx.setTransform(1, 0, 0, 1, -this.camX, -this.camY);
 
     this.drawList.clear();
   }
 
-  /** World-space rect currently visible, expanded by the cull margin. */
-  visibleBounds(): { left: number; top: number; right: number; bottom: number } {
+  /** Screen-space rect currently visible, expanded by the cull margin. */
+  screenBounds(): { left: number; top: number; right: number; bottom: number } {
     return {
       left: this.camX - CULL_MARGIN,
       top: this.camY - CULL_MARGIN,
@@ -342,10 +361,38 @@ export class Renderer {
   }
 
   /**
-   * World-space rect exactly covering the 480x270 buffer — no cull margin.
+   * World-space bounding box of what is visible, expanded by the cull margin.
+   *
+   * A screen rect unprojects to a diamond, so this is the box around it rather
+   * than the region itself — generous on purpose. Callers use it to decide which
+   * world cells to touch, and drawing a few tiles that turn out to be off screen
+   * is far cheaper than a hole in the floor at a corner.
+   */
+  visibleBounds(): { left: number; top: number; right: number; bottom: number } {
+    const s = this.screenBounds();
+    return worldBounds(s.left, s.top, s.right, s.bottom);
+  }
+
+  /** True when a world position falls inside the drawn buffer. Exact, not boxed. */
+  onScreen(wx: number, wy: number, margin = 0): boolean {
+    const sx = isoX(wx, wy);
+    const sy = isoY(wx, wy);
+    return (
+      sx >= this.camX - margin &&
+      sx <= this.camX + VIEW_W + margin &&
+      sy >= this.camY - margin &&
+      sy <= this.camY + VIEW_H + margin
+    );
+  }
+
+  /**
+   * Screen-space rect exactly covering the 480x270 buffer — no cull margin.
    * Use this for anchoring UI-ish overlays (edge markers) to the screen edge;
-   * `visibleBounds()` is for culling only, and anything clamped to its edge
+   * `screenBounds()` is for culling only, and anything clamped to its edge
    * sits CULL_MARGIN px outside the buffer and gets canvas-clipped.
+   *
+   * Screen space, not world: a caller clamping to this edge must unproject the
+   * result before handing it back to `queue`, which projects again.
    */
   viewRect(): { left: number; top: number; right: number; bottom: number } {
     return {
@@ -373,20 +420,28 @@ export class Renderer {
       flash?: number;
       alpha?: number;
       depth?: number;
+      /** Lay the sprite flat on the ground plane instead of standing it up. */
+      ground?: boolean;
     },
   ): void {
+    // Callers hand in a world position and never think about the projection;
+    // it happens here, once, on the way into the queue. Depth stays in world
+    // terms (`wx + wy`) so a caller that supplies its own bias — flat decor, a
+    // corpse lying underfoot, an off-screen marker pinned on top — keeps
+    // biasing against the same scale it always did.
     this.drawList.push(
       spriteId,
       state,
       animTime,
-      Math.round(x),
-      Math.round(y),
+      Math.round(isoX(x, y)),
+      Math.round(isoY(x, y)),
       opts?.facing ?? 1,
       opts?.scale ?? 1,
       opts?.rot ?? 0,
       opts?.flash ?? 0,
       opts?.alpha ?? 1,
-      opts?.depth ?? y,
+      opts?.depth ?? isoDepth(x, y),
+      opts?.ground ? 1 : 0,
     );
   }
 

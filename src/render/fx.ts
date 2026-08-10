@@ -1,5 +1,6 @@
 import { fxRng } from '../core/rng.ts';
 import { TAU } from '../core/math.ts';
+import { isoX, isoY } from './iso.ts';
 import { PixelFont, pixelTextWidth } from './pixel-font.ts';
 import type { Renderer } from './renderer.ts';
 
@@ -39,8 +40,17 @@ export class Fx {
   private particleCount = 0;
 
   // --- damage numbers ---
+  //
+  // A number is anchored to a world position but *floats in screen space*: nx/ny
+  // are the anchor and never move, and nox/noy accumulate the rise. Integrating
+  // the rise into the world position instead would send it drifting up-and-left
+  // once projected, because straight up on screen is not straight up in the
+  // world. Particles are the opposite case — they are real things in the arena,
+  // so they keep simulating in world space and get projected on the way out.
   private nx = new Float32Array(MAX_NUMBERS);
   private ny = new Float32Array(MAX_NUMBERS);
+  private nox = new Float32Array(MAX_NUMBERS);
+  private noy = new Float32Array(MAX_NUMBERS);
   private nvy = new Float32Array(MAX_NUMBERS);
   private nvx = new Float32Array(MAX_NUMBERS);
   private nLife = new Float32Array(MAX_NUMBERS);
@@ -110,6 +120,8 @@ export class Fx {
     if (i >= MAX_NUMBERS) return;
     this.nx[i] = x + fxRng.range(-3, 3);
     this.ny[i] = y;
+    this.nox[i] = 0;
+    this.noy[i] = 0;
     this.nvx[i] = fxRng.range(-6, 6);
     this.nvy[i] = crit ? -46 : -34;
     this.nLife[i] = crit ? 0.75 : 0.55;
@@ -127,6 +139,8 @@ export class Fx {
     if (i >= MAX_NUMBERS) return;
     this.nx[i] = x;
     this.ny[i] = y;
+    this.nox[i] = 0;
+    this.noy[i] = 0;
     this.nvx[i] = 0;
     this.nvy[i] = -22;
     this.nLife[i] = 1.1;
@@ -161,8 +175,8 @@ export class Fx {
         continue;
       }
       this.nLife[i] = life;
-      this.nx[i] = this.nx[i]! + this.nvx[i]! * dt;
-      this.ny[i] = this.ny[i]! + this.nvy[i]! * dt;
+      this.nox[i] = this.nox[i]! + this.nvx[i]! * dt;
+      this.noy[i] = this.noy[i]! + this.nvy[i]! * dt;
       // Decelerate the rise so numbers settle instead of flying off.
       this.nvy[i] = this.nvy[i]! + 52 * dt;
       this.nvx[i] = this.nvx[i]! * Math.exp(-4 * dt);
@@ -191,6 +205,8 @@ export class Fx {
     if (i !== last) {
       this.nx[i] = this.nx[last]!;
       this.ny[i] = this.ny[last]!;
+      this.nox[i] = this.nox[last]!;
+      this.noy[i] = this.noy[last]!;
       this.nvx[i] = this.nvx[last]!;
       this.nvy[i] = this.nvy[last]!;
       this.nLife[i] = this.nLife[last]!;
@@ -210,8 +226,10 @@ export class Fx {
       ctx.globalAlpha = Math.min(1, t * 1.6);
       ctx.fillStyle = this.pColor[i]!;
 
-      const x = this.px[i]!;
-      const y = this.py[i]!;
+      // Projected on the way out: a particle is a real thing in the arena, so
+      // it keeps simulating on the flat plane and only its drawing is slanted.
+      const x = isoX(this.px[i]!, this.py[i]!);
+      const y = isoY(this.px[i]!, this.py[i]!);
 
       switch (this.pShape[i]) {
         case ParticleShape.Ring: {
@@ -227,7 +245,11 @@ export class Fx {
         case ParticleShape.Spark: {
           // Streak along the direction of travel.
           const len = Math.min(6, Math.hypot(this.pvx[i]!, this.pvy[i]!) * 0.04);
-          const [dx, dy] = [this.pvx[i]!, this.pvy[i]!];
+          // The streak follows travel, so the *direction* projects too — the
+          // projection is linear, so projecting the velocity and normalising
+          // afterwards gives the screen-space heading exactly.
+          const dx = isoX(this.pvx[i]!, this.pvy[i]!);
+          const dy = isoY(this.pvx[i]!, this.pvy[i]!);
           const inv = 1 / Math.max(1e-4, Math.hypot(dx, dy));
           ctx.strokeStyle = this.pColor[i]!;
           ctx.lineWidth = this.pSize[i]!;
@@ -254,8 +276,10 @@ export class Fx {
       ctx.globalAlpha = Math.min(1, t * 2.2);
       const text = this.nText[i]!;
       const scale = this.nScale[i]!;
-      const x = Math.round(this.nx[i]! - pixelTextWidth(text, scale) / 2);
-      const y = Math.round(this.ny[i]!);
+      const ax = this.nx[i]!;
+      const ay = this.ny[i]!;
+      const x = Math.round(isoX(ax, ay) + this.nox[i]! - pixelTextWidth(text, scale) / 2);
+      const y = Math.round(isoY(ax, ay) + this.noy[i]!);
       // Cheap 1px drop shadow keeps numbers readable over bright sprites.
       this.font.draw(ctx, text, x + 1, y + 1, SHADOW, scale);
       this.font.draw(ctx, text, x, y, this.nColor[i]!, scale);

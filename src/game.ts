@@ -11,7 +11,8 @@ import { World } from './ecs/world.ts';
 import { Camera } from './render/camera.ts';
 import { Fx } from './render/fx.ts';
 import { FrameGate } from './render/repaint.ts';
-import { Renderer, VIEW_H, VIEW_W } from './render/renderer.ts';
+import { isoDepth, isoX, isoY, worldX, worldY } from './render/iso.ts';
+import { CULL_MARGIN, Renderer, VIEW_H, VIEW_W } from './render/renderer.ts';
 import { TileMap, mapChoices } from './render/tilemap.ts';
 import type { SpriteTable } from './render/sprites.ts';
 
@@ -908,15 +909,22 @@ export class Game implements LoopHooks {
     // sprite at half scale, clamped 8px inside the 480x270 buffer edge, always
     // on top of the sprite pass (flat decor uses -1e6; this is its ceiling twin).
     if (this.siegeUntil > this.run.time) {
+      // The marker is pinned to the edge of the *buffer*, so the clamp has to
+      // happen in screen space and then come back: project, clamp, unproject,
+      // and let queue() project it again. Clamping the world position against a
+      // world-space box would put the marker somewhere inside the diamond
+      // instead of on the edge the player is looking at.
       const view = this.renderer.viewRect();
       const ids = world.list(Kind.Structure);
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i]!;
         const x = lerp(world.prevX[id]!, world.x[id]!, alpha);
         const y = lerp(world.prevY[id]!, world.y[id]!, alpha);
-        if (x >= view.left && x <= view.right && y >= view.top && y <= view.bottom) continue;
-        const mx = Math.max(view.left + 8, Math.min(view.right - 8, x));
-        const my = Math.max(view.top + 8, Math.min(view.bottom - 8, y));
+        if (this.renderer.onScreen(x, y)) continue;
+        const sx = Math.max(view.left + 8, Math.min(view.right - 8, isoX(x, y)));
+        const sy = Math.max(view.top + 8, Math.min(view.bottom - 8, isoY(x, y)));
+        const mx = worldX(sx, sy);
+        const my = worldY(sx, sy);
         this.renderer.queue(world.spriteId[id]!, world.animState[id]!, world.animTime[id]!, mx, my, {
           scale: 0.5,
           depth: 1e6,
@@ -939,14 +947,15 @@ export class Game implements LoopHooks {
   /** Queues every live entity of a kind, interpolated between ticks. */
   private queueKind(kind: Kind, alpha: number): void {
     const { world, renderer } = this;
-    const view = renderer.visibleBounds();
     const ids = world.list(kind);
 
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i]!;
       const x = lerp(world.prevX[id]!, world.x[id]!, alpha);
       const y = lerp(world.prevY[id]!, world.y[id]!, alpha);
-      if (x < view.left || x > view.right || y < view.top || y > view.bottom) continue;
+      // Exact rather than a world-space box: the visible region is a diamond,
+      // and its bounding box would keep drawing entities well past the corners.
+      if (!renderer.onScreen(x, y, CULL_MARGIN)) continue;
 
       renderer.queue(world.spriteId[id]!, world.animState[id]!, world.animTime[id]!, x, y, {
         facing: world.facing[id]!,
@@ -955,7 +964,12 @@ export class Game implements LoopHooks {
         // rotating a walking enemy sprite would look wrong.
         rot: kind === Kind.Projectile || world.has(id, Comp.Orbit) ? world.rot[id]! : 0,
         flash: world.hitFlash[id]! > 0 ? world.hitFlash[id]! * 6 : 0,
-        depth: y + world.drawBias[id]!,
+        depth: isoDepth(x, y) + world.drawBias[id]!,
+        // Hazards are the game's ground-plane art — auras, burning ground, the
+        // sweeps and pools whose drawn edge is their collider. They lie on the
+        // floor; everything else stands on it. An orbiting hazard is the one
+        // exception: a tome circling the player is an object in the air.
+        ground: kind === Kind.Hazard && !world.has(id, Comp.Orbit),
       });
     }
   }
