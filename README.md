@@ -588,6 +588,19 @@ gets attacked, the wave table is what schedules the attack, and each is inert wi
 ]
 ```
 
+### Defence maps play by different rules
+
+A map that raises structures is a defence map, and that one fact changes how a run can end.
+
+On a survival map you die and the run is over. **On a defence map you cannot die** — you are knocked
+down, and you get back up on a fraction of your health a few seconds later. Nothing clears the
+enemies standing over you, each knockdown keeps you down longer than the last, and the horde spends
+every one of those seconds hitting the walls. Being on your feet is the resource.
+
+**The walls are the fail state instead.** Lose the last of them and the run ends, wherever you happen
+to be standing. That is what makes a tower worth its gold: without it, nothing a tower protects could
+ever cost you the night.
+
 **Build pads** are places the map *allows* a defence rather than defences themselves. Walk onto one
 in a run and press `F` to raise what it offers, paying that structure's `buildCost` out of the gold
 you would otherwise bank. Walk back later and the same key buys the next tier of whatever is standing

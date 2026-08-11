@@ -132,6 +132,17 @@ export class Run {
   /** Structures spawned this run, in spawn order — the HUD pip count. */
   structuresSpawned = 0;
   /**
+   * Seconds left on the floor, or 0 when standing.
+   *
+   * On a map with an objective the player cannot die — they are knocked down,
+   * and the castle spends that time undefended. That is the whole reason the
+   * character matters in a defence: being up is a resource, and going down
+   * costs the walls rather than the run.
+   */
+  downedT = 0;
+  /** Knockdowns taken this run. Each one keeps you down longer than the last. */
+  knockdowns = 0;
+  /**
    * The map's build pads, and what is standing on each.
    *
    * Occupancy is a *handle*, never an id, and that is what makes a pad reusable

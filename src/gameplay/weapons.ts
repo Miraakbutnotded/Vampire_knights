@@ -58,6 +58,12 @@ export function effectiveStats(run: Run, weapon: OwnedWeapon): WeaponStats {
 export function updateWeapons(ctx: Ctx, dt: number): void {
   const player = ctx.player;
   if (player < 0 || !ctx.world.isAlive(player)) return;
+  // A downed player fights for nothing. Cooldowns are frozen rather than
+  // allowed to run, so standing up does not hand back a full salvo the horde
+  // never had to earn — the time on the floor costs the fight, not just the
+  // movement. Hazards and auras already on the field are updated elsewhere and
+  // keep burning, which is right: they were paid for before you fell.
+  if (ctx.run.downedT > 0) return;
 
   for (const weapon of ctx.run.weapons) {
     const stats = effectiveStats(ctx.run, weapon);

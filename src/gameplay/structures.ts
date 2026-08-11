@@ -153,6 +153,57 @@ export function upgradeStructure(ctx: Ctx, id: number): boolean {
   return true;
 }
 
+/**
+ * Below this fraction of its ceiling, a structure asks to be patched up rather
+ * than improved.
+ *
+ * A threshold rather than "any damage at all": a wall a single bat chipped
+ * would otherwise keep offering a one-gold repair in front of the upgrade the
+ * player actually walked over for. Below it, the offer flips — you cannot
+ * improve a wall that is about to come down, and being made to triage is the
+ * point.
+ */
+const REPAIR_BELOW = 0.75;
+/** Gold per point of health put back. Cheaper than buying that health as a tier. */
+const REPAIR_PER_HP = 0.35;
+
+/** Whether this structure is hurt enough to be offered a repair. */
+export function needsRepair(ctx: Ctx, id: number): boolean {
+  const { world } = ctx;
+  const max = world.maxHp[id]!;
+  return max > 0 && world.hp[id]! < max * REPAIR_BELOW;
+}
+
+/** Gold to put a structure back to full, or -1 when it does not need it. */
+export function repairCost(ctx: Ctx, id: number): number {
+  if (!needsRepair(ctx, id)) return -1;
+  const missing = ctx.world.maxHp[id]! - ctx.world.hp[id]!;
+  return Math.max(1, Math.ceil(missing * REPAIR_PER_HP));
+}
+
+/**
+ * Buys a structure back to full health. Returns true on a sale.
+ *
+ * Priced per point restored rather than as a flat fee, so patching a scratch is
+ * cheap and saving a wall at death's door is not — and always cheaper per point
+ * than buying the same health as a tier, because a repair buys nothing but the
+ * status quo while a tier is permanent.
+ */
+export function repairStructure(ctx: Ctx, id: number): boolean {
+  const { world, run, bus } = ctx;
+  if (!world.isAlive(id) || world.kind[id] !== Kind.Structure) return false;
+  const cost = repairCost(ctx, id);
+  if (cost < 0 || run.gold < cost) return false;
+
+  run.gold -= cost;
+  world.hp[id] = world.maxHp[id]!;
+  const def = structureDefByIndex(world.defIndex[id]!);
+  ctx.fx.shockwave(world.x[id]!, world.y[id]! - 4, '#aab7c9', 0.5, 9);
+  ctx.fx.floatingText(world.x[id]!, world.y[id]! - world.radius[id]! - 10, 'MENDED', '#aab7c9', 1);
+  bus.emit('structure:repaired', { name: def.name, cost, index: world.aiPhase[id]! });
+  return true;
+}
+
 /** Whether a pad currently has something standing on it. */
 export function padOccupied(ctx: Ctx, site: BuildSite): boolean {
   return site.handle >= 0 && ctx.world.resolve(site.handle) >= 0;
@@ -235,7 +286,12 @@ export function updateBuilding(ctx: Ctx): void {
 
   const standing = structureAtPlayer(ctx);
   if (standing >= 0) {
-    upgradeStructure(ctx, standing);
+    // Mending outranks improving on a wall that is far enough gone. Which one
+    // the key does is therefore chosen by *when* the player walks over, not by
+    // a second control — and a wall about to fall cannot be upgraded past the
+    // problem.
+    if (needsRepair(ctx, standing)) repairStructure(ctx, standing);
+    else upgradeStructure(ctx, standing);
     return;
   }
   const pad = padAtPlayer(ctx);

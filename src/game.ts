@@ -20,10 +20,11 @@ import { MAX_QUERY_RESULTS, SpatialHash } from './gameplay/collision.ts';
 import { CHARACTER_LIST, META_LIST, characterDef, structureDef, structureDefByIndex, upgradeCost, waveTable } from './gameplay/content.ts';
 import { updateCorpses, updateEnemies, updateEnemyProjectiles } from './gameplay/enemies.ts';
 import { playerAlpha, spawnPlayer, updatePlayer } from './gameplay/player.ts';
+import { updateDowned } from './gameplay/damage.ts';
 import { updatePickups } from './gameplay/pickups.ts';
 import { updateBlood } from './gameplay/blood.ts';
 import { updateAbility } from './gameplay/abilities.ts';
-import { padAtPlayer, padOccupied, spawnStructure, structureAtPlayer, updateBuilding, updateStructures } from './gameplay/structures.ts';
+import { needsRepair, padAtPlayer, padOccupied, repairCost, spawnStructure, structureAtPlayer, updateBuilding, updateStructures } from './gameplay/structures.ts';
 import { Run } from './gameplay/run.ts';
 import { Spawner, difficultyAt } from './gameplay/spawner.ts';
 import { applyOffer, rollOffers } from './gameplay/upgrades.ts';
@@ -309,6 +310,14 @@ export class Game implements LoopHooks {
       this.hud.showBanner(
         remaining > 0 ? `THE ${name.toUpperCase()} HAS FALLEN` : 'EVERY WALL HAS FALLEN',
       );
+      // The castle is the objective, so losing all of it ends the run.
+      //
+      // Self-gating, and deliberately so: this event only fires when something
+      // is actually destroyed, so a map that never raised a structure can never
+      // reach `remaining === 0` here. Meadow and the other survival maps need no
+      // exemption, and adding structures to a map arms this for that map in the
+      // same edit — the same derivation the picker's DEFEND tag uses.
+      if (remaining === 0) this.loseObjective();
     });
 
     // Daily tally. Every signal it counts already existed; gameplay emits
@@ -652,6 +661,22 @@ export class Game implements LoopHooks {
     this.endRun(false);
   }
 
+  /**
+   * The castle has fallen: a defeat with no death.
+   *
+   * Straight to the results screen rather than through `beginDeath`, because
+   * the player is alive and standing — there is no death animation to play, and
+   * the 'dying' state exists to give that animation its time.
+   *
+   * Guarded on the state rather than on `runEnded`: the last wall can fall on
+   * the same tick the player dies, and whichever landed first should be the one
+   * the run is remembered by.
+   */
+  private loseObjective(): void {
+    if (this.state !== 'playing') return;
+    this.showDefeat();
+  }
+
   private declareVictory(): void {
     this.bus.emit('run:victory', { survivedSeconds: this.run.time, kills: this.run.kills });
     this.endRun(true);
@@ -838,6 +863,7 @@ export class Game implements LoopHooks {
     ctx.enemyHash.build(this.world, this.world.list(Kind.Enemy));
 
     updatePlayer(ctx, dt, this.input);
+    updateDowned(ctx, dt);
     this.spawner.update(ctx, dt);
     updateEnemies(ctx, dt);
 
@@ -1084,6 +1110,12 @@ export class Game implements LoopHooks {
     const id = structureAtPlayer(this.ctx);
     if (id >= 0) {
       const def = structureDefByIndex(this.world.defIndex[id]!);
+      // Same precedence as updateBuilding, so the prompt names the thing the
+      // key would actually do rather than the thing it usually does.
+      if (needsRepair(this.ctx, id)) {
+        const mend = repairCost(this.ctx, id);
+        return { label: `Mend ${def.name}`, cost: mend, affordable: this.run.gold >= mend };
+      }
       const tier = this.world.tier[id]!;
       const cost = upgradeCost(def, tier);
       if (cost < 0) return null; // already maxed: nothing on offer

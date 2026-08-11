@@ -262,6 +262,8 @@ export function damagePlayer(ctx: Ctx, amount: number, source = -1): boolean {
       ctx.camera.shake(7, 0.6);
       // Clear the immediate threat so the revive isn't spent instantly.
       clearNearbyEnemies(ctx, px, py, 90);
+    } else if (run.structuresSpawned > 0) {
+      knockDown(ctx);
     } else {
       world.hp[player] = 0;
       bus.emit('player:died', {
@@ -273,6 +275,75 @@ export function damagePlayer(ctx: Ctx, amount: number, source = -1): boolean {
   }
 
   return true;
+}
+
+/** Seconds on the floor for the first knockdown of a run. */
+const DOWN_SECONDS = 4;
+/** Added to that for every knockdown already taken. */
+const DOWN_ESCALATION = 1.5;
+/** Fraction of max health you stand back up with. */
+const RECOVERY_FRACTION = 0.4;
+
+/**
+ * Puts the player on the floor instead of ending the run.
+ *
+ * Only reached where there is an objective to lose (`structuresSpawned > 0`),
+ * because on a survival map removing the death would remove the only way to
+ * fail. There, the branch above still ends the run.
+ *
+ * Deliberately does *not* clear the enemies around you — that is what a revive
+ * buys, and it is bought. A knockdown is supposed to cost something, and what
+ * it costs is the walls: the horde carries on hitting the castle for as long as
+ * you are down, and each knockdown keeps you down longer than the last. If this
+ * ever reads as a free respawn, raise DOWN_ESCALATION, not the health.
+ *
+ * The invulnerability window is the timer itself, which is what stops the crowd
+ * standing over you re-downing you the instant you stand up — `damagePlayer`
+ * already refuses while `iframe` is running, so no other system needs to know.
+ */
+function knockDown(ctx: Ctx): void {
+  const { world, run, fx, bus } = ctx;
+  const player = ctx.player;
+  const seconds = DOWN_SECONDS + DOWN_ESCALATION * run.knockdowns;
+
+  run.knockdowns++;
+  run.downedT = seconds;
+  world.hp[player] = 0;
+  world.iframe[player] = seconds;
+  world.vx[player] = 0;
+  world.vy[player] = 0;
+
+  const px = world.x[player]!;
+  const py = world.y[player]!;
+  fx.burst(px, py, 18, 90, '#d94a5e', 0.6, 2);
+  fx.floatingText(px, py - 24, 'DOWN', '#d94a5e', 2);
+  ctx.camera.shake(6, 0.5);
+  bus.emit('player:downed', { seconds, knockdowns: run.knockdowns });
+}
+
+/**
+ * Ticks the clock on a downed player and stands them back up.
+ *
+ * Lives here rather than in updatePlayer because it is the other half of
+ * knockDown, and the two numbers that matter — the timer and the health you
+ * recover — belong next to each other.
+ */
+export function updateDowned(ctx: Ctx, dt: number): void {
+  const { world, run, fx, bus } = ctx;
+  if (run.downedT <= 0) return;
+  const player = ctx.player;
+  if (player < 0 || !world.isAlive(player)) return;
+
+  run.downedT -= dt;
+  if (run.downedT > 0) return;
+
+  run.downedT = 0;
+  world.hp[player] = Math.max(1, Math.round(run.stats.maxHp * RECOVERY_FRACTION));
+  // A breath of grace on standing, so recovery is not immediately undone by
+  // whatever was chewing on the walls beside you.
+  world.iframe[player] = PLAYER_IFRAME * 2;
+  fx.shockwave(world.x[player]!, world.y[player]!, '#d1d8e2', 0.6, 12);
+  bus.emit('player:recovered', { hp: world.hp[player]! });
 }
 
 /** Kills every enemy within `radius`. Used by revives and could back a bomb item. */

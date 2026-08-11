@@ -475,14 +475,24 @@ export class Screens {
   // --- results ------------------------------------------------------------
 
   showResults(data: ResultsData, callbacks: ResultsCallbacks): void {
-    const { aside, main } = this.shell('results', data.victory ? 'You survived' : 'You died');
-
     const { run, victory } = data;
     const held = data.structuresSpawned - data.structuresLost;
     // A defence night gets its own line, because "you survived" is only half
     // of what was asked of you there.
     const defended = data.structuresSpawned > 0;
-    aside.appendChild(el('h1', undefined, victory ? 'YOU SURVIVED' : 'YOU DIED'));
+    // On a defence map the player cannot die — going down is a knockdown — so a
+    // defeat there can only mean the castle fell, and saying "you died" over a
+    // character who is still standing is the screen lying about the run. The
+    // reason is derived rather than passed in for the same reason the picker
+    // derives its DEFEND tag: one source, and it cannot disagree with itself.
+    const lostTheWalls = !victory && defended;
+    const heading = victory ? 'YOU SURVIVED' : lostTheWalls ? 'THE WALLS FELL' : 'YOU DIED';
+    const { aside, main } = this.shell(
+      'results',
+      victory ? 'You survived' : lostTheWalls ? 'The walls fell' : 'You died',
+    );
+
+    aside.appendChild(el('h1', undefined, heading));
     aside.appendChild(
       el(
         'p',
@@ -493,8 +503,8 @@ export class Screens {
               ? 'Dawn came, and not one stone of it had fallen.'
               : 'Dawn came. What was left of the bastion was still yours.'
             : 'The night broke and you were still standing.'
-          : defended && held > 0
-            ? 'The horde closed in. The walls outlived you.'
+          : lostTheWalls
+            ? 'The last of it came down with you still on your feet. There was nothing left to hold.'
             : 'The horde closed in. Try a different build.',
       ),
     );

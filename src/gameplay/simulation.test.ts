@@ -46,13 +46,13 @@ import {
 } from './content.ts';
 import type { MetaMods, PassiveDef, StructureDef, WeaponDef } from './content.ts';
 import { updateCorpses, updateEnemies, updateEnemyProjectiles, spawnEnemy } from './enemies.ts';
-import { clearNearbyEnemies, damageEnemy, damagePlayer } from './damage.ts';
+import { clearNearbyEnemies, damageEnemy, damagePlayer, updateDowned } from './damage.ts';
 import { spawnPlayer, updatePlayer } from './player.ts';
 import { PickupKind, spawnBloodVial, spawnChest, spawnCoin, spawnGem, updatePickups } from './pickups.ts';
 import { withinEngagement } from './damage.ts';
 import { Run, xpForLevel } from './run.ts';
 import { Spawner, difficultyAt } from './spawner.ts';
-import { buildAtPad, damageStructure, padAtPlayer, spawnStructure, structureAtPlayer, updateBuilding, updateStructures, upgradeStructure } from './structures.ts';
+import { buildAtPad, damageStructure, needsRepair, padAtPlayer, repairCost, repairStructure, spawnStructure, structureAtPlayer, updateBuilding, updateStructures, upgradeStructure } from './structures.ts';
 import { tryEvolve } from './evolutions.ts';
 import { applyOffer, rollOffers } from './upgrades.ts';
 import { effectiveStats, spawnHazard, updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
@@ -211,6 +211,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345, metaMods
         ctx.enemyHash.build(world, world.list(Kind.Enemy));
 
         updatePlayer(ctx, FIXED_DT, input);
+        updateDowned(ctx, FIXED_DT);
         spawner.update(ctx, FIXED_DT);
         updateEnemies(ctx, FIXED_DT);
 
@@ -647,6 +648,206 @@ describe('fortifying structures', () => {
     // A second tick without a fresh press must not keep buying.
     updateBuilding(ctx);
     expect(ctx.world.tier[id]).toBe(1);
+  });
+});
+
+describe('mending structures', () => {
+  const standing = () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const id = spawnStructure(ctx, structureDef('tower')!, ctx.world.x[ctx.player]! + 12, ctx.world.y[ctx.player]!);
+    return { harness, ctx, id };
+  };
+
+  it('offers nothing on a wall that is barely scratched', () => {
+    const { ctx, id } = standing();
+    ctx.world.hp[id] = ctx.world.maxHp[id]! * 0.9;
+    // A single bat's worth of damage must not push the upgrade off the prompt
+    // in favour of a one-gold repair.
+    expect(needsRepair(ctx, id)).toBe(false);
+    expect(repairCost(ctx, id)).toBe(-1);
+  });
+
+  it('prices the mend by what is actually missing', () => {
+    const { ctx, id } = standing();
+    ctx.world.hp[id] = 10;
+    const heavy = repairCost(ctx, id);
+    ctx.world.hp[id] = ctx.world.maxHp[id]! * 0.7;
+    const light = repairCost(ctx, id);
+
+    expect(heavy).toBeGreaterThan(light);
+    expect(light).toBeGreaterThan(0);
+  });
+
+  it('restores the wall and takes the gold', () => {
+    const { ctx, id } = standing();
+    ctx.world.hp[id] = 10;
+    const cost = repairCost(ctx, id);
+    ctx.run.gold = cost + 5;
+
+    expect(repairStructure(ctx, id)).toBe(true);
+    expect(ctx.world.hp[id]).toBe(ctx.world.maxHp[id]);
+    expect(ctx.run.gold).toBe(5);
+  });
+
+  it('refuses when the purse is short, and mends nothing', () => {
+    const { ctx, id } = standing();
+    ctx.world.hp[id] = 10;
+    ctx.run.gold = repairCost(ctx, id) - 1;
+
+    expect(repairStructure(ctx, id)).toBe(false);
+    expect(ctx.world.hp[id]).toBe(10);
+  });
+
+  it('mends a failing wall rather than upgrading past the problem', () => {
+    const { ctx, id } = standing();
+    ctx.run.gold = 1e9;
+    ctx.world.hp[id] = 10;
+
+    ctx.buildIntent = true;
+    updateBuilding(ctx);
+    // The key spent itself on the repair, not the tier.
+    expect(ctx.world.tier[id]).toBe(0);
+    expect(ctx.world.hp[id]).toBe(ctx.world.maxHp[id]);
+
+    // Whole again, the same key now improves it.
+    ctx.buildIntent = true;
+    updateBuilding(ctx);
+    expect(ctx.world.tier[id]).toBe(1);
+  });
+
+  it('costs less per point than buying the same health as a tier', () => {
+    const { ctx, id } = standing();
+    const def = structureDef('tower')!;
+    const tierHp = structureStatsAtTier(def, 1).hp - structureStatsAtTier(def, 0).hp;
+    const tierCost = upgradeCost(def, 0);
+
+    ctx.world.hp[id] = ctx.world.maxHp[id]! - tierHp;
+    const mend = repairCost(ctx, id);
+    // A repair buys back the status quo; a tier is permanent. The emergency
+    // option has to be the cheaper one or nobody would ever reach for it.
+    expect(mend).toBeLessThan(tierCost);
+  });
+});
+
+describe('knockdown', () => {
+  /**
+   * A run with something to lose: one structure, far from the fight, so the map
+   * counts as a defence without the tower taking part in the test.
+   */
+  const defence = () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+    ctx.run.weapons.length = 0;
+    ctx.run.revivesLeft = 0;
+    spawnStructure(ctx, structureDef('tower')!, 4000, 4000);
+    return { harness, ctx };
+  };
+
+  it('puts the player down instead of ending the run, where there is an objective', () => {
+    const { ctx } = defence();
+    let died = 0;
+    let downed = 0;
+    ctx.bus.on('player:died', () => { died++; });
+    ctx.bus.on('player:downed', () => { downed++; });
+
+    damagePlayer(ctx, 1e9);
+    expect(died, 'the run does not end on a defence map').toBe(0);
+    expect(downed).toBe(1);
+    expect(ctx.run.downedT).toBeGreaterThan(0);
+    expect(ctx.world.isAlive(ctx.player)).toBe(true);
+  });
+
+  it('still ends the run on a map with nothing to lose', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    ctx.run.revivesLeft = 0;
+    let died = 0;
+    ctx.bus.on('player:died', () => { died++; });
+
+    // No structure was ever raised, so removing the death would remove the
+    // only way to fail.
+    expect(ctx.run.structuresSpawned).toBe(0);
+    damagePlayer(ctx, 1e9);
+    expect(died).toBe(1);
+    expect(ctx.run.downedT).toBe(0);
+  });
+
+  it('spends a revive before it ever knocks you down', () => {
+    const { ctx } = defence();
+    ctx.run.revivesLeft = 1;
+    damagePlayer(ctx, 1e9);
+
+    expect(ctx.run.revivesLeft).toBe(0);
+    expect(ctx.run.downedT, 'a bought revive outranks the free floor').toBe(0);
+    expect(ctx.world.hp[ctx.player]).toBe(ctx.run.stats.maxHp);
+  });
+
+  it('freezes movement while down', () => {
+    const { harness, ctx } = defence();
+    const world = ctx.world;
+    damagePlayer(ctx, 1e9);
+    const x0 = world.x[ctx.player]!;
+    const y0 = world.y[ctx.player]!;
+
+    harness.run(0.5, stubInput(1, 1));
+    expect(world.x[ctx.player]).toBe(x0);
+    expect(world.y[ctx.player]).toBe(y0);
+  });
+
+  it('cannot be hit again while down', () => {
+    const { ctx } = defence();
+    damagePlayer(ctx, 1e9);
+    const downedFor = ctx.run.downedT;
+
+    // The invulnerability window *is* the timer, so nothing can extend the
+    // stay by hitting the body on the floor.
+    expect(damagePlayer(ctx, 50)).toBe(false);
+    expect(ctx.run.downedT).toBe(downedFor);
+  });
+
+  it('fires no weapons while down, and banks no cooldown for standing up', () => {
+    const { harness, ctx } = defence();
+    ctx.run.weapons.length = 0;
+    ctx.run.addWeapon('knife');
+    const before = ctx.run.weapons[0]!.cooldown;
+
+    damagePlayer(ctx, 1e9);
+    harness.run(0.5);
+    // Frozen, not ticked: time on the floor costs the fight rather than
+    // handing back a free salvo on recovery.
+    expect(ctx.run.weapons[0]!.cooldown).toBe(before);
+    expect(ctx.world.list(Kind.Projectile)).toHaveLength(0);
+  });
+
+  it('stands back up on partial health once the clock runs out', () => {
+    const { harness, ctx } = defence();
+    let recovered = 0;
+    ctx.bus.on('player:recovered', () => { recovered++; });
+
+    damagePlayer(ctx, 1e9);
+    const seconds = ctx.run.downedT;
+    harness.run(seconds + FIXED_DT * 2);
+
+    expect(recovered).toBe(1);
+    expect(ctx.run.downedT).toBe(0);
+    const hp = ctx.world.hp[ctx.player]!;
+    expect(hp).toBeGreaterThan(0);
+    expect(hp, 'a knockdown is not a full heal').toBeLessThan(ctx.run.stats.maxHp);
+  });
+
+  it('keeps you down longer every time', () => {
+    const { harness, ctx } = defence();
+    damagePlayer(ctx, 1e9);
+    const first = ctx.run.downedT;
+
+    harness.run(first + FIXED_DT * 2);
+    ctx.world.iframe[ctx.player] = 0; // the grace on standing, waived for the test
+    damagePlayer(ctx, 1e9);
+
+    expect(ctx.run.knockdowns).toBe(2);
+    expect(ctx.run.downedT, 'the floor gets less forgiving').toBeGreaterThan(first);
   });
 });
 

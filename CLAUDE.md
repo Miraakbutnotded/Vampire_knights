@@ -144,6 +144,41 @@ ability's `abilityMods` — and runs only on a state change (loadout, buff start
   Towers shoot from `TOWER_STATS`, built from `WEAPON_STAT_DEFAULTS` and **never** `effectiveStats()`
   — a passive or Frenzy multiplier reaching a tower turns terrain into part of the build.
 
+### How a run ends
+
+Three exits, and which ones exist depends on whether the map has an objective:
+
+| | survival map | defence map (raised structures) |
+| --- | --- | --- |
+| clock reaches `victorySeconds` | victory | victory |
+| player health hits zero | **defeat** | **knockdown** — the run continues |
+| every structure destroyed | *(cannot happen)* | **defeat** |
+
+The objective loss is one subscription in game.ts: `structure:destroyed` carries `remaining`, and
+`remaining === 0` calls `loseObjective()`. It is **self-gating** — the event only fires when
+something is destroyed, so a map that never raised a structure can never reach zero, and the
+survival maps need no exemption. Adding structures to a map arms it in the same edit, exactly as the
+picker derives its DEFEND tag.
+
+That loss goes straight to the results screen rather than through `beginDeath`: the player is alive
+and standing, and the `dying` state exists only to give a death animation its time.
+
+**Knockdown** (`knockDown` / `updateDowned` in damage.ts) is the other half, and the two only make
+sense together — a defence map with both fail states live would let a stray bat end a run the castle
+was winning. Reached only when `run.structuresSpawned > 0` and revives are exhausted, so a survival
+map keeps death as its only way to fail and a bought revive still outranks the free floor.
+
+While down: `run.downedT` counts, movement and aim are frozen in `updatePlayer`, and `updateWeapons`
+returns early so **cooldowns freeze rather than tick** — time on the floor has to cost the fight, or
+standing up hands back a full salvo the horde never earned. The invulnerability window *is* the
+timer, which is why nothing else needs to know about the state: `damagePlayer` already refuses while
+`iframe` runs. Recovery restores a fraction of health, never all of it.
+
+What it costs is the walls: nothing clears the enemies around you (that is what a bought revive is
+for), so the horde keeps hitting the castle for as long as you are down, and each knockdown lasts
+longer than the last. **If this ever reads as a free respawn, raise `DOWN_ESCALATION`, not the
+recovery health.**
+
 ### Building and upgrading (`structures.ts`)
 
 The player walks to a structure or an empty pad and presses **F**; `ctx.buildIntent` is the latch,

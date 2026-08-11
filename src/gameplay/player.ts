@@ -31,6 +31,22 @@ export function updatePlayer(ctx: Ctx, dt: number, input: Input): void {
   const id = ctx.player;
   if (id < 0 || !world.isAlive(id)) return;
 
+  // Down: no input, no movement, no aim change. The clock and standing back up
+  // belong to updateDowned; everything here just stops. Deliberately before the
+  // iframe/flash decay below, so the invulnerability that covers the knockdown
+  // is not ticked away twice as fast as the knockdown itself.
+  if (run.downedT > 0) {
+    world.vx[id] = 0;
+    world.vy[id] = 0;
+    if (world.animState[id] !== AnimState.Death) {
+      world.animState[id] = AnimState.Death;
+      world.animTime[id] = 0;
+    } else {
+      world.animTime[id] = world.animTime[id]! + dt;
+    }
+    return;
+  }
+
   // Frenzy movement bonus is read-side, same rule as effectiveStats.
   const frenzySpeed = run.frenzyT > 0 ? BLOOD_CONFIG.frenzy.moveSpeedMult : 1;
   const speed = run.stats.moveSpeed * frenzySpeed;

@@ -59,6 +59,8 @@ export interface GameEvents {
    * never desynchronise from the death. Existing subscribers ignore the payload.
    */
   'player:died': { survivedSeconds: number; kills: number; killedBy: DeathCause };
+  'player:downed': { seconds: number; knockdowns: number };
+  'player:recovered': { hp: number };
   'player:levelup': { level: number };
   'run:victory': { survivedSeconds: number; kills: number };
   /**
@@ -95,6 +97,7 @@ export interface GameEvents {
   'ability:ready': undefined;
   'structure:damaged': { hp: number; maxHp: number; index: number };
   'structure:built': { name: string; cost: number; index: number };
+  'structure:repaired': { name: string; cost: number; index: number };
   'structure:upgraded': { name: string; tier: number; maxTier: number; cost: number; index: number };
   'structure:destroyed': { name: string; remaining: number; index: number };
   'siege:started': { duration: number };
