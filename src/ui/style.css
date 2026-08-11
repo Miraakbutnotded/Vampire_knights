@@ -140,6 +140,13 @@
   /* The bottom band the thumbs own. The loadout column is the tallest thing in
      it: two rows of 16u slots with a 3u gutter. The coach line clears it. */
   --bottom-band: calc(var(--ui) * 35);
+  /* Clears the blood orb's buttons, which stand 16u tall on a 5u base. Lives
+     here rather than inside `.coach-line` because the fortify prompt stacks on
+     top of that strip and composes its own offset from this, so the two cannot
+     drift into each other. */
+  --coach-lift: calc(var(--ui) * 22);
+  /* One line of text above the coaching strip, in the strip's own terms. */
+  --fortify-lift: calc(var(--coach-lift) + var(--text-base) * 1.7);
 
   /* The top-centre stack: `--hud-top` is the row's own inset from the top edge
      and `--hud-center-h` is the clock-plus-level-chip below it, composed from
@@ -505,8 +512,6 @@ body {
    keeps it from reading as a hit or a warning — see services/coach.ts for the
    rules about when it is allowed to speak at all. */
 .coach-line {
-  /* Clears the blood orb's buttons, which stand 16u tall on a 5u base. */
-  --coach-lift: calc(var(--ui) * 22);
   position: absolute;
   left: 50%;
   bottom: max(calc(var(--ui) * 27), calc(var(--safe-b) - var(--offset-y, 0px) + var(--coach-lift)));
@@ -527,6 +532,39 @@ body {
 
 .coach-line.show {
   opacity: 1;
+}
+
+/* The build/upgrade prompt, one line above the coaching strip.
+   Its offset is composed from `--coach-lift` rather than measured against it,
+   so lifting the strip lifts this with it in the same edit. */
+.fortify-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: max(
+    calc(var(--ui) * 27 + var(--text-base) * 1.7),
+    calc(var(--safe-b) - var(--offset-y, 0px) + var(--fortify-lift))
+  );
+  transform: translateX(-50%);
+  max-width: calc(var(--ui) * 176);
+  text-align: center;
+  white-space: nowrap;
+  font-size: var(--text-base);
+  letter-spacing: calc(var(--ui) * 0.15);
+  color: var(--ink);
+  text-shadow: 0 var(--ui) 0 rgba(4, 1, 9, 0.9);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.fortify-prompt.show {
+  opacity: 1;
+}
+
+/* Not enough gold: the prompt still says what the thing costs, dimmed, so the
+   player learns the price rather than wondering why nothing happened. */
+.fortify-prompt.short {
+  color: var(--ink-dim);
 }
 
 /* --------------------------------------------------------------- Screens */
@@ -1498,6 +1536,20 @@ button.btn[disabled] {
 /* With the cluster out of the centre, the coaching strip takes the lane it
    vacated: pinned to the left edge, stopped short of the cluster by the same
    token the joystick boundary uses, and lifted clear of the loadout column. */
+/* Same lane as the coaching strip on a phone, one line higher. Both offsets are
+   built from --bottom-band, so resizing the thumb cluster moves the pair. */
+.coarse .fortify-prompt {
+  left: max(var(--edge-inset), calc(var(--safe-l) - var(--offset-x, 0px)));
+  right: calc(var(--cluster-w) + var(--edge-inset) + var(--ui) * 4);
+  bottom: calc(
+    max(var(--edge-inset), calc(var(--safe-b) - var(--offset-y, 0px))) + var(--bottom-band) +
+      var(--cluster-gap) + var(--text-base) * 1.7
+  );
+  max-width: none;
+  transform: none;
+  text-align: left;
+}
+
 .coarse .coach-line {
   left: max(var(--edge-inset), calc(var(--safe-l) - var(--offset-x, 0px)));
   right: calc(var(--cluster-w) + var(--edge-inset) + var(--ui) * 4);

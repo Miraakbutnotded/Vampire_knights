@@ -76,6 +76,11 @@ export interface MapJson {
   waves?: string;
   /** Defendable structures spawned at run start. Optional; most maps have none. */
   structures?: { type: string; x: number; y: number }[];
+  /**
+   * Empty pads a structure may be raised on during the run. A pad is a place
+   * the map allows a defence, not a defence — it costs gold to fill.
+   */
+  buildSites?: { type?: string; x: number; y: number }[];
   /** Background colour shown where there is no tile. */
   voidColor?: string;
 }
@@ -180,6 +185,7 @@ export class TileMap {
   readonly wavesTable: string;
   readonly solids: Solid[] = [];
   readonly structures: { type: string; x: number; y: number }[];
+  readonly buildSites: { type?: string; x: number; y: number }[];
 
   private mode: 'scatter' | 'grid';
   private patchScale = 0;
@@ -212,6 +218,7 @@ export class TileMap {
     this.decor = def.decor ?? [];
     this.props = def.props ?? [];
     this.structures = def.structures ?? [];
+    this.buildSites = def.buildSites ?? [];
 
     if (this.mode === 'grid') {
       this.gridWidth = def.gridWidth ?? 0;

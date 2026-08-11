@@ -17,13 +17,13 @@ import { TileMap, mapChoices } from './render/tilemap.ts';
 import type { SpriteTable } from './render/sprites.ts';
 
 import { MAX_QUERY_RESULTS, SpatialHash } from './gameplay/collision.ts';
-import { CHARACTER_LIST, META_LIST, characterDef, structureDef, waveTable } from './gameplay/content.ts';
+import { CHARACTER_LIST, META_LIST, characterDef, structureDef, structureDefByIndex, upgradeCost, waveTable } from './gameplay/content.ts';
 import { updateCorpses, updateEnemies, updateEnemyProjectiles } from './gameplay/enemies.ts';
 import { playerAlpha, spawnPlayer, updatePlayer } from './gameplay/player.ts';
 import { updatePickups } from './gameplay/pickups.ts';
 import { updateBlood } from './gameplay/blood.ts';
 import { updateAbility } from './gameplay/abilities.ts';
-import { spawnStructure, updateStructures } from './gameplay/structures.ts';
+import { padAtPlayer, padOccupied, spawnStructure, structureAtPlayer, updateBuilding, updateStructures } from './gameplay/structures.ts';
 import { Run } from './gameplay/run.ts';
 import { Spawner, difficultyAt } from './gameplay/spawner.ts';
 import { applyOffer, rollOffers } from './gameplay/upgrades.ts';
@@ -151,6 +151,8 @@ export class Game implements LoopHooks {
   private readonly coarse: boolean;
   /** Rolling fps, mirrored from the loop for the debug overlay. */
   fps = 0;
+  /** Sprite for an unfilled build pad, resolved once. */
+  private readonly padSpriteId: number;
   /** Decides which frames actually get drawn. See render(). */
   private readonly frame = new FrameGate();
 
@@ -172,6 +174,7 @@ export class Game implements LoopHooks {
     // interface flinch on every hot reload.
     document.documentElement.classList.toggle('coarse', this.coarse);
 
+    this.padSpriteId = sprites.id('structure_pad');
     this.input = new Input();
     this.renderer = new Renderer(canvas, sprites);
     this.hud = new Hud(sprites);
@@ -233,6 +236,7 @@ export class Game implements LoopHooks {
       speedScale: 1,
       bloodIntent: null,
       abilityQueued: false,
+      buildIntent: false,
     };
 
     this.wireEvents();
@@ -293,6 +297,12 @@ export class Game implements LoopHooks {
       this.hud.updateStructurePip(index, hp, maxHp);
     });
 
+    // Confirmation on the existing banner rather than a new element: the
+    // stylesheet's clearances are composed from the tokens of the things they
+    // clear, so a new HUD box is a layout change, not just a div.
+    this.bus.on('structure:upgraded', ({ name, tier, maxTier }) => {
+      this.hud.showBanner(`${name.toUpperCase()} — TIER ${tier}/${maxTier}`);
+    });
     this.bus.on('structure:destroyed', ({ name, remaining, index }) => {
       this.structuresLost++;
       this.hud.destroyStructurePip(index);
@@ -484,6 +494,14 @@ export class Game implements LoopHooks {
         pips.push({ name: def.name, hp: def.hp });
       }
     }
+    // Pads start empty. `handle: -1` is the whole "nothing here yet" state —
+    // occupancy is asked of the world, never tracked separately, so a tower
+    // that falls frees its own pad with no bookkeeping.
+    this.run.buildSites = map.buildSites.flatMap((site) => {
+      const def = structureDef(site.type ?? 'tower');
+      if (!def) return []; // warn-don't-throw, same as a bad structure entry
+      return [{ x: site.x, y: site.y, defIndex: def.index, handle: -1 }];
+    });
     this.hud.setStructurePips(pips);
     this.structuresSpawned = pips.length;
     this.structuresLost = 0;
@@ -775,6 +793,9 @@ export class Game implements LoopHooks {
     // Ability cast latches exactly like the blood intents: edge input lives
     // frame-side, updateAbility consumes the latch on the next sim tick.
     if (this.input.wasPressed('Space')) this.ctx.abilityQueued = true;
+    // Fortify: walk to a structure and press F. The character is the cursor —
+    // there is no mouse on any platform this ships to.
+    if (this.input.wasPressed('KeyF')) this.ctx.buildIntent = true;
   }
 
   update(dt: number): void {
@@ -829,6 +850,7 @@ export class Game implements LoopHooks {
     updatePlayerProjectiles(ctx, dt);
     updateHazards(ctx, dt);
     updateStructures(ctx, dt);
+    updateBuilding(ctx);
 
     ctx.pickupHash.build(this.world, this.world.list(Kind.Pickup));
     updatePickups(ctx, dt);
@@ -896,6 +918,18 @@ export class Game implements LoopHooks {
     // Hazards first: auras and burning ground use a large negative draw bias so
     // they sit under everything, while orbiting tomes sort normally.
     this.queueKind(Kind.Hazard, alpha);
+    // Empty build pads. Not entities: a pad is a marked patch of floor, and
+    // making it one would put it on the list sieges target and the HUD counts.
+    for (const site of this.run.buildSites) {
+      if (padOccupied(this.ctx, site)) continue;
+      if (!this.renderer.onScreen(site.x, site.y, CULL_MARGIN)) continue;
+      this.renderer.queue(this.padSpriteId, 0, 0, site.x, site.y, {
+        // Flat on the floor, under everything, like the hazards above it.
+        ground: true,
+        depth: isoDepth(site.x, site.y) - 4,
+        alpha: 0.75,
+      });
+    }
     // Bodies before anything that can stand on them; their negative drawBias
     // is what actually keeps them underfoot at the same row.
     this.queueKind(Kind.Corpse, alpha);
@@ -941,6 +975,15 @@ export class Game implements LoopHooks {
     if (this.state !== 'results') {
       const hp = this.ctx.player >= 0 ? world.hp[this.ctx.player]! : 0;
       this.hud.update(this.run, hp, frameDt);
+      // Driven from position, not from an event: walking one step off a pad has
+      // to clear the prompt, and there is no event for not being somewhere.
+      //
+      // Keyboard only for now. On touch the key hint is display:none and there
+      // is no button in the thumb cluster yet, so fortifying is unreachable
+      // there — that control is the next thing this feature needs.
+      const offer = this.fortifyOffer();
+      if (offer) this.hud.showFortify(offer.label, offer.cost, offer.affordable);
+      else this.hud.hideFortify();
     }
   }
 
@@ -1021,6 +1064,55 @@ export class Game implements LoopHooks {
     style.setProperty('--play-h', `${VIEW_H * scale}px`);
   }
 
+  /**
+   * What F would do right now, for the debug overlay.
+   *
+   * The player-facing prompt still wants a HUD element of its own; this exists
+   * so the mechanic is inspectable while that is designed, rather than being
+   * discoverable only by pressing an undocumented key next to a tower.
+   */
+  /**
+   * What pressing F would do right now, or null when it would do nothing.
+   *
+   * One answer, two consumers: the HUD prompt the player reads and the debug
+   * overlay line. Deriving both from the same call is what stops the prompt
+   * from ever offering something the key would not actually buy.
+   */
+  private fortifyOffer(): { label: string; cost: number; affordable: boolean } | null {
+    if (this.state !== 'playing') return null;
+
+    const id = structureAtPlayer(this.ctx);
+    if (id >= 0) {
+      const def = structureDefByIndex(this.world.defIndex[id]!);
+      const tier = this.world.tier[id]!;
+      const cost = upgradeCost(def, tier);
+      if (cost < 0) return null; // already maxed: nothing on offer
+      return {
+        label: `${def.name} T${tier + 1}`,
+        cost,
+        affordable: this.run.gold >= cost,
+      };
+    }
+
+    const pad = padAtPlayer(this.ctx);
+    if (pad < 0) return null;
+    const padDef = structureDefByIndex(this.run.buildSites[pad]!.defIndex);
+    // Zero cost means the map places it and it is not for sale; offering it
+    // would promise something the key refuses.
+    if (padDef.buildCost <= 0) return null;
+    return {
+      label: `Build ${padDef.name}`,
+      cost: padDef.buildCost,
+      affordable: this.run.gold >= padDef.buildCost,
+    };
+  }
+
+  private fortifyLine(): string {
+    const offer = this.fortifyOffer();
+    if (!offer) return 'nothing in reach';
+    return `${offer.label} ${offer.cost}g${offer.affordable ? '' : ' (short)'}`;
+  }
+
   private updateDebug(): void {
     const world = this.world;
     const lines = [
@@ -1032,6 +1124,7 @@ export class Game implements LoopHooks {
       `hazards  ${world.list(Kind.Hazard).length}`,
       `structures ${world.list(Kind.Structure).length}`,
       `corpses  ${world.list(Kind.Corpse).length}`,
+      `fortify  ${this.fortifyLine()}`,
       `particles ${this.fx.activeParticles}`,
       `hp x${this.ctx.hpScale.toFixed(2)}  dmg x${this.ctx.damageScale.toFixed(2)}`,
     ];

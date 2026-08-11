@@ -1,9 +1,10 @@
 import { Comp, Kind, Team } from '../ecs/components.ts';
 import { fxRng } from '../core/rng.ts';
-import { WEAPON_STAT_DEFAULTS, structureDefByIndex } from './content.ts';
+import { WEAPON_STAT_DEFAULTS, structureDefByIndex, structureStatsAtTier, upgradeCost } from './content.ts';
 import { nearestEnemy, spawnProjectile } from './weapons.ts';
 import type { StructureDef, WeaponStats } from './content.ts';
 import type { Ctx } from './context.ts';
+import type { BuildSite } from './run.ts';
 
 /** Seconds a structure flashes white after taking a hit (damageEnemy parity). */
 const HIT_FLASH = 0.12;
@@ -75,6 +76,172 @@ export function spawnStructure(ctx: Ctx, def: StructureDef, x: number, y: number
   return id;
 }
 
+/** How close the player must stand to work on a structure, in world units. */
+export const REACH = 34;
+
+/**
+ * The structure the player is standing at, or -1.
+ *
+ * Nearest wins, so two towers built shoulder to shoulder are still individually
+ * selectable by stepping toward one. The player's own position is the cursor —
+ * this game has no mouse on any of its platforms, and asking a thumb to aim a
+ * pointer at a 10px tower would be worse than walking to it.
+ */
+export function structureAtPlayer(ctx: Ctx): number {
+  const { world } = ctx;
+  const player = ctx.player;
+  if (player < 0 || !world.isAlive(player)) return -1;
+  const px = world.x[player]!;
+  const py = world.y[player]!;
+
+  let best = -1;
+  let bestD2 = Infinity;
+  const ids = world.list(Kind.Structure);
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]!;
+    if (!world.isAlive(id)) continue;
+    const reach = REACH + world.radius[id]!;
+    const dx = world.x[id]! - px;
+    const dy = world.y[id]! - py;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > reach * reach || d2 >= bestD2) continue;
+    bestD2 = d2;
+    best = id;
+  }
+  return best;
+}
+
+/**
+ * Buys the next tier for a structure. Returns true when gold actually changed
+ * hands.
+ *
+ * Spends from `run.gold` — the same purse the run banks at the end — so
+ * fortifying is paid for out of the meta-progression the player was saving up.
+ * That tension is the point: a tower now, or a Sanctum rank later.
+ *
+ * Health is topped up by exactly what the tier added rather than refilled, so
+ * upgrading is never a repair. A wall on its last legs stays on its last legs;
+ * it just has a higher ceiling.
+ */
+export function upgradeStructure(ctx: Ctx, id: number): boolean {
+  const { world, run, bus } = ctx;
+  if (!world.isAlive(id) || world.kind[id] !== Kind.Structure) return false;
+
+  const def = structureDefByIndex(world.defIndex[id]!);
+  const tier = world.tier[id]!;
+  const cost = upgradeCost(def, tier);
+  if (cost < 0 || run.gold < cost) return false;
+
+  const before = structureStatsAtTier(def, tier);
+  const after = structureStatsAtTier(def, tier + 1);
+
+  run.gold -= cost;
+  world.tier[id] = tier + 1;
+  const gained = after.hp - before.hp;
+  world.maxHp[id] = after.hp;
+  if (gained > 0) world.hp[id] = world.hp[id]! + gained;
+
+  ctx.fx.shockwave(world.x[id]!, world.y[id]! - 6, '#d4a15a', 0.5, 10);
+  ctx.fx.floatingText(world.x[id]!, world.y[id]! - world.radius[id]! - 10, `T${tier + 1}`, '#d4a15a', 1);
+  bus.emit('structure:upgraded', {
+    name: def.name,
+    tier: tier + 1,
+    maxTier: def.maxTier,
+    cost,
+    index: world.aiPhase[id]!,
+  });
+  return true;
+}
+
+/** Whether a pad currently has something standing on it. */
+export function padOccupied(ctx: Ctx, site: BuildSite): boolean {
+  return site.handle >= 0 && ctx.world.resolve(site.handle) >= 0;
+}
+
+/**
+ * The index of the empty pad the player is standing on, or -1.
+ *
+ * Only empty pads answer: once a pad is filled, the thing standing on it is
+ * what the player is interacting with, and `structureAtPlayer` finds that.
+ */
+export function padAtPlayer(ctx: Ctx): number {
+  const { world, run } = ctx;
+  const player = ctx.player;
+  if (player < 0 || !world.isAlive(player)) return -1;
+  const px = world.x[player]!;
+  const py = world.y[player]!;
+
+  let best = -1;
+  let bestD2 = REACH * REACH;
+  for (let i = 0; i < run.buildSites.length; i++) {
+    const site = run.buildSites[i]!;
+    if (padOccupied(ctx, site)) continue;
+    const dx = site.x - px;
+    const dy = site.y - py;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= bestD2) continue;
+    bestD2 = d2;
+    best = i;
+  }
+  return best;
+}
+
+/**
+ * Raises the pad's structure, if the run can afford it. Returns true on a sale.
+ *
+ * The pad remembers the structure by handle rather than id, so nothing has to
+ * clean up when the thing falls: a destroyed tower's handle simply stops
+ * resolving and the pad is free again, which is exactly the rebuild-between-
+ * sieges loop this is for.
+ */
+export function buildAtPad(ctx: Ctx, index: number): boolean {
+  const { run, world } = ctx;
+  const site = run.buildSites[index];
+  if (!site || padOccupied(ctx, site)) return false;
+
+  const def = structureDefByIndex(site.defIndex);
+  // Zero means "map-placed only" — a gate is architecture, not kit for sale.
+  if (def.buildCost <= 0 || run.gold < def.buildCost) return false;
+
+  const id = spawnStructure(ctx, def, site.x, site.y);
+  if (id < 0) return false;
+
+  run.gold -= def.buildCost;
+  site.handle = world.handleOf(id);
+  ctx.fx.shockwave(site.x, site.y, '#d4a15a', 0.6, 12);
+  ctx.bus.emit('structure:built', {
+    name: def.name,
+    cost: def.buildCost,
+    index: world.aiPhase[id]!,
+  });
+  return true;
+}
+
+/**
+ * Consumes the player's latched build press: raise something on an empty pad,
+ * or pay to improve whatever is already standing here.
+ *
+ * Latched rather than read live for the same reason as Feast and the ability: a
+ * frame can run zero sim ticks, and a press written straight into a system on
+ * the frame side would be dropped.
+ *
+ * A standing structure outranks a pad, because once a pad is filled its own
+ * radius covers the pad's position and the player cannot step off one without
+ * stepping off both.
+ */
+export function updateBuilding(ctx: Ctx): void {
+  if (!ctx.buildIntent) return;
+  ctx.buildIntent = false;
+
+  const standing = structureAtPlayer(ctx);
+  if (standing >= 0) {
+    upgradeStructure(ctx, standing);
+    return;
+  }
+  const pad = padAtPlayer(ctx);
+  if (pad >= 0) buildAtPad(ctx, pad);
+}
+
 /**
  * One bolt at the nearest enemy in range, or nothing if the field is clear.
  *
@@ -91,30 +258,34 @@ export function spawnStructure(ctx: Ctx, def: StructureDef, x: number, y: number
  */
 function fireTower(ctx: Ctx, id: number, def: StructureDef): void {
   const { world } = ctx;
+  // Per entity, not per def: two towers of the same type diverge the moment one
+  // of them is paid for, and reading the def here would silently make every
+  // upgrade cosmetic.
+  const stats = structureStatsAtTier(def, world.tier[id]!);
   const x = world.x[id]!;
   // Bolts leave from the crenellations, and the shot is aimed from there too,
   // so the muzzle offset never becomes an aiming error.
   const y = world.y[id]! - MUZZLE_HEIGHT;
 
-  const target = nearestEnemy(ctx, x, y, def.range);
+  const target = nearestEnemy(ctx, x, y, stats.range);
   if (target < 0) {
     // Nothing in range: sleep off the rescan interval instead of querying the
     // hash again next tick. Capped by shootInterval so a fast emplacement is
     // never slowed down by its own idle throttle.
-    world.hitCooldown[id] = Math.min(def.shootInterval, IDLE_RESCAN);
+    world.hitCooldown[id] = Math.min(stats.shootInterval, IDLE_RESCAN);
     return;
   }
 
   const angle = Math.atan2(world.y[target]! - y, world.x[target]! - x);
-  TOWER_STATS.damage = def.projectileDamage;
+  TOWER_STATS.damage = stats.projectileDamage;
   TOWER_STATS.lifetime = def.projectileLifetime;
   const bolt = spawnProjectile(
     ctx,
     def.projectileSprite,
     x,
     y,
-    Math.cos(angle) * def.projectileSpeed,
-    Math.sin(angle) * def.projectileSpeed,
+    Math.cos(angle) * stats.projectileSpeed,
+    Math.sin(angle) * stats.projectileSpeed,
     TOWER_STATS,
     false,
   );
@@ -122,7 +293,7 @@ function fireTower(ctx: Ctx, id: number, def: StructureDef): void {
   // exempts it from the on-screen restraint the player's own weapons obey.
   if (bolt >= 0) world.owner[bolt] = id;
 
-  world.hitCooldown[id] = def.shootInterval;
+  world.hitCooldown[id] = stats.shootInterval;
   ctx.fx.burst(x, y, 3, 40, '#ffd9a0', 0.18, 1);
 }
 

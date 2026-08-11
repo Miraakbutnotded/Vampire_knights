@@ -5,7 +5,12 @@
     "hp": 300,
     "radius": 14,
     "solid": true,
-    "gold": 25
+    "gold": 25,
+    "upgrades": [
+      { "cost": 80, "hp": 150, "note": "Banded oak. +150 hp." },
+      { "cost": 220, "hp": 250, "note": "Iron-shod. +250 hp." },
+      { "cost": 500, "hp": 400, "note": "Portcullis. +400 hp." }
+    ]
   },
   "shrine": {
     "name": "Blood Shrine",
@@ -13,7 +18,12 @@
     "hp": 180,
     "radius": 10,
     "solid": false,
-    "gold": 40
+    "gold": 40,
+    "buildCost": 150,
+    "upgrades": [
+      { "cost": 90, "hp": 120, "note": "Consecrated. +120 hp." },
+      { "cost": 240, "hp": 200, "note": "Warded. +200 hp." }
+    ]
   },
   "tower": {
     "name": "Watchtower",
@@ -22,11 +32,34 @@
     "radius": 10,
     "solid": true,
     "gold": 30,
+    "buildCost": 120,
     "range": 170,
     "shootInterval": 1.4,
     "projectileDamage": 14,
     "projectileSpeed": 190,
     "projectileLifetime": 1.2,
-    "projectileSprite": "proj_bolt"
+    "projectileSprite": "proj_bolt",
+    "upgrades": [
+      {
+        "cost": 70,
+        "hp": 60,
+        "projectileDamage": 8,
+        "note": "Heavier bolts. +8 damage, +60 hp."
+      },
+      {
+        "cost": 180,
+        "shootInterval": -0.35,
+        "projectileDamage": 8,
+        "note": "Twin windlass. Reloads faster, +8 damage."
+      },
+      {
+        "cost": 400,
+        "hp": 80,
+        "range": 45,
+        "projectileDamage": 12,
+        "projectileSpeed": 40,
+        "note": "Long guns. Further, faster, +12 damage."
+      }
+    ]
   }
 }

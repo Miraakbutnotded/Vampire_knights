@@ -39,6 +39,16 @@ export interface OwnedPassive {
   level: number;
 }
 
+/** One place the map allows a defence, and whatever currently stands there. */
+export interface BuildSite {
+  x: number;
+  y: number;
+  /** Index into the structure table of what this pad raises. */
+  defIndex: number;
+  /** Handle of the structure standing here, or -1 for an empty pad. */
+  handle: number;
+}
+
 /**
  * Per-run active-ability state, mirroring the OwnedWeapon.timer precedent:
  * cooldowns live on Run structures and are ticked by gameplay systems
@@ -121,6 +131,16 @@ export class Run {
 
   /** Structures spawned this run, in spawn order — the HUD pip count. */
   structuresSpawned = 0;
+  /**
+   * The map's build pads, and what is standing on each.
+   *
+   * Occupancy is a *handle*, never an id, and that is what makes a pad reusable
+   * for free: ids are recycled, so a raw id would eventually resolve to whatever
+   * squatted on the slot, while a handle stops resolving the moment its
+   * structure falls. A pad whose tower is destroyed therefore becomes buildable
+   * again on its own, with no bookkeeping in destroyStructure at all.
+   */
+  buildSites: BuildSite[] = [];
   /** Every structure lost this run, armed or not — the honest counter. */
   structuresLost = 0;
   /**

@@ -123,6 +123,14 @@ export class World {
   readonly team = new Uint8Array(MAX_ENTITIES);
   /** Generic payload: xp for gems, heal amount for food, gold for coins. */
   readonly value = new Float32Array(MAX_ENTITIES);
+  /**
+   * How far up its upgrade track an entity is. Structures only, today.
+   *
+   * Kept per entity rather than on the def because two towers on the same map
+   * are the same content and different hardware — the whole point of paying to
+   * upgrade one is that it stops matching its neighbour.
+   */
+  readonly tier = new Uint8Array(MAX_ENTITIES);
 
   /**
    * Which enemies a piercing projectile has already damaged. Cold data, so it
@@ -220,6 +228,7 @@ export class World {
     this.defIndex[id] = 0;
     this.team[id] = 0;
     this.value[id] = 0;
+    this.tier[id] = 0;
 
     this.lists[kind]!.push(id);
     this.entityCount++;

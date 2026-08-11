@@ -69,4 +69,12 @@ export interface Ctx {
    * sim zero times, and menus clear it so no cast survives a pause.
    */
   abilityQueued: boolean;
+
+  /**
+   * Latched fortify press, consumed (and cleared) by updateBuilding on the next
+   * sim tick. Same latch pattern as bloodIntent and abilityQueued, for the same
+   * reason: a frame can run the sim zero times, and menus clear it so no
+   * purchase survives a pause.
+   */
+  buildIntent: boolean;
 }

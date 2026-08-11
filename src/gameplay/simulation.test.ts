@@ -38,6 +38,8 @@ import {
   passiveDef,
   structureDef,
   structureDefByIndex,
+  structureStatsAtTier,
+  upgradeCost,
   waveTable,
   weaponDef,
   weaponStatsAtLevel,
@@ -50,7 +52,7 @@ import { PickupKind, spawnBloodVial, spawnChest, spawnCoin, spawnGem, updatePick
 import { withinEngagement } from './damage.ts';
 import { Run, xpForLevel } from './run.ts';
 import { Spawner, difficultyAt } from './spawner.ts';
-import { damageStructure, spawnStructure, updateStructures } from './structures.ts';
+import { buildAtPad, damageStructure, padAtPlayer, spawnStructure, structureAtPlayer, updateBuilding, updateStructures, upgradeStructure } from './structures.ts';
 import { tryEvolve } from './evolutions.ts';
 import { applyOffer, rollOffers } from './upgrades.ts';
 import { effectiveStats, spawnHazard, updateHazards, updatePlayerProjectiles, updateWeapons } from './weapons.ts';
@@ -186,6 +188,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345, metaMods
     speedScale: 1,
     bloodIntent: null,
     abilityQueued: false,
+    buildIntent: false,
   };
   ctx.player = spawnPlayer(ctx, 0, 0);
 
@@ -219,6 +222,7 @@ function makeHarness(characterId = CHARACTER_LIST[0]!.id, seed = 12345, metaMods
         updatePlayerProjectiles(ctx, FIXED_DT);
         updateHazards(ctx, FIXED_DT);
         updateStructures(ctx, FIXED_DT);
+        updateBuilding(ctx);
 
         ctx.pickupHash.build(world, world.list(Kind.Pickup));
         updatePickups(ctx, FIXED_DT);
@@ -498,6 +502,255 @@ describe('splitter', () => {
     damageEnemy(ctx, id, 1e9, 0, 0, 0, false);
     world.flush();
     expect(world.list(Kind.Enemy).length).toBeLessThanOrEqual(ctx.wave.maxAlive);
+  });
+});
+
+describe('fortifying structures', () => {
+  const tower = () => structureDef('tower')!;
+
+  it('accumulates upgrade deltas and clamps past the ceiling', () => {
+    const def = tower();
+    const t0 = structureStatsAtTier(def, 0);
+    const t1 = structureStatsAtTier(def, 1);
+    const max = structureStatsAtTier(def, def.maxTier);
+    const beyond = structureStatsAtTier(def, def.maxTier + 5);
+
+    expect(t0.projectileDamage).toBe(def.projectileDamage);
+    expect(t1.projectileDamage).toBeGreaterThan(t0.projectileDamage);
+    expect(max.projectileDamage).toBeGreaterThan(t1.projectileDamage);
+    // Asking past the top must not keep stacking, exactly like a weapon level.
+    expect(beyond.projectileDamage).toBe(max.projectileDamage);
+    expect(beyond.shootInterval).toBe(max.shootInterval);
+  });
+
+  it('never lets an upgrade track buy an instant-fire tower', () => {
+    for (const def of STRUCTURE_LIST) {
+      for (let t = 0; t <= def.maxTier; t++) {
+        expect(structureStatsAtTier(def, t).shootInterval).toBeGreaterThanOrEqual(0.05);
+      }
+    }
+  });
+
+  it('finds the structure the player is standing at, and only that one', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const px = ctx.world.x[ctx.player]!;
+    const py = ctx.world.y[ctx.player]!;
+
+    expect(structureAtPlayer(ctx), 'nothing built yet').toBe(-1);
+    const near = spawnStructure(ctx, tower(), px + 12, py);
+    const far = spawnStructure(ctx, tower(), px + 400, py);
+    expect(structureAtPlayer(ctx)).toBe(near);
+    expect(structureAtPlayer(ctx)).not.toBe(far);
+  });
+
+  it('spends run gold and raises the tier', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const id = spawnStructure(ctx, tower(), ctx.world.x[ctx.player]! + 12, ctx.world.y[ctx.player]!);
+    const cost = upgradeCost(tower(), 0);
+    ctx.run.gold = cost;
+
+    expect(upgradeStructure(ctx, id)).toBe(true);
+    expect(ctx.world.tier[id]).toBe(1);
+    expect(ctx.run.gold).toBe(0);
+  });
+
+  it('refuses when the purse is short, and takes nothing', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const id = spawnStructure(ctx, tower(), ctx.world.x[ctx.player]! + 12, ctx.world.y[ctx.player]!);
+    ctx.run.gold = upgradeCost(tower(), 0) - 1;
+
+    expect(upgradeStructure(ctx, id)).toBe(false);
+    expect(ctx.world.tier[id]).toBe(0);
+    expect(ctx.run.gold).toBe(upgradeCost(tower(), 0) - 1);
+  });
+
+  it('refuses past the top tier, however much gold is on offer', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const def = tower();
+    const id = spawnStructure(ctx, def, ctx.world.x[ctx.player]! + 12, ctx.world.y[ctx.player]!);
+    ctx.run.gold = 1e9;
+
+    for (let t = 0; t < def.maxTier; t++) expect(upgradeStructure(ctx, id)).toBe(true);
+    expect(ctx.world.tier[id]).toBe(def.maxTier);
+    expect(upgradeStructure(ctx, id), 'nothing left to buy').toBe(false);
+  });
+
+  it('raises the ceiling without repairing the damage', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    const def = tower();
+    const id = spawnStructure(ctx, def, world.x[ctx.player]! + 12, world.y[ctx.player]!);
+    ctx.run.gold = 1e9;
+
+    world.hp[id] = 20; // battered
+    const gained = structureStatsAtTier(def, 1).hp - structureStatsAtTier(def, 0).hp;
+    upgradeStructure(ctx, id);
+
+    // Upgrading is hardware, not a heal: it adds exactly what the tier added.
+    expect(world.hp[id]).toBe(20 + gained);
+    expect(world.hp[id]).toBeLessThan(world.maxHp[id]!);
+  });
+
+  it('makes an upgraded tower actually hit harder', () => {
+    /**
+     * An empty field with one tower and one target that stays put.
+     *
+     * The wave table is emptied and the player disarmed for the same reason the
+     * other tower tests do it: `nearestEnemy` takes whichever enemy is closest,
+     * so a bat wandering in from the opening wave would quietly become the thing
+     * the tower is shooting at, and the measurement would be of that instead.
+     */
+    const field = () => {
+      const harness = makeHarness();
+      const { ctx } = harness;
+      ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+      ctx.run.weapons.length = 0;
+      ctx.world.hp[ctx.player] = 1e5;
+      const t = spawnStructure(ctx, tower(), 300, 0);
+      const target = spawnEnemy(ctx, enemyDef('zombie')!, 380, 0);
+      ctx.world.speed[target] = 0; // pinned: a mover changes the flight time
+      ctx.world.hp[target] = 1e6;
+      return { harness, ctx, t, target };
+    };
+
+    // One window, shorter than shootInterval, so exactly one bolt is compared.
+    const base = field();
+    const beforeBase = base.ctx.world.hp[base.target]!;
+    base.harness.run(0.9);
+    const baseHit = beforeBase - base.ctx.world.hp[base.target]!;
+    expect(baseHit, 'the tower fired at all').toBeGreaterThan(0);
+
+    const up = field();
+    up.ctx.run.gold = 1e9;
+    expect(upgradeStructure(up.ctx, up.t)).toBe(true);
+    const beforeUp = up.ctx.world.hp[up.target]!;
+    up.harness.run(0.9);
+    expect(beforeUp - up.ctx.world.hp[up.target]!).toBeGreaterThan(baseHit);
+  });
+
+  it('consumes the latched press once, and only next to something', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const id = spawnStructure(ctx, tower(), ctx.world.x[ctx.player]! + 12, ctx.world.y[ctx.player]!);
+    ctx.run.gold = 1e9;
+
+    ctx.buildIntent = true;
+    updateBuilding(ctx);
+    expect(ctx.buildIntent, 'the latch is cleared whether or not it bought anything').toBe(false);
+    expect(ctx.world.tier[id]).toBe(1);
+
+    // A second tick without a fresh press must not keep buying.
+    updateBuilding(ctx);
+    expect(ctx.world.tier[id]).toBe(1);
+  });
+});
+
+describe('build pads', () => {
+  /** A harness with one empty pad under the player's feet. */
+  const withPad = (type = 'tower') => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const def = structureDef(type)!;
+    ctx.run.buildSites = [
+      { x: ctx.world.x[ctx.player]! + 10, y: ctx.world.y[ctx.player]!, defIndex: def.index, handle: -1 },
+    ];
+    return { harness, ctx, def };
+  };
+
+  it('offers an empty pad in reach, and nothing once it is filled', () => {
+    const { ctx, def } = withPad();
+    expect(padAtPlayer(ctx)).toBe(0);
+
+    ctx.run.gold = def.buildCost;
+    expect(buildAtPad(ctx, 0)).toBe(true);
+    // The pad is spent, and what stands on it is now the thing in reach.
+    expect(padAtPlayer(ctx)).toBe(-1);
+    expect(structureAtPlayer(ctx)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('spends the build cost and raises the structure', () => {
+    const { ctx, def } = withPad();
+    ctx.run.gold = def.buildCost + 17;
+
+    expect(buildAtPad(ctx, 0)).toBe(true);
+    expect(ctx.run.gold).toBe(17);
+    const built = structureAtPlayer(ctx);
+    expect(ctx.world.defIndex[built]).toBe(def.index);
+    expect(ctx.world.hp[built]).toBe(def.hp);
+  });
+
+  it('refuses when the purse is short, and leaves the pad empty', () => {
+    const { ctx, def } = withPad();
+    ctx.run.gold = def.buildCost - 1;
+
+    expect(buildAtPad(ctx, 0)).toBe(false);
+    expect(ctx.run.gold).toBe(def.buildCost - 1);
+    expect(padAtPlayer(ctx), 'still on offer').toBe(0);
+  });
+
+  it('refuses to sell a structure the map places itself', () => {
+    // The gate is architecture: buildCost 0 means it can never be bought,
+    // however the pad was authored.
+    const { ctx } = withPad('gate');
+    ctx.run.gold = 1e9;
+    expect(structureDef('gate')!.buildCost).toBe(0);
+    expect(buildAtPad(ctx, 0)).toBe(false);
+  });
+
+  it('frees the pad again when what stood on it falls', () => {
+    const { ctx, def } = withPad();
+    ctx.run.gold = def.buildCost;
+    buildAtPad(ctx, 0);
+    const built = structureAtPlayer(ctx);
+    expect(padAtPlayer(ctx)).toBe(-1);
+
+    // No bookkeeping runs on destruction: the pad holds a handle, and a handle
+    // stops resolving the moment its entity is gone. That is the whole rebuild
+    // loop between sieges.
+    damageStructure(ctx, built, 1e9);
+    ctx.world.flush();
+    expect(padAtPlayer(ctx), 'buildable again').toBe(0);
+  });
+
+  it('is reachable through the latched press, and builds only once per press', () => {
+    const { ctx, def } = withPad();
+    ctx.run.gold = def.buildCost * 4;
+
+    ctx.buildIntent = true;
+    updateBuilding(ctx);
+    expect(ctx.buildIntent).toBe(false);
+    expect(ctx.run.gold).toBe(def.buildCost * 3);
+
+    // A tick with no fresh press must not keep spending.
+    updateBuilding(ctx);
+    expect(ctx.run.gold).toBe(def.buildCost * 3);
+  });
+
+  it('upgrades what is standing rather than looking past it for a pad', () => {
+    const { ctx } = withPad();
+    ctx.run.gold = 1e9;
+    buildAtPad(ctx, 0);
+    const built = structureAtPlayer(ctx);
+    expect(ctx.world.tier[built]).toBe(0);
+
+    ctx.buildIntent = true;
+    updateBuilding(ctx);
+    expect(ctx.world.tier[built], 'the second press improved it').toBe(1);
+  });
+
+  it('ships pads on the bastion map, all of them buyable', () => {
+    const map = (bastionMap as { buildSites?: { type?: string }[] }).buildSites ?? [];
+    expect(map.length).toBeGreaterThan(0);
+    for (const site of map) {
+      const def = structureDef(site.type ?? 'tower');
+      expect(def, `unknown pad type ${site.type}`).not.toBeNull();
+      expect(def!.buildCost, `${site.type} pad is unbuyable`).toBeGreaterThan(0);
+    }
   });
 });
 

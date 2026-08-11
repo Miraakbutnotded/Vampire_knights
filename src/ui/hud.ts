@@ -54,6 +54,7 @@ export class Hud {
   private banner: HTMLElement;
   private structureRow: HTMLElement;
   private coachLine: HTMLElement;
+  private fortifyPrompt: HTMLElement;
   private structurePips: { wrap: HTMLElement; fill: HTMLElement }[] = [];
   private bloodWrap: HTMLElement;
   private bloodFill: HTMLElement;
@@ -130,6 +131,12 @@ export class Hud {
     this.banner.setAttribute('role', 'status');
     this.banner.setAttribute('aria-live', 'polite');
     this.structureRow = el('div', 'structure-pips');
+    this.fortifyPrompt = el('div', 'fortify-prompt');
+    // Announced politely: it appears and vanishes as the player walks past a
+    // pad, and an assertive live region would interrupt on every step.
+    this.fortifyPrompt.setAttribute('role', 'status');
+    this.fortifyPrompt.setAttribute('aria-live', 'polite');
+
     this.coachLine = el('div', 'coach-line');
     this.coachLine.setAttribute('role', 'status');
     this.coachLine.setAttribute('aria-live', 'polite');
@@ -192,6 +199,7 @@ export class Hud {
       this.bloodWrap,
       this.banner,
       this.structureRow,
+      this.fortifyPrompt,
       this.coachLine,
     );
   }
@@ -212,6 +220,33 @@ export class Hud {
 
   hideCoach(): void {
     this.coachLine.classList.remove('show');
+  }
+
+  /**
+   * The build/upgrade offer for whatever the player is standing at.
+   *
+   * Driven every frame from what the world says rather than from an event,
+   * because it answers "where am I" — walking one step off a pad has to clear
+   * it, and there is no event for not being somewhere.
+   *
+   * `affordable` only dims it. The price stays on screen either way, so a
+   * player who cannot pay learns what to save for instead of watching a key do
+   * nothing.
+   */
+  showFortify(label: string, cost: number, affordable: boolean): void {
+    // keyHint, not a bespoke span: `.coarse .key-hint` is already display:none,
+    // so the letter disappears on the device where a keyboard is not the way in.
+    // Touch still needs its own control for this — see the note in game.ts.
+    this.fortifyPrompt.replaceChildren(
+      keyHint('F'),
+      document.createTextNode(` ${label} — ${cost}g`),
+    );
+    this.fortifyPrompt.classList.toggle('short', !affordable);
+    this.fortifyPrompt.classList.add('show');
+  }
+
+  hideFortify(): void {
+    this.fortifyPrompt.classList.remove('show');
   }
 
   setVisible(visible: boolean): void {

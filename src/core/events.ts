@@ -94,6 +94,8 @@ export interface GameEvents {
   'ability:used': { name: string; kind: string; cooldown: number };
   'ability:ready': undefined;
   'structure:damaged': { hp: number; maxHp: number; index: number };
+  'structure:built': { name: string; cost: number; index: number };
+  'structure:upgraded': { name: string; tier: number; maxTier: number; cost: number; index: number };
   'structure:destroyed': { name: string; remaining: number; index: number };
   'siege:started': { duration: number };
   'siege:defended': { gold: number };

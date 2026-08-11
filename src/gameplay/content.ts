@@ -221,6 +221,11 @@ export interface StructureDef {
   /** Gold paid out when a siege ends with this structure alive. */
   gold: number;
   /**
+   * Gold to raise one on an empty pad. Zero means this structure is placed by
+   * the map only and can never be bought — a gate is architecture, not kit.
+   */
+  buildCost: number;
+  /**
    * Firing radius. Zero — the default — means a passive structure that never
    * shoots, which is the whole armed/unarmed switch: gates and shrines omit
    * every field below and behave exactly as they did before towers existed.
@@ -233,6 +238,107 @@ export interface StructureDef {
   projectileSpeed: number;
   projectileLifetime: number;
   projectileSprite: string;
+
+  /**
+   * What each paid tier adds, in order. Additive deltas on the base numbers,
+   * exactly like a weapon's `levels` — the same shape for the same reason, so
+   * appending an entry raises the ceiling with no code change.
+   */
+  upgrades: StructureUpgrade[];
+  /** Highest tier this structure can reach. `upgrades.length`, implicitly. */
+  maxTier: number;
+}
+
+/** One paid step up a structure's track. */
+export interface StructureUpgrade {
+  /** Gold this step costs. Spent from the run's purse, not the wallet. */
+  cost: number;
+  hp: number;
+  range: number;
+  shootInterval: number;
+  projectileDamage: number;
+  projectileSpeed: number;
+  /** Shown on the prompt, so write it for the player. */
+  note: string;
+}
+
+/**
+ * A structure's numbers at a given tier.
+ *
+ * Deltas accumulate, and a tier past the ceiling clamps rather than continuing
+ * to stack — the same contract as `weaponStatsAtLevel`, so a caller that has
+ * over-counted gets the max rather than nonsense.
+ */
+export function structureStatsAtTier(
+  def: StructureDef,
+  tier: number,
+): { hp: number; range: number; shootInterval: number; projectileDamage: number; projectileSpeed: number } {
+  const stats = {
+    hp: def.hp,
+    range: def.range,
+    shootInterval: def.shootInterval,
+    projectileDamage: def.projectileDamage,
+    projectileSpeed: def.projectileSpeed,
+  };
+  const steps = Math.min(Math.max(0, Math.floor(tier)), def.maxTier);
+  for (let i = 0; i < steps; i++) {
+    const up = def.upgrades[i]!;
+    stats.hp += up.hp;
+    stats.range += up.range;
+    stats.shootInterval += up.shootInterval;
+    stats.projectileDamage += up.projectileDamage;
+    stats.projectileSpeed += up.projectileSpeed;
+  }
+  // A tier that bought its way to an instant-fire tower would divide by zero in
+  // the fire timer; the floor is the same one normalizeStructures applies.
+  stats.shootInterval = Math.max(0.05, stats.shootInterval);
+  stats.range = Math.max(0, stats.range);
+  stats.projectileDamage = Math.max(0, stats.projectileDamage);
+  return stats;
+}
+
+/** Cost of the next tier, or -1 when the structure is already maxed. */
+export function upgradeCost(def: StructureDef, tier: number): number {
+  if (tier >= def.maxTier) return -1;
+  return def.upgrades[tier]!.cost;
+}
+
+/**
+ * Reads a structure's upgrade track, dropping any step that cannot be paid for.
+ *
+ * Warn-don't-throw, like the rest of the pipeline: a step with no positive cost
+ * would be a free upgrade, which is a content mistake rather than a design, and
+ * losing that one step is cheaper than losing the structure. Everything after a
+ * dropped step is kept — the track is a list of deltas, not a chain.
+ */
+function normalizeUpgrades(id: string, raw: unknown): StructureUpgrade[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    console.warn(`[content] structure "${id}" has a non-array upgrades block; ignored`);
+    return [];
+  }
+  const out: StructureUpgrade[] = [];
+  for (const step of raw as Record<string, unknown>[]) {
+    const n = (key: string, fallback: number): number => {
+      const v = step[key];
+      return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+    };
+    const cost = n('cost', 0);
+    if (cost <= 0) {
+      console.warn(`[content] structure "${id}" has an upgrade with no cost; step dropped`);
+      continue;
+    }
+    out.push({
+      cost: Math.round(cost),
+      hp: n('hp', 0),
+      range: n('range', 0),
+      shootInterval: n('shootInterval', 0),
+      projectileDamage: n('projectileDamage', 0),
+      projectileSpeed: n('projectileSpeed', 0),
+      note: typeof step['note'] === 'string' ? (step['note'] as string) : '',
+    });
+  }
+  return out;
 }
 
 function normalizeStructures(): { list: StructureDef[]; byId: Map<string, StructureDef> } {
@@ -259,6 +365,7 @@ function normalizeStructures(): { list: StructureDef[]; byId: Map<string, Struct
       radius: Math.max(1, num('radius', 12)),
       solid: def['solid'] === true,
       gold: Math.max(0, num('gold', 20)),
+      buildCost: Math.max(0, num('buildCost', 0)),
       range: Math.max(0, num('range', 0)),
       // Clamped away from zero even on a passive structure: a half-written
       // content entry must never divide by zero or fire every tick.
@@ -267,7 +374,10 @@ function normalizeStructures(): { list: StructureDef[]; byId: Map<string, Struct
       projectileSpeed: Math.max(1, num('projectileSpeed', 180)),
       projectileLifetime: Math.max(0.1, num('projectileLifetime', 1.2)),
       projectileSprite: str('projectileSprite', 'proj_bolt'),
+      upgrades: normalizeUpgrades(id, def['upgrades']),
+      maxTier: 0,
     };
+    entry.maxTier = entry.upgrades.length;
 
     list.push(entry);
     byId.set(id, entry);

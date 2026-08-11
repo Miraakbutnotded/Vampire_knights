@@ -646,6 +646,10 @@
       "bob": 1
     }
   },
+  "structure_pad": {
+    "origin": [0.5, 0.5],
+    "placeholder": { "shape": "ring", "color": "#8a6a34", "accent": "#d4a15a", "size": 22, "bob": 0 }
+  },
   "structure_gate": {
     "origin": [
       0.5,
