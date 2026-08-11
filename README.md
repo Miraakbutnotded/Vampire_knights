@@ -488,9 +488,22 @@ from exactly that, so it can never advertise a siege that doesn't happen.
   "projectileDamage": 14,
   "projectileSpeed": 190,
   "projectileLifetime": 1.2,
-  "projectileSprite": "proj_bolt"
+  "projectileSprite": "proj_bolt",
+  "buildCost": 120,       // gold to raise one on a pad; 0 = map-placed only
+  "upgrades": [
+    { "cost": 70,  "hp": 60, "projectileDamage": 8, "note": "Heavier bolts." },
+    { "cost": 180, "shootInterval": -0.35, "projectileDamage": 8, "note": "Twin windlass." }
+  ]
 }
 ```
+
+**`upgrades` entries are additive deltas** on the numbers above, exactly like a weapon's `levels` —
+append one and the ceiling rises on its own. Each carries the `cost` of reaching it, and a step with
+no positive cost is dropped with a warning rather than handed out free. `note` is what the player
+reads, so write it for them.
+
+**`buildCost: 0` means the structure can never be bought**, however a map authors its pads. That is
+how a gate stays architecture rather than something you shop for.
 
 **`range` is the whole armed/unarmed switch.** Omit it and the structure never shoots; gates and
 shrines leave out every field below it and behave exactly as they did before towers existed.
@@ -567,6 +580,22 @@ map ships a `structures` array, so it can never advertise a siege the map does n
 
 Hand-placed, like `props`. Pair it with a wave table that declares `sieges` — the structures are what
 gets attacked, the wave table is what schedules the attack, and each is inert without the other.
+
+```jsonc
+"buildSites": [
+  { "type": "tower", "x": -150, "y": -140 },   // type defaults to "tower"
+  { "type": "shrine", "x": -60, "y": 0 }
+]
+```
+
+**Build pads** are places the map *allows* a defence rather than defences themselves. Walk onto one
+in a run and press `F` to raise what it offers, paying that structure's `buildCost` out of the gold
+you would otherwise bank. Walk back later and the same key buys the next tier of whatever is standing
+there. A pad whose structure falls becomes buildable again on its own, so holding a line across
+several sieges means rebuilding it.
+
+A structure with `buildCost: 0` — the gate — can never be bought, however a pad is authored: it is
+architecture the map places, not kit for sale.
 
 Two ground modes:
 

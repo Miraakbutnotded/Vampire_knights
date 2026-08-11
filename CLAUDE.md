@@ -144,6 +144,35 @@ ability's `abilityMods` — and runs only on a state change (loadout, buff start
   Towers shoot from `TOWER_STATS`, built from `WEAPON_STAT_DEFAULTS` and **never** `effectiveStats()`
   — a passive or Frenzy multiplier reaching a tower turns terrain into part of the build.
 
+### Building and upgrading (`structures.ts`)
+
+The player walks to a structure or an empty pad and presses **F**; `ctx.buildIntent` is the latch,
+consumed by `updateBuilding` on the next sim tick, exactly like `bloodIntent` and `abilityQueued` and
+for the same reason. The character's own position is the cursor — nothing this ships to has a mouse.
+
+- **A standing structure outranks a pad.** Once a pad is filled the structure's radius covers it, so
+  the player cannot step off one without the other; `updateBuilding` resolves that by checking
+  `structureAtPlayer` first.
+- **A pad remembers its structure by handle, never by id.** Ids are recycled, so a raw id eventually
+  resolves to whatever squats on the slot. A handle stops resolving the moment its entity dies —
+  which is the whole reason a fallen tower frees its own pad with no bookkeeping in
+  `destroyStructure`. Rebuild-between-sieges came out of the data model, not out of code.
+- **`fireTower` reads the entity's tier, never the def** (`structureStatsAtTier`). Reading the def
+  would make every upgrade silently cosmetic, and two towers of one type must diverge the moment one
+  is paid for. `world.tier` is the per-entity store.
+- **Upgrades are additive deltas carrying their own `cost`**, the same shape as a weapon's `levels`,
+  so appending an entry raises the ceiling with no code change. A tier tops health up by exactly what
+  it added rather than refilling: upgrading is hardware, never a repair.
+- **`buildCost: 0` means the map places it and it is not for sale.** A gate is architecture, not kit.
+  `fortifyOffer()` in game.ts is the single answer to "what would F do", feeding both the HUD prompt
+  and the F3 line, so the prompt can never advertise something the key would refuse.
+
+Spending comes out of `run.gold` — the purse banked at the end — so a defence is paid for out of the
+meta-progression the player was saving. That trade is the design, not an implementation detail.
+
+**Known gap: touch cannot fortify.** The key hint is `display:none` on `.coarse` and the thumb
+cluster has no button for it, so the mechanic is unreachable on a phone.
+
 ### Corpses (`Kind.Corpse`)
 
 A killed enemy leaves a body that plays a death animation and is then gone —
