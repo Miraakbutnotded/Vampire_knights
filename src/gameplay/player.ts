@@ -1,5 +1,6 @@
 import { AnimState, Comp, Kind } from '../ecs/components.ts';
 import type { Input } from '../core/input.ts';
+import { screenDirToWorld } from '../render/iso.ts';
 import { BLOOD_CONFIG } from './content.ts';
 import type { Ctx } from './context.ts';
 
@@ -33,15 +34,21 @@ export function updatePlayer(ctx: Ctx, dt: number, input: Input): void {
   // Frenzy movement bonus is read-side, same rule as effectiveStats.
   const frenzySpeed = run.frenzyT > 0 ? BLOOD_CONFIG.frenzy.moveSpeedMult : 1;
   const speed = run.stats.moveSpeed * frenzySpeed;
-  const vx = input.axisX * speed;
-  const vy = input.axisY * speed;
+  // The keys and the joystick are read in the frame the player can see, so they
+  // are rotated onto the plane before they become velocity. Feeding the raw
+  // axes straight in is what made every direction come out diagonal.
+  const [dirX, dirY] = screenDirToWorld(input.axisX, input.axisY);
+  const vx = dirX * speed;
+  const vy = dirY * speed;
   world.vx[id] = vx;
   world.vy[id] = vy;
 
   const moving = vx !== 0 || vy !== 0;
   if (moving) {
-    ctx.aimX = input.axisX;
-    ctx.aimY = input.axisY;
+    // Aim is a world direction — directional weapons fire along it, and they
+    // live on the plane, not on the screen.
+    ctx.aimX = dirX;
+    ctx.aimY = dirY;
     // Only flip on horizontal input, so walking straight up or down keeps
     // whichever way the sprite was already facing.
     if (input.axisX !== 0) world.facing[id] = input.axisX < 0 ? -1 : 1;

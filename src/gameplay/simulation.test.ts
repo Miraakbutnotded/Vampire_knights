@@ -1304,9 +1304,15 @@ describe('blood economy', () => {
     harness.run(FIXED_DT); // consume the intent; frenzy is now active
 
     const x0 = world.x[ctx.player]!;
+    const y0 = world.y[ctx.player]!;
     harness.run(FIXED_DT, stubInput(1, 0));
-    const dx = world.x[ctx.player]! - x0;
-    expect(dx).toBeCloseTo(
+    // Distance, not the x component. Input arrives in screen space and is
+    // rotated onto the plane before it becomes velocity, so a single screen
+    // axis lands on both world axes — measuring x alone would report the speed
+    // short by cos(45) and say nothing about frenzy either way. Speed is what
+    // this test is about, and speed is projection-independent.
+    const travelled = Math.hypot(world.x[ctx.player]! - x0, world.y[ctx.player]! - y0);
+    expect(travelled).toBeCloseTo(
       ctx.run.stats.moveSpeed * BLOOD_CONFIG.frenzy.moveSpeedMult * FIXED_DT,
       5,
     );

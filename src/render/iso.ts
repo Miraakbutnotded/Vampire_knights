@@ -79,6 +79,28 @@ export function worldY(sx: number, sy: number): number {
 }
 
 /**
+ * A screen-space input direction as a world-space unit vector.
+ *
+ * The player is looking at a projected plane, so their input is given in the
+ * frame they can see: pressing "down" has to mean down the screen. On this
+ * plane that is not the world's y axis — down the screen is the diagonal
+ * between +x and +y — so raw key axes have to be rotated before they become
+ * velocity, or every key sends the character off at forty-five degrees.
+ *
+ * Normalised after the rotation, because the two screen axes cover different
+ * world distances: the squash means one pixel down the screen is twice as much
+ * world as one pixel across it, and using the raw result would make walking
+ * vertically far faster than walking sideways.
+ */
+export function screenDirToWorld(sx: number, sy: number): [number, number] {
+  if (sx === 0 && sy === 0) return [0, 0];
+  const wx = (sx / SX + sy / SY) / 2;
+  const wy = (sy / SY - sx / SX) / 2;
+  const len = Math.hypot(wx, wy);
+  return len > 0 ? [wx / len, wy / len] : [0, 0];
+}
+
+/**
  * The world-space bounding box of a screen-space rect.
  *
  * A screen rectangle unprojects to a diamond, and a diamond's bounding box is
