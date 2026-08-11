@@ -661,6 +661,11 @@ A few decisions worth knowing before you extend it:
 - **Fixed 480×270 internal buffer**, nearest-neighbour upscaled to the window. Pixel art stays crisp,
   and every player sees exactly the same amount of the arena — how much you can see is a difficulty
   knob in this genre, so it shouldn't depend on monitor size.
+- **The view is isometric; the simulation is flat.** Everything in `gameplay/` works on a 2D plane,
+  and `render/iso.ts` is the only file that knows the world is drawn on the diagonal. That split is
+  what let the whole view change without touching a single gameplay system. Ground tiles are skewed
+  into diamonds by the projection — so square tile art needs no redrawing — while sprites stay
+  upright, because isometric means upright things standing on a slanted floor.
 - **Structure-of-arrays entities**, not objects. Hot data lives in parallel typed arrays so the inner
   loops run over contiguous memory; this is what lets several thousand entities coexist.
 - **Spatial hash broadphase**, rebuilt twice per tick — once before enemies move for crowd separation

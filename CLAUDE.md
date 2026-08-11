@@ -193,8 +193,42 @@ World renders into a fixed 480×270 offscreen buffer, nearest-neighbour upscaled
 `begin()`, `imageSmoothingEnabled=false` re-set defensively after any canvas resize. Interpolation
 happens in `game.ts` (`lerp(prevX, x, alpha)`) before `renderer.queue()` — the renderer never sees
 raw sim positions. Draw order per frame: ground → particles → depth-sorted sprite queue
-(`flushSprites()` once, after all queues; depth defaults to y for feet-on-ground sorting) → damage
-numbers → `present()`.
+(`flushSprites()` once, after all queues; depth defaults to `isoDepth` = `x + y`) → damage numbers →
+`present()`.
+
+**The view is isometric, and `src/render/iso.ts` is the only module that knows it.** Gameplay is
+flat: every system in `gameplay/` reasons about a 2D plane — distances, radii, the spatial hash,
+knockback — and none of it changed when the view did, because an isometric view is a *projection*,
+not a different simulation. Callers hand world positions to `queue()` and it projects on the way in.
+
+Four rules fall out of that, and each one is a bug if you get it backwards:
+
+- **The projection is never in the canvas transform.** It is affine, so it could be, but a context
+  matrix would shear the sprites along with the floor. Isometric is upright art standing on a slanted
+  plane: positions project, art does not. `begin()` therefore projects the *camera* and leaves the
+  transform a plain translate.
+- **Ground textures *are* skewed**, because a tile lies on the plane. `tilemap` draws each square
+  tile PNG through `setTransform(ISO_SX, ISO_SY, -ISO_SX, ISO_SY, …)`, which lands it as the diamond
+  it actually occupies — which is why no tile art had to be redrawn. A cached chunk is the bounding
+  box of its rhombus and is transparent in the corners, so the void is painted once across the buffer
+  rather than by each chunk.
+- **Ground-plane sprites pass `ground: true`.** Auras, pools, rings and sweeps are the art whose
+  drawn edge *is* its collider; upright, they would draw a circle over a world region that is really
+  an ellipse and the hitbox would visibly lie. Hazards get it; an orbiting hazard does not, being an
+  object in the air.
+- **The visible region is a diamond, not a rectangle.** Anything asking "is this on screen" must
+  project and test — `renderer.onScreen()` — rather than compare world coordinates. That already
+  caught sprite culling, the camera's clamp to map bounds, the off-screen siege markers, and
+  `withinEngagement`, which is the *gameplay* rule that you may only hit what you can see.
+  `visibleBounds()` returns the world **bounding box** of that diamond, deliberately generous, for
+  callers that iterate world cells.
+
+Input is affected too: WASD arrives in the frame the player is looking at, so `screenDirToWorld`
+rotates it onto the plane before it becomes velocity. Feeding the raw axes in makes every key walk
+diagonally.
+
+Known gap: characters and enemies are single front-facing sprites flipped by `facing`, so walking
+north-west still shows a front view. Eight-direction art is the outstanding cost of the projection.
 
 Zero-allocation-per-frame is a core constraint: DrawList and Fx pools are fixed-capacity SoA typed
 arrays that silently drop overflow (768 particles, 160 numbers). Don't replace with growable arrays.
