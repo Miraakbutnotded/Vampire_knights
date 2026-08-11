@@ -1,6 +1,12 @@
 import { Comp, Kind, Team } from '../ecs/components.ts';
 import { fxRng } from '../core/rng.ts';
-import { WEAPON_STAT_DEFAULTS, structureDefByIndex, structureStatsAtTier, upgradeCost } from './content.ts';
+import {
+  WEAPON_STAT_DEFAULTS,
+  isWall,
+  structureDefByIndex,
+  structureStatsAtTier,
+  upgradeCost,
+} from './content.ts';
 import { nearestEnemy, spawnProjectile } from './weapons.ts';
 import type { StructureDef, WeaponStats } from './content.ts';
 import type { Ctx } from './context.ts';
@@ -164,8 +170,15 @@ export function upgradeStructure(ctx: Ctx, id: number): boolean {
  * point.
  */
 const REPAIR_BELOW = 0.75;
-/** Gold per point of health put back. Cheaper than buying that health as a tier. */
-const REPAIR_PER_HP = 0.35;
+/**
+ * Gold per point of health put back. Cheaper than buying that health as a tier.
+ *
+ * Priced against the *scale walls are built at*, not against a mob's health
+ * bar: a gate carries thousands of points because it eats a whole siege, so a
+ * per-point rate tuned for a 300-hp wall would make one full repair cost more
+ * gold than a run earns all night.
+ */
+const REPAIR_PER_HP = 0.08;
 
 /** Whether this structure is hurt enough to be offered a repair. */
 export function needsRepair(ctx: Ctx, id: number): boolean {
@@ -395,7 +408,7 @@ function destroyStructure(ctx: Ctx, id: number): void {
   // Only walls are scored. An emplacement is hardware you spend defending them,
   // so losing one costs its guns and nothing more — otherwise arming a map
   // would raise its difficulty ceiling as a side effect of the placement.
-  if (def.range === 0) run.wallsLost++;
+  if (isWall(def)) run.wallsLost++;
   fx.shockwave(x, y, '#c9a86a', 0.7, 14);
   fx.burst(x, y, 24, 110, '#8a7a66', 0.7, 2);
   ctx.camera.shake(4, 0.4);
@@ -404,10 +417,18 @@ function destroyStructure(ctx: Ctx, id: number): void {
   // destroy() only marks dead, so count survivors by aliveness, never by
   // list length — the list still holds this id until flush().
   let remaining = 0;
+  let wallsRemaining = 0;
   for (const sid of world.list(Kind.Structure)) {
-    if (world.isAlive(sid)) remaining++;
+    if (!world.isAlive(sid)) continue;
+    remaining++;
+    if (isWall(structureDefByIndex(world.defIndex[sid]!))) wallsRemaining++;
   }
-  bus.emit('structure:destroyed', { name: def.name, remaining, index: world.aiPhase[id]! });
+  bus.emit('structure:destroyed', {
+    name: def.name,
+    remaining,
+    wallsRemaining,
+    index: world.aiPhase[id]!,
+  });
 }
 
 /**

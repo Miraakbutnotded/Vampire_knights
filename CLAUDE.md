@@ -144,6 +144,25 @@ ability's `abilityMods` — and runs only on a state change (loadout, buff start
   Towers shoot from `TOWER_STATS`, built from `WEAPON_STAT_DEFAULTS` and **never** `effectiveStats()`
   — a passive or Frenzy multiplier reaching a tower turns terrain into part of the build.
 
+**Walls vs. emplacements** is the one distinction the whole defence layer hangs off, and it is
+*derived*, not declared: `isWall(def)` in content.ts is `def.range === 0`. A structure that cannot
+shoot is the objective; one that can is hardware you spend defending it. Three separate systems read
+that same predicate and must never disagree — the spawner (a siege marches on walls and walks past
+emplacements, falling back to anything only when no wall stands), `destroyStructure` (only walls
+score `wallsLost`), and game.ts (`wallsRemaining === 0` ends the run). Deriving it means a new
+structure cannot forget to say which it is; arming a shrine also demotes it out of the objective,
+which is the honest reading of an emplacement that shoots back.
+
+That split is load-bearing for the *economy*, not just the bookkeeping. Because a siege never targets
+a tower while a wall stands, a built tower survives the night and draws its `gold` bounty at the end
+of every window it lives through — so building early pays back over more sieges than building late,
+which is the reason to spend the first purse instead of banking it. It also means walls absorb 100%
+of siege damage, which is why they are sized in thousands of HP where a tower is sized in hundreds.
+**Retuning either side alone breaks the other**: concentrating a 10-attacker siege onto 480 HP of
+wall ends a bastion run at 2:18, and a 10-DPS tower against 138 DPS of incoming is decorative.
+`resolveSiege` pays **per surviving structure**, scaled by the attackers the window sent, so the
+purse is what you held; the chest stays one per siege so weapon pacing is unaffected.
+
 ### How a run ends
 
 Three exits, and which ones exist depends on whether the map has an objective:
@@ -152,13 +171,15 @@ Three exits, and which ones exist depends on whether the map has an objective:
 | --- | --- | --- |
 | clock reaches `victorySeconds` | victory | victory |
 | player health hits zero | **defeat** | **knockdown** — the run continues |
-| every structure destroyed | *(cannot happen)* | **defeat** |
+| every **wall** destroyed | *(cannot happen)* | **defeat** |
 
-The objective loss is one subscription in game.ts: `structure:destroyed` carries `remaining`, and
-`remaining === 0` calls `loseObjective()`. It is **self-gating** — the event only fires when
-something is destroyed, so a map that never raised a structure can never reach zero, and the
-survival maps need no exemption. Adding structures to a map arms it in the same edit, exactly as the
-picker derives its DEFEND tag.
+The objective loss is one subscription in game.ts: `structure:destroyed` carries both `remaining`
+and `wallsRemaining`, and **`wallsRemaining === 0`** calls `loseObjective()`. The event carries both
+because they are different questions and confusing them is a live bug in either direction — reading
+`remaining` keeps a run alive on the strength of a watchtower standing in the ruins. It is
+**self-gating** — the event only fires when something is destroyed, so a map that never raised a wall
+can never reach zero, and the survival maps need no exemption. Adding structures to a map arms it in
+the same edit, exactly as the picker derives its DEFEND tag.
 
 That loss goes straight to the results screen rather than through `beginDeath`: the player is alive
 and standing, and the `dying` state exists only to give a death animation its time.
@@ -432,7 +453,8 @@ directly.
 - **New ability**: a block on a character in `characters.json`; a new *kind* means adding to
   `AbilityKind` (content.ts, which whitelists it for JSON validation) plus a case in `abilities.ts`.
 - **New structure**: an entry in `structures.json` plus a `structures` array on the map. A positive
-  `range` arms it (`Comp.Shooter`); `0` makes it a passive wall.
+  `range` arms it (`Comp.Shooter`) *and* makes it hardware rather than objective; `0` makes it a
+  passive wall the run is lost without. There is no second flag — see `isWall`.
 - **New unlock signal** (what a character's `unlock.requirement` may measure): add to the
   `UnlockSignal` const in content.ts (this whitelists it for JSON validation) **and** emit it from
   `featDelta` in `services/feats.ts`. The two lists are duplicated rather than imported because

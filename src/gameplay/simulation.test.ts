@@ -8,6 +8,7 @@ import { AnimState, Behavior, Comp, Kind, Team } from '../ecs/components.ts';
 import { World } from '../ecs/world.ts';
 import bastionMap from '../content/maps/bastion.json';
 import spritesJson from '../content/sprites.json';
+import structuresJson from '../content/structures.json';
 import wavesJson from '../content/waves.json';
 import { Camera } from '../render/camera.ts';
 import { Fx } from '../render/fx.ts';
@@ -28,6 +29,7 @@ import {
   characterDef,
   enemyDef,
   enemyDefByIndex,
+  isWall,
   linkEvolutions,
   metaNodeDef,
   normalizeAbility,
@@ -2327,18 +2329,26 @@ describe('castle defense', () => {
     // gate, shrine, tower — the count tripwire for structures.json.
     expect(STRUCTURE_LIST).toHaveLength(3);
 
+    // Compared against the JSON rather than a copy of its current numbers —
+    // walls are retuned by balance passes, and normalization is what this is
+    // testing. The structural claims (index order, the solid split, wallness)
+    // are the ones a tuning pass must never move.
     const gate = structureDef('gate')!;
     expect(gate).not.toBeNull();
-    expect(gate.name).toBe('Bastion Gate');
-    expect(gate.hp).toBe(300);
-    expect(gate.radius).toBe(14);
+    expect(gate.name).toBe(structuresJson.gate.name);
+    expect(gate.hp).toBe(structuresJson.gate.hp);
+    expect(gate.radius).toBe(structuresJson.gate.radius);
     expect(gate.solid).toBe(true);
-    expect(gate.gold).toBe(25);
+    expect(gate.gold).toBe(structuresJson.gate.gold);
     expect(gate.index).toBe(0);
 
     const shrine = structureDef('shrine')!;
     expect(shrine.solid).toBe(false);
-    expect(shrine.gold).toBe(40);
+    expect(shrine.gold).toBe(structuresJson.shrine.gold);
+
+    // Both are the objective; only the tower is hardware.
+    expect(isWall(gate)).toBe(true);
+    expect(isWall(shrine)).toBe(true);
 
     // Unknown id: warn-don't-throw, null return — the caller skips the spawn.
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -2395,11 +2405,16 @@ describe('castle defense', () => {
     // Only the gate is solid; the shrine is walk-through.
     expect(ctx.map.solids).toHaveLength(1);
 
-    const destroyed: { name: string; remaining: number; index: number }[] = [];
+    const destroyed: GameEvents['structure:destroyed'][] = [];
     ctx.bus.on('structure:destroyed', (e) => destroyed.push(e));
     damageStructure(ctx, gateId, gate.hp);
 
-    expect(destroyed).toEqual([{ name: 'Bastion Gate', remaining: 1, index: 0 }]);
+    // The surviving shrine is a wall too, so both counts agree here. They part
+    // company the moment a tower is up, which the next test is about.
+    expect(destroyed).toEqual([
+      { name: gate.name, remaining: 1, wallsRemaining: 1, index: 0 },
+    ]);
+    expect(destroyed[0]!.remaining).toBe(destroyed[0]!.wallsRemaining);
     expect(ctx.run.structuresLost).toBe(1);
     // Gate breach opens the wall: the solid is disabled in place, not spliced.
     expect(ctx.map.solids).toHaveLength(1);
@@ -2408,6 +2423,108 @@ describe('castle defense', () => {
     expect(ctx.world.isAlive(gateId)).toBe(false);
     ctx.world.flush();
     expect(ctx.world.list(Kind.Structure)).toHaveLength(1);
+  });
+
+  it('counts walls and hardware separately, so a tower cannot prop up a lost run', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const gateId = spawnStructure(ctx, structureDef('gate')!, 80, 0);
+    spawnStructure(ctx, structureDef('tower')!, -80, 0);
+
+    const destroyed: GameEvents['structure:destroyed'][] = [];
+    ctx.bus.on('structure:destroyed', (e) => destroyed.push(e));
+
+    damageStructure(ctx, gateId, 1e9);
+
+    // The last wall is down while a tower still stands. game.ts ends the run on
+    // wallsRemaining, so these two numbers disagreeing here is the whole point:
+    // reading `remaining` would keep a run alive with nothing left to defend.
+    expect(destroyed).toEqual([
+      expect.objectContaining({ remaining: 1, wallsRemaining: 0 }),
+    ]);
+    expect(ctx.run.wallsLost).toBe(1);
+  });
+
+  it('does not end a run for losing hardware — only walls are the objective', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    spawnStructure(ctx, structureDef('gate')!, 80, 0);
+    const towerId = spawnStructure(ctx, structureDef('tower')!, -80, 0);
+
+    const destroyed: GameEvents['structure:destroyed'][] = [];
+    ctx.bus.on('structure:destroyed', (e) => destroyed.push(e));
+
+    damageStructure(ctx, towerId, 1e9);
+
+    expect(destroyed).toEqual([
+      expect.objectContaining({ remaining: 1, wallsRemaining: 1 }),
+    ]);
+    // Losing an emplacement costs its guns and nothing else — not a wall on the
+    // scoreboard, and not the difficulty penalty that comes with one.
+    expect(ctx.run.structuresLost).toBe(1);
+    expect(ctx.run.wallsLost).toBe(0);
+  });
+
+  it('marches a siege on the walls and walks past the towers defending them', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    world.hp[ctx.player] = 1e9;
+    // Player parked well clear, or PEEL_DISTANCE pulls the attackers off.
+    world.place(ctx.player, 0, -900);
+
+    // The tower sits between the spawn ring and the gate: strictly nearer to
+    // every attacker, and still not what they march on.
+    const gateId = spawnStructure(ctx, structureDef('gate')!, 700, 0);
+    const towerId = spawnStructure(ctx, structureDef('tower')!, 380, 0);
+    ctx.wave = {
+      ...waveTable('default'),
+      stages: [],
+      elites: null,
+      bosses: [],
+      sieges: [{ at: 1, type: 'zombie', count: 6, duration: 40 }],
+    };
+
+    harness.run(3);
+
+    const gateHandle = world.handleOf(gateId);
+    const towerHandle = world.handleOf(towerId);
+    const targets = world
+      .list(Kind.Enemy)
+      .map((id) => world.targetHandle[id]!)
+      .filter((h) => h >= 0);
+    expect(targets.length).toBeGreaterThan(0);
+    expect(targets.every((h) => h === gateHandle)).toBe(true);
+    expect(targets).not.toContain(towerHandle);
+  });
+
+  it('falls back to whatever stands when a map has no wall left to march on', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    world.hp[ctx.player] = 1e9;
+    world.place(ctx.player, 0, -900);
+
+    // Hardware only. Without a fallback these attackers would mill about with
+    // no target at all, which is a stall rather than a siege.
+    const towerId = spawnStructure(ctx, structureDef('tower')!, 700, 0);
+    ctx.wave = {
+      ...waveTable('default'),
+      stages: [],
+      elites: null,
+      bosses: [],
+      sieges: [{ at: 1, type: 'zombie', count: 4, duration: 40 }],
+    };
+
+    harness.run(3);
+
+    const towerHandle = world.handleOf(towerId);
+    const targets = world
+      .list(Kind.Enemy)
+      .map((id) => world.targetHandle[id]!)
+      .filter((h) => h >= 0);
+    expect(targets.length).toBeGreaterThan(0);
+    expect(targets.every((h) => h === towerHandle)).toBe(true);
   });
 
   it('runs structures through the tick with hit-flash decay and free interpolation', () => {
@@ -2642,15 +2759,81 @@ describe('castle defense', () => {
       sieges: [{ at: 1, type: 'zombie', count: 1, duration: 5 }],
     };
 
-    const defended: { gold: number }[] = [];
+    const defended: { gold: number; held: number }[] = [];
     ctx.bus.on('siege:defended', (e) => defended.push(e));
 
     harness.run(8); // window opens at 1s, closes at 6s; the lone zombie never reaches the gate
 
-    expect(defended).toEqual([{ gold: structureDef('gate')!.gold }]);
+    // One attacker, so the size bounty is 1 + 1/20 on the gate's own value.
+    expect(defended).toEqual([{ gold: Math.round(structureDef('gate')!.gold * 1.05), held: 1 }]);
     const pickups = world.list(Kind.Pickup).map((id) => world.defIndex[id]);
     expect(pickups).toContain(PickupKind.Chest);
     expect(pickups).toContain(PickupKind.Coin);
+  });
+
+  it('pays every wall that survived, so the purse is what you held', () => {
+    const harness = makeHarness();
+    const { ctx } = harness;
+    const world = ctx.world;
+    world.hp[ctx.player] = 1e9;
+    world.place(ctx.player, -400, 0);
+
+    // Three walls up; one of them will not see the end of the window.
+    spawnStructure(ctx, structureDef('gate')!, 300, 0);
+    spawnStructure(ctx, structureDef('tower')!, 300, 60);
+    const doomed = spawnStructure(ctx, structureDef('tower')!, 300, 120);
+    ctx.wave = {
+      ...waveTable('default'),
+      stages: [],
+      elites: null,
+      bosses: [],
+      sieges: [{ at: 1, type: 'zombie', count: 1, duration: 5 }],
+    };
+    const defended: { gold: number; held: number }[] = [];
+    ctx.bus.on('siege:defended', (e) => defended.push(e));
+
+    harness.run(2);
+    damageStructure(ctx, doomed, 1e9);
+    harness.run(6);
+
+    const bounty = 1.05;
+    const expected =
+      Math.round(structureDef('gate')!.gold * bounty) +
+      Math.round(structureDef('tower')!.gold * bounty);
+    expect(defended).toEqual([{ gold: expected, held: 2 }]);
+
+    // The wall that fell paid nothing, but the two that stood each paid — that
+    // difference is the entire incentive to defend rather than to kite.
+    const coins = world
+      .list(Kind.Pickup)
+      .filter((id) => world.defIndex[id] === PickupKind.Coin);
+    expect(coins).toHaveLength(2);
+    // Still exactly one chest, however many walls survived.
+    const chests = world
+      .list(Kind.Pickup)
+      .filter((id) => world.defIndex[id] === PickupKind.Chest);
+    expect(chests).toHaveLength(1);
+  });
+
+  it('scales the siege bounty with how big the night was', () => {
+    const big = makeHarness();
+    big.ctx.world.hp[big.ctx.player] = 1e9;
+    big.ctx.world.place(big.ctx.player, -900, 0);
+    spawnStructure(big.ctx, structureDef('gate')!, 900, 0);
+    big.ctx.wave = {
+      ...waveTable('default'),
+      stages: [],
+      elites: null,
+      bosses: [],
+      // 20 attackers = a doubled bounty, against the single attacker above.
+      sieges: [{ at: 1, type: 'zombie', count: 20, duration: 5 }],
+    };
+    const paid: { gold: number; held: number }[] = [];
+    big.ctx.bus.on('siege:defended', (e) => paid.push(e));
+
+    big.run(8);
+
+    expect(paid).toEqual([{ gold: structureDef('gate')!.gold * 2, held: 1 }]);
   });
 
   it('pays nothing when every structure fell before the window closed', () => {
@@ -2850,17 +3033,24 @@ describe('watchtowers', () => {
 
   it('normalizes the watchtower as an armed structure and leaves gate and shrine passive', () => {
     const tower = structureDef('tower')!;
-    expect(tower.name).toBe('Watchtower');
-    expect(tower.hp).toBe(140);
-    expect(tower.radius).toBe(10);
-    expect(tower.solid).toBe(true);
-    expect(tower.gold).toBe(30);
-    expect(tower.range).toBe(170);
-    expect(tower.shootInterval).toBeCloseTo(1.4);
-    expect(tower.projectileDamage).toBe(14);
-    expect(tower.projectileSpeed).toBe(190);
-    expect(tower.projectileLifetime).toBeCloseTo(1.2);
-    expect(tower.projectileSprite).toBe('proj_bolt');
+    // Read against the JSON, not against a snapshot of it: this test is about
+    // normalization carrying every field across intact, and balance passes
+    // retune these numbers regularly. The invariants below are the real
+    // assertions, and those a tuning pass must not break.
+    const raw = structuresJson.tower;
+    expect(tower.name).toBe(raw.name);
+    expect(tower.hp).toBe(raw.hp);
+    expect(tower.radius).toBe(raw.radius);
+    expect(tower.solid).toBe(raw.solid);
+    expect(tower.gold).toBe(raw.gold);
+    expect(tower.range).toBe(raw.range);
+    expect(tower.shootInterval).toBeCloseTo(raw.shootInterval);
+    expect(tower.projectileDamage).toBe(raw.projectileDamage);
+    expect(tower.projectileSpeed).toBe(raw.projectileSpeed);
+    expect(tower.projectileLifetime).toBeCloseTo(raw.projectileLifetime);
+    expect(tower.projectileSprite).toBe(raw.projectileSprite);
+    // An emplacement is hardware, never the objective — see isWall.
+    expect(isWall(tower)).toBe(false);
     // A bolt must outlive the range it was fired across, or shots at the rim
     // expire in mid-air.
     expect(tower.projectileSpeed * tower.projectileLifetime).toBeGreaterThan(tower.range);
@@ -2999,12 +3189,17 @@ describe('watchtowers', () => {
     spawnStructure(ctx, def, 300, 0);
     const zombie = pinnedEnemy(ctx, 350, 0);
 
-    harness.run(5);
+    // Deliberately not a whole multiple of any plausible cadence, so the last
+    // bolt of the window is never a coin-flip on float accumulation.
+    const window = 4.5;
+    harness.run(window);
 
-    // Loaded at t=0, then every 1.4s: four bolts land inside five seconds,
-    // each for exactly the number in structures.json and nothing more.
+    // Loaded at t=0 and then every shootInterval, each bolt landing for exactly
+    // the number in structures.json and nothing more — the count is derived so
+    // that retuning the cadence retunes the expectation with it.
+    const bolts = 1 + Math.floor(window / def.shootInterval);
     const lost = 5000 - world.hp[zombie]!;
-    expect(lost).toBe(4 * def.projectileDamage);
+    expect(lost).toBe(bolts * def.projectileDamage);
   });
 
   it('leaves the player their crits: the exemption is the bolt, not the stat', () => {

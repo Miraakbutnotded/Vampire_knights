@@ -20,8 +20,14 @@ const KNOCKBACK_DECAY = 9;
 const CROWD_STRENGTH = 0.45;
 /** Siege enemies whose target's player gets this close switch back to the player. */
 const PEEL_DISTANCE = 56;
-/** Seconds between structure hits while parked at the wall. */
-const SIEGE_HIT_INTERVAL = 0.8;
+/**
+ * Seconds between structure hits while parked at the wall. Slower than a
+ * contact hit on the player, because a wall cannot step back: this interval
+ * times the attackers that got through is the entire rate a siege consumes the
+ * objective at, and it is the knob that decides whether a breach takes seconds
+ * or takes a siege.
+ */
+const SIEGE_HIT_INTERVAL = 1.2;
 
 /** Seconds an armed exploder holds its white flash — long enough to re-arm each tick. */
 const ARMED_FLASH = 0.1;

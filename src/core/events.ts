@@ -99,9 +99,20 @@ export interface GameEvents {
   'structure:built': { name: string; cost: number; index: number };
   'structure:repaired': { name: string; cost: number; index: number };
   'structure:upgraded': { name: string; tier: number; maxTier: number; cost: number; index: number };
-  'structure:destroyed': { name: string; remaining: number; index: number };
+  /**
+   * `remaining` counts everything still standing; `wallsRemaining` counts only
+   * the ones the run is lost without. They differ as soon as a tower is built,
+   * which is exactly when confusing them would end a run that is still alive.
+   */
+  'structure:destroyed': {
+    name: string;
+    remaining: number;
+    wallsRemaining: number;
+    index: number;
+  };
   'siege:started': { duration: number };
-  'siege:defended': { gold: number };
+  /** `gold` is the whole purse across `held` surviving structures, not one bounty. */
+  'siege:defended': { gold: number; held: number };
   /**
    * Widened rather than shadowed by a sibling, on the same argument as
    * 'player:died' above: there is exactly one emit site (settleRun) and the

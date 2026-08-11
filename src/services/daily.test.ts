@@ -311,7 +311,7 @@ describe('attachDailyTally — the real bus signals, not a paraphrase of them', 
     bus.emit('blood:frenzy', { spent: 100, duration: 6 });
     bus.emit('blood:feast', { spent: 50, healed: 30 });
     bus.emit('blood:feast', { spent: 50, healed: 12 });
-    bus.emit('siege:defended', { gold: 40 });
+    bus.emit('siege:defended', { gold: 40, held: 2 });
     bus.emit('weapon:evolved', { baseId: 'a', intoId: 'b', name: 'B' });
 
     expect(tally()).toEqual({ picks: 2, frenzy: 2, feastHealed: 42, sieges: 1, evolves: 1 });
@@ -320,9 +320,9 @@ describe('attachDailyTally — the real bus signals, not a paraphrase of them', 
   it('detaches cleanly, so a torn-down run cannot keep tallying', () => {
     const bus = new EventBus<GameEvents>();
     const { tally, detach } = attachDailyTally(bus);
-    bus.emit('siege:defended', { gold: 10 });
+    bus.emit('siege:defended', { gold: 10, held: 1 });
     detach();
-    bus.emit('siege:defended', { gold: 10 });
+    bus.emit('siege:defended', { gold: 10, held: 1 });
     expect(tally().sieges).toBe(1);
   });
 

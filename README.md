@@ -375,10 +375,19 @@ bursts from one direction just off screen, rather than evenly surrounding you.
 spawn off screen and head for the map's structures instead of for you. Overlapping windows merge into
 one, and the reward resolves once.
 
-Hold the window with **at least one** structure alive and that survivor drops a chest and a coin
-worth its `gold`, at its own feet — so walking back to the wall you held is the loop. Lose every
-structure and you simply get nothing: the penalty is already paid in what you lost, and player death
-stays the only fail state.
+Hold the window and **every structure still standing** drops a coin worth its `gold` at its own feet,
+scaled up by how many attackers the window sent — so the purse is what you kept, walking your walls
+to collect it is the loop, and holding four is worth four times holding one. A wall you let fall
+stops earning for the rest of the night, which is the whole defence economy: a run that defends well
+can afford to fortify and a run that doesn't can't, with no difficulty knob saying so.
+
+The **chest** is separate and stays a single drop at the first survivor — weapon progression is paced
+by sieges held, not by how much masonry survived one. Lose every wall and you get nothing, but on a
+map with walls that is already the end of the run.
+
+Sizing note: the bounty is what pays for repairs, and repairs are priced per point of health put
+back. Both scale with the size of the night on purpose. A flat payout makes the late sieges all cost
+and no income.
 
 Name a touch-range attacker (`chase`, `hopper`, `charger`). Siege attackers park at the wall and
 swing, which a `ranged` or `drifter` enemy has no way to do — name one of those and it still spawns,
@@ -479,20 +488,20 @@ from exactly that, so it can never advertise a siege that doesn't happen.
 "tower": {
   "name": "Watchtower",
   "sprite": "structure_tower",
-  "hp": 140,
+  "hp": 400,
   "radius": 10,
   "solid": true,          // blocks movement (gates); false walks through (shrines)
-  "gold": 30,             // the siege payout, if this is the survivor that pays it out
-  "range": 170,           // > 0 arms it — omit for a passive wall
-  "shootInterval": 1.4,
-  "projectileDamage": 14,
-  "projectileSpeed": 190,
-  "projectileLifetime": 1.2,
+  "gold": 30,             // its own siege bounty, paid whenever it survives a window
+  "range": 200,           // > 0 arms it — omit for a passive wall
+  "shootInterval": 1,
+  "projectileDamage": 30,
+  "projectileSpeed": 210,
+  "projectileLifetime": 1.4,
   "projectileSprite": "proj_bolt",
   "buildCost": 120,       // gold to raise one on a pad; 0 = map-placed only
   "upgrades": [
-    { "cost": 70,  "hp": 60, "projectileDamage": 8, "note": "Heavier bolts." },
-    { "cost": 180, "shootInterval": -0.35, "projectileDamage": 8, "note": "Twin windlass." }
+    { "cost": 70,  "hp": 150, "projectileDamage": 18, "note": "Heavier bolts." },
+    { "cost": 180, "shootInterval": -0.3, "projectileDamage": 16, "note": "Twin windlass." }
   ]
 }
 ```
@@ -505,8 +514,27 @@ reads, so write it for them.
 **`buildCost: 0` means the structure can never be bought**, however a map authors its pads. That is
 how a gate stays architecture rather than something you shop for.
 
-**`range` is the whole armed/unarmed switch.** Omit it and the structure never shoots; gates and
-shrines leave out every field below it and behave exactly as they did before towers existed.
+**`range` is the whole armed/unarmed switch, and it also decides what the structure *is*.** A
+structure that cannot shoot is a **wall** — one of the things the run is lost without. One that can
+is an **emplacement**: hardware you spend defending the walls. That single predicate (`range === 0`,
+`isWall()` in `content.ts`) settles three separate questions that must never disagree:
+
+| | wall (`range: 0`) | emplacement (`range > 0`) |
+| --- | --- | --- |
+| a siege marches on it | yes | only if no wall is left standing |
+| losing it scores `wallsLost` | yes | no — it costs you its guns and nothing else |
+| losing the last one ends the run | yes | no |
+
+It is derived rather than declared so a new structure cannot forget to say which it is. Giving a
+shrine a `range` arms it *and* demotes it out of the objective, which is the honest reading of an
+emplacement that shoots back — if you want an armed thing the run depends on, that is two structures.
+
+Because a siege never targets an emplacement while a wall stands, **a tower you build survives the
+night**. That is what makes it an investment rather than a consumable: it draws its `gold` bounty at
+the end of every window it lives through, so building early pays back over more sieges than building
+late. Walls are sized accordingly — they absorb the entire siege, which is why a gate carries
+thousands of points where a tower carries hundreds. Retuning one without the other is how you get a
+castle that falls in nine seconds.
 
 A tower's bolts are **fixed content**: they are built from the defaults and this entry, never from
 your stats. No passive, weapon level or Frenzy multiplier reaches them — the moment a tower scales
@@ -601,11 +629,16 @@ every one of those seconds hitting the walls. Being on your feet is the resource
 to be standing. That is what makes a tower worth its gold: without it, nothing a tower protects could
 ever cost you the night.
 
+"The last of them" means the last **wall**, not the last structure — a watchtower standing in the
+ruins does not keep a run alive. The split is in `structures.json` above, and the difference between
+those two counts is exactly the bug it exists to prevent.
+
 **Build pads** are places the map *allows* a defence rather than defences themselves. Walk onto one
 in a run and press `F` to raise what it offers, paying that structure's `buildCost` out of the gold
 you would otherwise bank. Walk back later and the same key buys the next tier of whatever is standing
-there. A pad whose structure falls becomes buildable again on its own, so holding a line across
-several sieges means rebuilding it.
+there. A pad whose structure falls becomes buildable again on its own — rare for a tower now that
+sieges walk past emplacements, but it is what keeps a pad from being spent forever on something that
+is no longer standing.
 
 A structure with `buildCost: 0` — the gate — can never be bought, however a pad is authored: it is
 architecture the map places, not kit for sale.

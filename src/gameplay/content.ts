@@ -249,6 +249,22 @@ export interface StructureDef {
   maxTier: number;
 }
 
+/**
+ * Walls are what the run is *for*; emplacements are what you spend defending
+ * them. The split is `range === 0` — a structure that cannot shoot is there to
+ * be held — and it decides three separate things that must never disagree:
+ * which structures a siege marches on, which ones score into `wallsLost`, and
+ * whether the run is over. Reading the same predicate in all three is what
+ * keeps "the walls fell" meaning one thing.
+ *
+ * It is derived rather than declared so a new structure cannot forget to say
+ * which it is: adding `range` to a shrine arms it *and* demotes it to hardware,
+ * which is the honest reading of an emplacement that shoots back.
+ */
+export function isWall(def: StructureDef): boolean {
+  return def.range === 0;
+}
+
 /** One paid step up a structure's track. */
 export interface StructureUpgrade {
   /** Gold this step costs. Spent from the run's purse, not the wallet. */

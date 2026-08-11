@@ -289,9 +289,11 @@ export class Game implements LoopHooks {
       this.hud.showBanner('SIEGE! DEFEND THE BASTION');
     });
 
-    this.bus.on('siege:defended', () => {
+    // The count is the point: the banner is where the player learns that gold
+    // is paid per wall kept, without a tutorial saying so.
+    this.bus.on('siege:defended', ({ gold, held }) => {
       this.siegeUntil = 0;
-      this.hud.showBanner('SIEGE REPELLED');
+      this.hud.showBanner(`${held} WALL${held === 1 ? '' : 'S'} HELD  +${gold}`);
     });
 
     this.bus.on('structure:damaged', ({ hp, maxHp, index }) => {
@@ -304,20 +306,22 @@ export class Game implements LoopHooks {
     this.bus.on('structure:upgraded', ({ name, tier, maxTier }) => {
       this.hud.showBanner(`${name.toUpperCase()} — TIER ${tier}/${maxTier}`);
     });
-    this.bus.on('structure:destroyed', ({ name, remaining, index }) => {
+    this.bus.on('structure:destroyed', ({ name, wallsRemaining, index }) => {
       this.structuresLost++;
       this.hud.destroyStructurePip(index);
       this.hud.showBanner(
-        remaining > 0 ? `THE ${name.toUpperCase()} HAS FALLEN` : 'EVERY WALL HAS FALLEN',
+        wallsRemaining > 0 ? `THE ${name.toUpperCase()} HAS FALLEN` : 'EVERY WALL HAS FALLEN',
       );
-      // The castle is the objective, so losing all of it ends the run.
+      // The walls are the objective, so losing all of them ends the run —
+      // `wallsRemaining`, never `remaining`, or a run would survive on the
+      // strength of a watchtower after everything worth defending was gone.
       //
       // Self-gating, and deliberately so: this event only fires when something
-      // is actually destroyed, so a map that never raised a structure can never
-      // reach `remaining === 0` here. Meadow and the other survival maps need no
-      // exemption, and adding structures to a map arms this for that map in the
-      // same edit — the same derivation the picker's DEFEND tag uses.
-      if (remaining === 0) this.loseObjective();
+      // is actually destroyed, so a map that never raised a wall can never
+      // reach zero here. Meadow and the other survival maps need no exemption,
+      // and adding structures to a map arms this for that map in the same edit
+      // — the same derivation the picker's DEFEND tag uses.
+      if (wallsRemaining === 0) this.loseObjective();
     });
 
     // Daily tally. Every signal it counts already existed; gameplay emits
