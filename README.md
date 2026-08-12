@@ -26,6 +26,14 @@ different questions: `cap sync` rewrites the Swift package manifest and copies w
 ever invoking the Swift toolchain, so a plugin can appear in the manifest while the target no longer
 builds. Only `verify:ios` runs `xcodebuild`.
 
+This file documents the content formats and the art pipeline; [`CLAUDE.md`](CLAUDE.md) documents the
+architecture and its invariants. Beyond those, [`docs/`](docs/README.md) carries a reference layer:
+a [module-by-module map](docs/dev/module-reference.md) of `src/`, [how the running game
+works](docs/dev/runtime-systems.md) end to end, a [testing guide](docs/dev/testing.md), the
+[build and release path](docs/dev/build-and-release.md), and — on the design side — the
+[shipped numbers](docs/design/balance-tables.md) and [why they are what they
+are](docs/design/progression.md).
+
 ## Controls
 
 | Input | Action |
