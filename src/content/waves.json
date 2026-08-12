@@ -171,6 +171,7 @@
   },
   "bastion": {
     "victorySeconds": 900,
+    "prepPressure": 0.3,
     "maxAlive": 400,
     "scaling": {
       "hpPerMinute": 0.2,

@@ -55,6 +55,7 @@ export class Hud {
   private structureRow: HTMLElement;
   private coachLine: HTMLElement;
   private fortifyPrompt: HTMLElement;
+  private wavePhase: HTMLElement;
   private structurePips: { wrap: HTMLElement; fill: HTMLElement }[] = [];
   private bloodWrap: HTMLElement;
   private bloodFill: HTMLElement;
@@ -81,7 +82,7 @@ export class Hud {
    * changes once a second and the counters change rarely, so guarding these
    * removes most of the HUD's per-frame cost.
    */
-  private cache = { hp: '', xp: -1, time: '', level: '', kills: '', gold: '', blood: -1, abilityCd: -1 };
+  private cache = { hp: '', xp: -1, time: '', level: '', kills: '', gold: '', blood: -1, abilityCd: -1, wave: '' };
 
   constructor(private sprites: SpriteTable) {
     this.root = el('div', 'hud');
@@ -135,6 +136,11 @@ export class Hud {
     this.banner.setAttribute('role', 'status');
     this.banner.setAttribute('aria-live', 'polite');
     this.structureRow = el('div', 'structure-pips');
+    // Which phase the run is in. Only ever populated on a map that runs
+    // sieges, so a survival map shows nothing new.
+    this.wavePhase = el('div', 'wave-phase');
+    this.wavePhase.setAttribute('role', 'status');
+    this.wavePhase.setAttribute('aria-live', 'polite');
     this.fortifyPrompt = el('div', 'fortify-prompt');
     // Announced politely: it appears and vanishes as the player walks past a
     // pad, and an assertive live region would interrupt on every step.
@@ -223,6 +229,7 @@ export class Hud {
       this.bloodWrap,
       this.banner,
       this.structureRow,
+      this.wavePhase,
       this.fortifyPrompt,
       this.coachLine,
     );
@@ -280,6 +287,34 @@ export class Hud {
       `${label}, ${cost} gold${affordable ? '' : ' — not enough gold'}`,
     );
     this.fortifyBtn.hidden = false;
+  }
+
+  /**
+   * The wave banner: which wave, and either that it is here or how long
+   * until it is. Written every frame from `Spawner.waveStatus`, so it cannot
+   * drift from what the spawner will actually do.
+   *
+   * Text is compared before assigning: this runs at 60Hz and replacing an
+   * identical text node dirties layout for nothing — the same guard the
+   * counters use.
+   */
+  showWavePhase(wave: number, total: number, underSiege: boolean, secondsToNext: number): void {
+    const label =
+      underSiege
+        ? `WAVE ${wave}/${total} — HOLD`
+        : secondsToNext < 0
+          ? `WAVE ${total}/${total} — LAST STAND`
+          : `WAVE ${wave}/${total} IN ${Math.ceil(secondsToNext)}s`;
+    if (this.cache.wave !== label) {
+      this.wavePhase.textContent = label;
+      this.cache.wave = label;
+    }
+    this.wavePhase.classList.toggle('sieged', underSiege);
+    this.wavePhase.classList.add('show');
+  }
+
+  hideWavePhase(): void {
+    this.wavePhase.classList.remove('show');
   }
 
   hideFortify(): void {

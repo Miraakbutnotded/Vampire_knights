@@ -1275,6 +1275,20 @@ export interface WaveTable {
   elites: EliteSchedule | null;
   bosses: BossSpawn[];
   sieges: SiegeEvent[];
+  /**
+   * Fraction of normal trash pressure while no siege window is open, on a
+   * table that has sieges at all. This is what turns a defence run from
+   * continuous survival into *waves separated by prep*: the horde arrives,
+   * you hold, it ends, and the quiet that follows is when the purse gets
+   * spent. 1 keeps the old behaviour.
+   *
+   * Applied against the live siege window rather than authored as a second
+   * timeline, so moving a siege moves its prep with it and the two cannot
+   * disagree — the same reason `isWall` is derived rather than declared.
+   * Self-gating: a table with no sieges never enters prep, so the survival
+   * maps need no exemption.
+   */
+  prepPressure: number;
 }
 
 function normalizeWaves(): Map<string, WaveTable> {
@@ -1370,6 +1384,7 @@ function normalizeWaves(): Map<string, WaveTable> {
     tables.set(id, {
       id,
       victorySeconds: numFrom(def, 'victorySeconds', 900),
+      prepPressure: Math.min(1, Math.max(0, numFrom(def, 'prepPressure', 1))),
       maxAlive: Math.max(20, Math.round(numFrom(def, 'maxAlive', 400))),
       hpPerMinute: numFrom(scaling, 'hpPerMinute', 0.2),
       damagePerMinute: numFrom(scaling, 'damagePerMinute', 0.05),

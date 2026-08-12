@@ -163,6 +163,31 @@ wall ends a bastion run at 2:18, and a 10-DPS tower against 138 DPS of incoming 
 `resolveSiege` pays **per surviving structure**, scaled by the attackers the window sent, so the
 purse is what you held; the chest stays one per siege so weapon pacing is unaffected.
 
+### Waves and prep (`prepPressure`)
+
+A defence run is meant to read as *discrete waves separated by prep*, not as continuous survival
+with sieges in it. `prepPressure` on a wave table is the fraction of normal trash pressure that
+applies **while no siege window is open**, and it is what makes the gap between sieges a phase you
+can spend a purse in rather than more of the same.
+
+It is **derived from the live siege window, never authored as a second timeline** — `Spawner.inPrep`
+asks whether a siege is currently open, so moving a siege moves its prep with it and the two cannot
+disagree. Same argument as `isWall`. Pressure is `perSpawn / spawnInterval`, so scaling pressure by
+`p` means dividing the interval by `p`.
+
+**Self-gating**: a table with no sieges is never in prep, so the survival maps need no exemption and
+a stray `prepPressure` in `default` would change nothing. `simulation.test.ts` pins that directly,
+because the alternative is every survival map quietly getting easier the day someone types a number
+into the wrong table.
+
+`Spawner.waveStatus(ctx)` is the read side — which wave, of how many, whether it has landed, and how
+long until the next. **Polled per frame by game.ts, not pushed**, for the same reason `fortifyOffer`
+is: a countdown changes every frame and "no siege is coming" is not an event. It returns `null` on a
+table with no sieges, which is how the HUD banner stays off a survival map.
+
+Bastion ships `prepPressure: 0.3`. That moves the run from 28% of its pressure being siege to 57% —
+the sieges become the majority of what the run is, which is the whole point of the field.
+
 ### How a run ends
 
 Three exits, and which ones exist depends on whether the map has an objective:

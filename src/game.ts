@@ -1016,6 +1016,15 @@ export class Game implements LoopHooks {
       //
       // This one call drives both faces of the mechanic — the prompt with the
       // key hint on it, and the thumb button that replaces the hint on touch.
+      // Same polling argument as the fortify prompt: a countdown changes
+      // every frame, and "no siege is coming" is not an event.
+      const phase = this.spawner.waveStatus(this.ctx);
+      if (phase) {
+        this.hud.showWavePhase(phase.wave, phase.total, phase.underSiege, phase.secondsToNext);
+      } else {
+        this.hud.hideWavePhase();
+      }
+
       const offer = this.fortifyOffer();
       if (offer) this.hud.showFortify(offer.label, offer.verb, offer.cost, offer.affordable);
       else this.hud.hideFortify();

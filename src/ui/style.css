@@ -1733,3 +1733,40 @@ button.btn[disabled] {
     transform: none;
   }
 }
+
+/* --- Wave phase banner --------------------------------------------------- */
+
+/* Which wave is coming and when, or that it has arrived. Sits under the
+   structure pips because it belongs to the same question those answer — how the
+   defence is going — and hangs off `--hud-top` and `--hud-center-h` like they
+   do, so a bigger clock pushes the whole stack down together rather than
+   through it. Only a map that runs sieges ever shows it. */
+.wave-phase {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(var(--hud-top) + var(--hud-center-h) + var(--ui) * 16);
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  text-shadow: 0 var(--hair) 0 var(--void);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 140ms linear;
+  pointer-events: none;
+}
+
+.wave-phase.show {
+  opacity: 1;
+}
+
+/* Under siege the line stops being a countdown and starts being an alarm. */
+.wave-phase.sieged {
+  color: var(--hp);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-phase {
+    transition: none;
+  }
+}

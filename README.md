@@ -395,6 +395,15 @@ swing, which a `ranged` or `drifter` enemy has no way to do — name one of thos
 but as an ordinary player-chaser, with a warning at load naming the offending entry. Sieges on a map
 with no structures degrade the same way rather than breaking: the attackers just hunt you.
 
+**`prepPressure`** (0-1, default 1) is the fraction of normal trash pressure that applies **between**
+siege windows. It is what turns a defence map from continuous survival into waves with prep between
+them: the horde arrives, you hold, it ends, and the quiet that follows is when the purse gets spent.
+Bastion ships `0.3`.
+
+It only ever applies to a table that declares `sieges`, so setting it on a survival table does
+nothing — there is no window for it to sit between. You do not author the quiet stretches as a
+second timeline; move a siege and its prep moves with it.
+
 `waves.json` ships two tables today — `default` (no sieges) and `bastion` (six).
 
 ### `characters.json`

@@ -2866,6 +2866,112 @@ describe('castle defense', () => {
     expect(world.isAlive(ctx.player)).toBe(true);
   });
 
+  it('thins the trash between sieges, so the gap is prep rather than more of the same', () => {
+    // Two harnesses, one seed, identical tables except for prepPressure. The
+    // only difference in what they spawn is the lull, which is the claim.
+    const build = (prepPressure: number) => {
+      const h = makeHarness();
+      h.ctx.world.hp[h.ctx.player] = 1e9;
+      h.ctx.wave = {
+        ...waveTable('default'),
+        prepPressure,
+        elites: null,
+        bosses: [],
+        // One siege, late, so the window below is entirely prep.
+        sieges: [{ at: 500, type: 'zombie', count: 4, duration: 20 }],
+      };
+      return h;
+    };
+
+    const quiet = build(0.25);
+    const loud = build(1);
+    quiet.run(60);
+    loud.run(60);
+
+    const quietKills = quiet.ctx.run.kills;
+    const loudKills = loud.ctx.run.kills;
+    // A quarter pressure should not be within a hair of full pressure.
+    expect(quietKills).toBeLessThan(loudKills * 0.6);
+    expect(quietKills).toBeGreaterThan(0);
+  });
+
+  it('leaves a survival map alone: no sieges means no prep, whatever the number says', () => {
+    // The self-gating claim. A table with prepPressure set but no sieges must
+    // spawn exactly as if the field were absent, or every survival map would
+    // quietly get easier the day someone typed a number into the wrong table.
+    const build = (prepPressure: number) => {
+      const h = makeHarness();
+      h.ctx.world.hp[h.ctx.player] = 1e9;
+      h.ctx.wave = { ...waveTable('default'), prepPressure, elites: null, bosses: [], sieges: [] };
+      return h;
+    };
+    const a = build(0.1);
+    const b = build(1);
+    a.run(45);
+    b.run(45);
+    expect(a.ctx.run.kills).toBe(b.ctx.run.kills);
+  });
+
+  it('restores full pressure the moment a siege opens', () => {
+    const h = makeHarness();
+    h.ctx.world.hp[h.ctx.player] = 1e9;
+    h.ctx.wave = {
+      ...waveTable('default'),
+      prepPressure: 0.25,
+      elites: null,
+      bosses: [],
+      sieges: [{ at: 30, type: 'zombie', count: 2, duration: 30 }],
+    };
+
+    h.run(29);
+    const duringPrep = h.ctx.run.kills;
+    h.run(29); // now inside the window
+    const duringSiege = h.ctx.run.kills - duringPrep;
+
+    // Same wall-clock, same stage, so the siege half must be busier.
+    expect(duringSiege).toBeGreaterThan(duringPrep);
+  });
+
+  it('reports the wave phase the HUD renders, and nothing at all on a survival map', () => {
+    const h = makeHarness();
+    h.ctx.world.hp[h.ctx.player] = 1e9;
+    h.ctx.wave = {
+      ...waveTable('default'),
+      prepPressure: 0.3,
+      elites: null,
+      bosses: [],
+      sieges: [
+        { at: 20, type: 'zombie', count: 2, duration: 10 },
+        { at: 60, type: 'zombie', count: 2, duration: 10 },
+      ],
+    };
+
+    // Before the first: counting down to wave 1 of 2.
+    let st = h.spawner.waveStatus(h.ctx)!;
+    expect(st).toMatchObject({ wave: 1, total: 2, underSiege: false });
+    expect(st.secondsToNext).toBeCloseTo(20, 1);
+
+    // Inside the first window: wave 1, holding.
+    h.run(22);
+    st = h.spawner.waveStatus(h.ctx)!;
+    expect(st).toMatchObject({ wave: 1, total: 2, underSiege: true });
+
+    // After it closes: counting down to wave 2.
+    h.run(12);
+    st = h.spawner.waveStatus(h.ctx)!;
+    expect(st).toMatchObject({ wave: 2, total: 2, underSiege: false });
+
+    // Past the last one there is no next wave, and a countdown to nothing is
+    // worse than none — hence -1 rather than a number that keeps falling.
+    h.run(60);
+    st = h.spawner.waveStatus(h.ctx)!;
+    expect(st.secondsToNext).toBe(-1);
+
+    // A survival map has no phase to report at all.
+    const plain = makeHarness();
+    expect(plain.spawner.waveStatus(plain.ctx)).toBeNull();
+  });
+
   it('raises damage and speed difficulty by 8% per lost wall', () => {
     const harness = makeHarness();
     const { ctx } = harness;

@@ -43,26 +43,25 @@ started, and is a bigger decision than it sounds — see Phase 4.
 
 Nothing here is new work; it is stranded value.
 
-- [ ] **Fast-forward `feat/tower-defense` into `main`.** `main` has *zero*
+- [ ] **Fast-forward `feat/tower-defense` into `main`.** *(awaiting go-ahead — touches the shared remote)* `main` has *zero*
       commits the branch lacks, so this is a clean fast-forward with no conflict
       risk. Nine commits — the whole pivot — are currently invisible on `main`.
 - [ ] **Refresh `docs/reference-layer`.** Its `balance-tables.md` records gate
       300 hp / tower 140 hp / range 170 / damage 14. All four changed in
       `f4622e0` (2600 / 400 / 200 / 30). It is wrong the moment it merges.
-- [ ] **Delete the stale refs** `feat/character-sprites` and
+- [ ] **Delete the stale refs** *(awaiting go-ahead — touches the shared remote)* `feat/character-sprites` and
       `feat/character-unlock-requirements` — both already merged, 0 ahead.
 
 ## Phase 1 — Make defence a genre, not a map
 
 This is the phase that decides whether the pivot is real.
 
-- [ ] **Give the run a wave shape.** Today bastion is 900s of continuous
-      survival with 255s of siege in it — **72% of the run is undifferentiated**.
-      A roguelite tower defense is *discrete waves separated by prep*: the horde
-      arrives, you hold, it ends, and you get quiet seconds to spend the purse
-      before the next one. The machinery already exists (`sieges` are timed
-      windows with `at`/`duration`/`count`); what is missing is authoring the
-      gaps as real prep and telling the player which phase they are in.
+- [x] **Give the run a wave shape.** ~~Bastion was 900s of continuous survival
+      with 255s of siege in it — 72% undifferentiated.~~ Done: `prepPressure`
+      thins trash between sieges (derived from the live window, never authored
+      twice), and a HUD banner counts the next wave in. Bastion moved from 28%
+      to **57% siege by weight**. Still wanted here: a longer, more deliberate
+      prep window between the late sieges, once the economy is play-tested.
 - [ ] **More structures.** Three is too thin for a build to be a *choice*. The
       shape is already proven — an entry in `structures.json` plus additive
       upgrade deltas, no code — so this is mostly content: something that slows,

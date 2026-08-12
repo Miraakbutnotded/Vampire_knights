@@ -3,7 +3,7 @@ import { enemyDef, isSiegeMelee, isWall, structureDefByIndex } from './content.t
 import { offscreenSpawnPoint, spawnEnemy } from './enemies.ts';
 import { spawnChest, spawnCoin } from './pickups.ts';
 import type { Ctx } from './context.ts';
-import type { WaveStage } from './content.ts';
+import type { WaveStage, WaveTable } from './content.ts';
 
 /** Bosses arrive closer than trash so the player registers them immediately. */
 const BOSS_RING = 210;
@@ -73,7 +73,10 @@ export class Spawner {
 
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
-    this.spawnTimer = stage.spawnInterval;
+    // Between sieges the trash thins out, which is what makes the gap a prep
+    // phase rather than more of the same. Pressure is perSpawn/interval, so
+    // scaling pressure by p means dividing the interval by p.
+    this.spawnTimer = this.inPrep(table) ? stage.spawnInterval / table.prepPressure : stage.spawnInterval;
 
     const room = table.maxAlive - alive;
     const toSpawn = Math.min(stage.perSpawn, room);
@@ -186,6 +189,46 @@ export class Spawner {
       this.siegeEndsAt = -1;
       this.resolveSiege(ctx);
     }
+  }
+
+  /**
+   * True while this table runs sieges and none is currently open.
+   *
+   * Derived from the live window rather than from a second authored
+   * timeline, so a siege that moves takes its prep with it. Self-gating: a
+   * table with no sieges is never in prep, so survival maps are untouched by
+   * everything this enables.
+   */
+  private inPrep(table: WaveTable): boolean {
+    return table.sieges.length > 0 && this.siegeEndsAt < 0 && table.prepPressure < 1;
+  }
+
+  /**
+   * What phase the run is in, for the HUD to read each frame.
+   *
+   * Polled rather than pushed because a countdown changes every frame and
+   * "no siege is coming" is not an event — the same reason `fortifyOffer` is
+   * polled. `wave` is 1-based and counts sieges *survived or in progress*, so
+   * it reads as "wave 3 of 6" to a player rather than as an array index.
+   */
+  waveStatus(ctx: Ctx): {
+    wave: number;
+    total: number;
+    underSiege: boolean;
+    secondsToNext: number;
+  } | null {
+    const sieges = ctx.wave.sieges;
+    if (sieges.length === 0) return null;
+    const underSiege = this.siegeEndsAt >= 0;
+    const next = sieges[this.nextSiege];
+    return {
+      wave: underSiege ? this.nextSiege : this.nextSiege + 1,
+      total: sieges.length,
+      underSiege,
+      // -1 once the last siege has been dispatched: there is no next wave to
+      // count down to, and a countdown to nothing is worse than none.
+      secondsToNext: next ? Math.max(0, next.at - ctx.run.time) : -1,
+    };
   }
 
   /**
