@@ -193,6 +193,7 @@ describe('touch targets on a phone', () => {
     ['--tap-blood', 'Feast and Frenzy'],
     ['--tap-ability', 'the character ability'],
     ['--tap-pause', 'the pause control — touch-only, and the one that used to miss'],
+    ['--tap-fortify', 'build / mend / upgrade, the only way in on a touch device'],
   ])('%s clears the 44pt minimum (%s)', (token) => {
     expect(phonePt(token)).toBeGreaterThanOrEqual(HIG_MINIMUM_PT);
   });
@@ -200,7 +201,7 @@ describe('touch targets on a phone', () => {
   it('holds the floor even in a small desktop window', () => {
     // Below the coarse floor the unit keeps shrinking, so the raw-px term in
     // each token is what stops a control from following it down.
-    for (const token of ['--tap-min', '--tap-blood', '--tap-ability', '--tap-pause']) {
+    for (const token of ['--tap-min', '--tap-blood', '--tap-ability', '--tap-pause', '--tap-fortify']) {
       const value = TOKENS.get(token)!;
       expect(evaluate(value, 2)).toBeGreaterThanOrEqual(HIG_MINIMUM_PT);
     }
@@ -252,11 +253,29 @@ describe('clearances are composed, not measured', () => {
     // Not a literal: enlarging a blood button has to move everything that
     // reserves space against the cluster, in the same edit.
     const clusterWidth = TOKENS.get('--cluster-w')!;
-    for (const part of ['--tap-blood', '--orb-size', '--tap-ability', '--cluster-gap']) {
+    for (const part of [
+      '--tap-blood',
+      '--orb-size',
+      '--tap-ability',
+      '--tap-fortify',
+      '--cluster-gap',
+    ]) {
       expect(clusterWidth).toContain(part);
     }
-    // Feast + orb + Frenzy + ability + three gaps, on a phone.
-    expect(phonePt('--cluster-w')).toBeCloseTo(48 * 2 + 66 + 54 + 9 * 3, 6);
+    // Feast + orb + Frenzy + ability + fortify + four gaps, on a phone.
+    expect(phonePt('--cluster-w')).toBeCloseTo(48 * 2 + 66 + 54 + 48 + 9 * 4, 6);
+  });
+
+  it('keeps every control in the cluster inside the reserve it publishes', () => {
+    // The reserve is what the joystick boundary is cut from, so a control that
+    // is in the cluster but not in this sum is a control the left thumb can
+    // land on. Adding a button without widening `--cluster-w` is precisely how
+    // the Feast-instead-of-walk bug happened, and it is a silent failure.
+    const widths = ['--tap-blood', '--tap-blood', '--orb-size', '--tap-ability', '--tap-fortify'];
+    const contents =
+      widths.reduce((total, token) => total + phonePt(token), 0) +
+      phonePt('--cluster-gap') * (widths.length - 1);
+    expect(phonePt('--cluster-w')).toBeGreaterThanOrEqual(contents);
   });
 
   it('keeps the joystick capture zone off the thumb cluster', () => {
@@ -349,7 +368,12 @@ describe('motion and pointer classes', () => {
     // two sources of truth for "is this a touch device" is how a hybrid laptop
     // ends up with a pause button that is in the DOM but invisible.
     expect(declarations).not.toMatch(/@media[^{]*pointer:\s*coarse/);
-    for (const selector of ['.coarse .touch-zone', '.coarse .blood-cluster', '.coarse .touch-hint']) {
+    for (const selector of [
+      '.coarse .touch-zone',
+      '.coarse .blood-cluster',
+      '.coarse .touch-hint',
+      '.coarse .fortify-btn',
+    ]) {
       expect(rules(declarations).map(([name]) => name)).toContain(selector);
     }
   });
@@ -359,6 +383,18 @@ describe('motion and pointer classes', () => {
     // on a phone explaining nothing at all.
     expect(ruleBody('.touch-hint')).toMatch(/display:\s*none/);
     expect(ruleBody('.coarse .touch-hint')).toMatch(/display:\s*block/);
+  });
+
+  it('gives touch players a control for the key they cannot press', () => {
+    // The other half of hiding `.key-hint`: `F` is the only way to build, mend
+    // or upgrade, so hiding its legend without offering a button left the whole
+    // defence economy unreachable on a phone. Off by default, on under
+    // `.coarse` — the exact shape `.touch-hint` uses, for the same reason.
+    expect(ruleBody('.fortify-btn')).toMatch(/display:\s*none/);
+    expect(ruleBody('.coarse .fortify-btn')).toMatch(/display:\s*flex/);
+    // `hidden` is "nothing in reach" and has to outrank "this is a phone", or
+    // the button never leaves the screen.
+    expect(ruleBody('.coarse .fortify-btn[hidden]')).toMatch(/display:\s*none/);
   });
 });
 

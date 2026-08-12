@@ -110,6 +110,7 @@
   --tap-blood: max(var(--tap-min), calc(var(--ui) * 16)); /* 48pt on a phone */
   --tap-ability: max(var(--tap-min), calc(var(--ui) * 18)); /* 54pt */
   --tap-pause: max(var(--tap-min), calc(var(--ui) * 16)); /* 48pt */
+  --tap-fortify: max(var(--tap-min), calc(var(--ui) * 16)); /* 48pt */
   --orb-size: calc(var(--ui) * 22);
   --cluster-gap: calc(var(--ui) * 3);
 
@@ -121,15 +122,17 @@
      button — which is exactly how `.hud-right: 22u` and `.structure-pips: 30u`
      came to be two units away from the things they were avoiding. */
 
-  /* Feast + orb + Frenzy + ability and their three gaps: the widest the thumb
-     cluster can be. `.touch-zone` sizes itself from this, so enlarging a blood
-     button moves the joystick boundary in the same edit.
+  /* Feast + orb + Frenzy + ability + fortify and their four gaps: the widest
+     the thumb cluster can be. `.touch-zone` sizes itself from this, so
+     enlarging a blood button moves the joystick boundary in the same edit.
      An UPPER bound, not the measured width — the ability button is dropped
-     entirely for a character without one, and the cluster is deliberately left
-     to collapse rather than being pinned to this. Over-reserving costs a few
+     entirely for a character without one, and fortify is present only while
+     something is actually in reach, so the cluster is deliberately left to
+     collapse rather than being pinned to this. Over-reserving costs a few
      points of joystick zone; under-reserving costs a tap. */
   --cluster-w: calc(
-    var(--tap-blood) * 2 + var(--orb-size) + var(--tap-ability) + var(--cluster-gap) * 3
+    var(--tap-blood) * 2 + var(--orb-size) + var(--tap-ability) + var(--tap-fortify) +
+      var(--cluster-gap) * 4
   );
 
   /* Where the pause control's box starts, measured from the right edge of the
@@ -1128,6 +1131,72 @@ button.btn[disabled] {
    set in update()) needs an explicit author rule or the dead button stays. */
 .ability-btn[hidden] {
   display: none;
+}
+
+/* --- Fortify button, in the same cluster --------------------------------- */
+
+/* The mirror of `.key-hint`, and the reason this button exists. A keyboard
+   player already has the prompt with `F` written on it; a touch player has that
+   letter hidden and nothing to press, which left the whole build/mend/upgrade
+   economy unreachable on the platform this ships to. So the prompt is the
+   keyboard affordance and this is the touch one, and neither device is shown
+   the other's.
+
+   It sits in the thumb cluster rather than on the prompt itself because the
+   prompt is in the LEFT lane on a phone — inside the joystick's capture zone —
+   and a thumb put down there to start walking would buy a tower instead. That
+   is the same collision `touch.ts` documents for the blood buttons.
+
+   Only ever in the DOM while it would do something: it and `F` share
+   `fortifyOffer()`, so it cannot advertise a purchase the key would refuse, and
+   on a survival map it never appears at all. */
+.fortify-btn {
+  display: none;
+  width: var(--tap-fortify);
+  height: var(--tap-fortify);
+  border-radius: 50%;
+  border: var(--hair) solid var(--edge);
+  background: var(--panel);
+  box-shadow: var(--frame);
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: var(--text-xs);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--ui) * 0.5);
+  padding: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.coarse .fortify-btn {
+  display: flex;
+}
+
+/* Beats the rule above: `hidden` is "nothing in reach", which outranks "this is
+   a touch device". Without this the button would be permanently on screen. */
+.coarse .fortify-btn[hidden] {
+  display: none;
+}
+
+/* Affordable reads as live; short reads as present but inert — the same two
+   states the prompt shows, so the two can never disagree about one offer. */
+.fortify-btn.ready {
+  color: var(--ink);
+  border-color: var(--gold);
+}
+
+.fortify-btn.short {
+  opacity: 0.55;
+}
+
+.fortify-cost {
+  color: var(--gold);
+}
+
+.fortify-btn.short .fortify-cost {
+  color: var(--ink-faint);
 }
 
 .ability-icon {

@@ -33,6 +33,7 @@ builds. Only `verify:ios` runs `xcodebuild`.
 | `WASD` / arrows / left stick / joystick | Move. Weapons fire automatically. |
 | `Q` / `E`, or the two HUD buttons | Feast / Frenzy — spend the blood bar (see [`blood.json`](#bloodjson)). |
 | `Space` / gamepad button / the round HUD button | Your character's active ability. |
+| `F`, or the BUILD button on touch | Build, upgrade or mend what you are standing on. Defence maps only — see [Build pads](#defence-maps-play-by-different-rules). |
 | `Esc` / the pause button | Pause. |
 | `1`–`9`, click, or arrows + `Enter` | Choose on any menu. |
 | `F3` | Debug overlay: fps, entity counts, difficulty multipliers. |
@@ -635,10 +636,16 @@ those two counts is exactly the bug it exists to prevent.
 
 **Build pads** are places the map *allows* a defence rather than defences themselves. Walk onto one
 in a run and press `F` to raise what it offers, paying that structure's `buildCost` out of the gold
-you would otherwise bank. Walk back later and the same key buys the next tier of whatever is standing
-there. A pad whose structure falls becomes buildable again on its own — rare for a tower now that
-sieges walk past emplacements, but it is what keeps a pad from being spent forever on something that
-is no longer standing.
+you would otherwise bank. Walk back later and the same key buys the next tier of whatever is
+standing there, or patches it up if it has taken enough damage to be worth mending first.
+
+On a touch device the `F` hint is hidden and a button appears in the thumb cluster instead — same
+offer, same prices, same one code path. Nothing about a map or a structure has to say which input
+it supports.
+
+A pad whose structure falls becomes buildable again on its own — rare for a tower now that sieges
+walk past emplacements, but it is what keeps a pad from being spent forever on something that is no
+longer standing.
 
 A structure with `buildCost: 0` — the gate — can never be bought, however a pad is authored: it is
 architecture the map places, not kit for sale.

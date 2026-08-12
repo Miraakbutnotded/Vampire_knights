@@ -250,6 +250,12 @@ export class Game implements LoopHooks {
       // read in beforeFrame.
       if (this.state === 'playing') this.input.injectPress('Space');
     });
+    this.hud.bindFortifyButton(() => {
+      // Same path as the ability button above, and for the same reason: the tap
+      // becomes an ordinary KeyF press, so `updateBuilding` cannot tell a thumb
+      // from a keyboard and there is no second way to spend gold to keep in step.
+      if (this.state === 'playing') this.input.injectPress('KeyF');
+    });
     this.openTitle();
   }
 
@@ -1008,11 +1014,10 @@ export class Game implements LoopHooks {
       // Driven from position, not from an event: walking one step off a pad has
       // to clear the prompt, and there is no event for not being somewhere.
       //
-      // Keyboard only for now. On touch the key hint is display:none and there
-      // is no button in the thumb cluster yet, so fortifying is unreachable
-      // there — that control is the next thing this feature needs.
+      // This one call drives both faces of the mechanic — the prompt with the
+      // key hint on it, and the thumb button that replaces the hint on touch.
       const offer = this.fortifyOffer();
-      if (offer) this.hud.showFortify(offer.label, offer.cost, offer.affordable);
+      if (offer) this.hud.showFortify(offer.label, offer.verb, offer.cost, offer.affordable);
       else this.hud.hideFortify();
     }
   }
@@ -1104,11 +1109,21 @@ export class Game implements LoopHooks {
   /**
    * What pressing F would do right now, or null when it would do nothing.
    *
-   * One answer, two consumers: the HUD prompt the player reads and the debug
-   * overlay line. Deriving both from the same call is what stops the prompt
-   * from ever offering something the key would not actually buy.
+   * One answer, three consumers: the HUD prompt the player reads, the touch
+   * button they tap, and the debug overlay line. Deriving all three from the
+   * same call is what stops any of them offering something the key would not
+   * actually buy — and it is why the button cannot exist on a survival map.
+   *
+   * `verb` is carried rather than parsed back out of `label`: this is the one
+   * place that knows which branch was taken, so the short face of the button
+   * comes from the branch instead of from string-matching its own prose.
    */
-  private fortifyOffer(): { label: string; cost: number; affordable: boolean } | null {
+  private fortifyOffer(): {
+    label: string;
+    verb: string;
+    cost: number;
+    affordable: boolean;
+  } | null {
     if (this.state !== 'playing') return null;
 
     const id = structureAtPlayer(this.ctx);
@@ -1118,13 +1133,19 @@ export class Game implements LoopHooks {
       // key would actually do rather than the thing it usually does.
       if (needsRepair(this.ctx, id)) {
         const mend = repairCost(this.ctx, id);
-        return { label: `Mend ${def.name}`, cost: mend, affordable: this.run.gold >= mend };
+        return {
+          label: `Mend ${def.name}`,
+          verb: 'MEND',
+          cost: mend,
+          affordable: this.run.gold >= mend,
+        };
       }
       const tier = this.world.tier[id]!;
       const cost = upgradeCost(def, tier);
       if (cost < 0) return null; // already maxed: nothing on offer
       return {
         label: `${def.name} T${tier + 1}`,
+        verb: `T${tier + 1}`,
         cost,
         affordable: this.run.gold >= cost,
       };
@@ -1138,6 +1159,7 @@ export class Game implements LoopHooks {
     if (padDef.buildCost <= 0) return null;
     return {
       label: `Build ${padDef.name}`,
+      verb: 'BUILD',
       cost: padDef.buildCost,
       affordable: this.run.gold >= padDef.buildCost,
     };
@@ -1160,6 +1182,10 @@ export class Game implements LoopHooks {
       `hazards  ${world.list(Kind.Hazard).length}`,
       `structures ${world.list(Kind.Structure).length}`,
       `corpses  ${world.list(Kind.Corpse).length}`,
+      // Position sits next to the fortify line because that line is entirely
+      // position-gated: 'nothing in reach' is otherwise undiagnosable, and
+      // 'where am I' is the first question when a pad refuses to offer.
+      `pos      ${this.world.x[this.ctx.player]!.toFixed(0)}, ${this.world.y[this.ctx.player]!.toFixed(0)}`,
       `fortify  ${this.fortifyLine()}`,
       `particles ${this.fx.activeParticles}`,
       `hp x${this.ctx.hpScale.toFixed(2)}  dmg x${this.ctx.damageScale.toFixed(2)}`,

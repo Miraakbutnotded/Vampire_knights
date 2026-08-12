@@ -220,14 +220,31 @@ for the same reason. The character's own position is the cursor — nothing this
   so appending an entry raises the ceiling with no code change. A tier tops health up by exactly what
   it added rather than refilling: upgrading is hardware, never a repair.
 - **`buildCost: 0` means the map places it and it is not for sale.** A gate is architecture, not kit.
-  `fortifyOffer()` in game.ts is the single answer to "what would F do", feeding both the HUD prompt
-  and the F3 line, so the prompt can never advertise something the key would refuse.
+  `fortifyOffer()` in game.ts is the single answer to "what would F do", feeding the HUD prompt, the
+  touch button and the F3 line, so none of them can advertise something the key would refuse.
 
 Spending comes out of `run.gold` — the purse banked at the end — so a defence is paid for out of the
 meta-progression the player was saving. That trade is the design, not an implementation detail.
 
-**Known gap: touch cannot fortify.** The key hint is `display:none` on `.coarse` and the thumb
-cluster has no button for it, so the mechanic is unreachable on a phone.
+**Both devices reach it, and neither is shown the other’s affordance.** A keyboard player reads
+the prompt with `F` on it; on `.coarse` that letter is `display:none`, so touch gets
+`.fortify-btn` in the thumb cluster instead. Three things keep the two from drifting apart:
+
+- **One offer.** `showFortify()` writes the prompt *and* the button from the same call, so they
+  can never advertise different purchases. The button carries `verb` — supplied by
+  `fortifyOffer()`, which knows which branch it took — rather than parsing its own prose back
+  out of `label`.
+- **One path into the sim.** The tap calls `injectPress('KeyF')`, exactly like the ability button
+  uses `Space`, so `updateBuilding` cannot tell a thumb from a keyboard and there is no second way
+  to spend gold to keep in step.
+- **One reason to exist.** It is `hidden` whenever `fortifyOffer()` returns null, so a survival map
+  never shows it and it never occupies a thumb’s worth of screen doing nothing.
+
+It sits in the cluster rather than on the prompt because on a phone **the prompt is in the left
+lane — inside the joystick’s capture zone**. A thumb put down there to start walking would buy a
+tower, which is the same collision `touch.ts` documents for the blood buttons. `--cluster-w` counts
+it, so the joystick boundary moved in the same edit, and `layout.test.ts` fails the build if a
+control in the cluster is missing from that reserve.
 
 ### Corpses (`Kind.Corpse`)
 

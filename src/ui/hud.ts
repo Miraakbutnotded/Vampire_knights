@@ -61,9 +61,13 @@ export class Hud {
   private bloodIntentCb: ((intent: 'heal' | 'burst') => void) | null = null;
   private bloodReady = false;
   private abilityBtn: HTMLButtonElement;
+  private fortifyBtn: HTMLButtonElement;
+  private fortifyVerb: HTMLElement;
+  private fortifyCost: HTMLElement;
   private abilityIcon: HTMLElement;
   private abilityCd: HTMLElement;
   private abilityCb: (() => void) | null = null;
+  private fortifyCb: (() => void) | null = null;
   private abilityIconName = '';
   private abilityActive = false;
   private abilityHidden = false;
@@ -190,6 +194,26 @@ export class Hud {
     });
     this.bloodWrap.appendChild(this.abilityBtn);
 
+    // Fortify rides the same cluster, and for the same reason the ability does:
+    // it is the right thumb's lane, safely clear of the joystick capture zone.
+    // Hidden until there is an offer, so it costs a survival map nothing.
+    this.fortifyBtn = el('button', 'fortify-btn');
+    this.fortifyBtn.hidden = true;
+    this.fortifyVerb = el('span', 'fortify-verb', 'BUILD');
+    this.fortifyCost = el('span', 'fortify-cost', '');
+    // No keyHint: this button only exists on touch, where `.key-hint` is
+    // display:none anyway. The prompt beside it is the keyboard's affordance.
+    this.fortifyBtn.append(this.fortifyVerb, this.fortifyCost);
+    this.fortifyBtn.addEventListener('pointerdown', (ev: PointerEvent) => {
+      // Same three rules as every other button in this cluster: primary only,
+      // pointerdown not click, and kept away from the joystick underneath.
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.fortifyCb?.();
+    });
+    this.bloodWrap.appendChild(this.fortifyBtn);
+
     this.root.append(
       xpTrack,
       left,
@@ -233,20 +257,36 @@ export class Hud {
    * player who cannot pay learns what to save for instead of watching a key do
    * nothing.
    */
-  showFortify(label: string, cost: number, affordable: boolean): void {
+  showFortify(label: string, verb: string, cost: number, affordable: boolean): void {
     // keyHint, not a bespoke span: `.coarse .key-hint` is already display:none,
     // so the letter disappears on the device where a keyboard is not the way in.
-    // Touch still needs its own control for this — see the note in game.ts.
+    // What replaces it there is `.fortify-btn` below, written from this same call.
     this.fortifyPrompt.replaceChildren(
       keyHint('F'),
       document.createTextNode(` ${label} — ${cost}g`),
     );
     this.fortifyPrompt.classList.toggle('short', !affordable);
     this.fortifyPrompt.classList.add('show');
+
+    // The button is driven from the same call, so the two can never advertise
+    // different offers. Its face is the verb alone — the prompt beside it is
+    // already carrying the full name, and a 48pt circle cannot hold both.
+    this.fortifyVerb.textContent = verb;
+    this.fortifyCost.textContent = `${cost}`;
+    this.fortifyBtn.classList.toggle('short', !affordable);
+    this.fortifyBtn.classList.toggle('ready', affordable);
+    this.fortifyBtn.setAttribute(
+      'aria-label',
+      `${label}, ${cost} gold${affordable ? '' : ' — not enough gold'}`,
+    );
+    this.fortifyBtn.hidden = false;
   }
 
   hideFortify(): void {
     this.fortifyPrompt.classList.remove('show');
+    // Hidden rather than dimmed: there is nothing in reach, so a control that
+    // would do nothing should not be occupying a thumb's worth of screen.
+    this.fortifyBtn.hidden = true;
   }
 
   setVisible(visible: boolean): void {
@@ -281,6 +321,16 @@ export class Hud {
   /** Game injects the callback; the HUD never touches gameplay or Input itself. */
   bindAbilityButton(cb: () => void): void {
     this.abilityCb = cb;
+  }
+
+  /**
+   * Same seam again. The callback injects an ordinary `KeyF` press rather
+   * than latching `ctx.buildIntent` itself — so the tap goes through the same
+   * consuming `wasPressed` read the keyboard does, and there is no second way
+   * into `updateBuilding` that could drift in what it is allowed to buy.
+   */
+  bindFortifyButton(cb: () => void): void {
+    this.fortifyCb = cb;
   }
 
   /**
