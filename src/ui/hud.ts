@@ -387,6 +387,27 @@ export class Hud {
     }
   }
 
+  /**
+   * Adds one pip for a structure raised mid-run.
+   *
+   * `setStructurePips` only knows what the map placed, so anything bought
+   * from a pad had no slot and its health was invisible — which matters most
+   * for a buyable *wall*, since that is the thing the run is lost without.
+   * Keyed by the same index the events carry (`world.aiPhase`), so a pip
+   * built here is updated and destroyed by exactly the same path as one from
+   * the map.
+   */
+  addStructurePip(index: number, name: string): void {
+    if (this.structurePips[index]) return;
+    const wrap = el('div', 'structure-pip');
+    wrap.title = name;
+    const fill = el('div', 'structure-pip-fill');
+    wrap.appendChild(fill);
+    this.structureRow.appendChild(wrap);
+    this.structurePips[index] = { wrap, fill };
+    this.structureRow.classList.add('visible');
+  }
+
   /** Driven by the structure:damaged event, like hp-fill. */
   updateStructurePip(index: number, hp: number, maxHp: number): void {
     const pip = this.structurePips[index];

@@ -31,7 +31,7 @@ const MUZZLE_HEIGHT = 10;
 const IDLE_RESCAN = 0.1;
 
 /**
- * Scratch stats for tower shots, overwritten in place per shot — one shared
+ * Scratch stats for one tower shot, overwritten in place per shot — one shared
  * object, no per-shot allocation, same idiom as ctx.scratch and safe for the
  * same reason: it is consumed synchronously inside spawnProjectile.
  *
@@ -39,10 +39,14 @@ const IDLE_RESCAN = 0.1;
  * effectiveStats(). No passive, weapon level or Frenzy multiplier may ever
  * reach a tower, or the tower stops being terrain and becomes part of the
  * player's build — at which point it carries the run.
+ *
+ * Because it is shared, `fireTower` writes **every** field a structure can
+ * vary on every shot. The values below are the watchtower's, and they are
+ * seeds rather than the rule — a ballista declares its own pierce, and must
+ * not lend it to the next tower that fires.
  */
 const TOWER_STATS: WeaponStats = {
   ...WEAPON_STAT_DEFAULTS,
-  // One enemy per bolt; walls don't stagger the horde.
   pierce: 1,
   knockback: 0,
   area: 1,
@@ -346,8 +350,14 @@ function fireTower(ctx: Ctx, id: number, def: StructureDef): void {
   }
 
   const angle = Math.atan2(world.y[target]! - y, world.x[target]! - x);
+  // Every varying field is written on every shot. TOWER_STATS is one shared
+  // object, so a field left unset would carry the last structure that fired
+  // into this one — a ballista would lend its pierce to the next watchtower.
   TOWER_STATS.damage = stats.projectileDamage;
   TOWER_STATS.lifetime = def.projectileLifetime;
+  TOWER_STATS.pierce = stats.pierce;
+  TOWER_STATS.knockback = stats.knockback;
+  TOWER_STATS.area = stats.area;
   const bolt = spawnProjectile(
     ctx,
     def.projectileSprite,

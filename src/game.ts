@@ -309,6 +309,15 @@ export class Game implements LoopHooks {
     // Confirmation on the existing banner rather than a new element: the
     // stylesheet's clearances are composed from the tokens of the things they
     // clear, so a new HUD box is a layout change, not just a div.
+    // A structure raised from a pad needs a pip of its own, or the thing the
+    // player just paid for has no health on screen. It also counts toward the
+    // run's total, so 'walls held 3/5' includes what was built.
+    this.bus.on('structure:built', ({ name, index }) => {
+      this.structuresSpawned = Math.max(this.structuresSpawned, index + 1);
+      this.hud.addStructurePip(index, name);
+      this.hud.showBanner(`${name.toUpperCase()} RAISED`);
+    });
+
     this.bus.on('structure:upgraded', ({ name, tier, maxTier }) => {
       this.hud.showBanner(`${name.toUpperCase()} — TIER ${tier}/${maxTier}`);
     });

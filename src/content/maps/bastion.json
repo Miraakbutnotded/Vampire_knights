@@ -151,12 +151,12 @@
       "y": 140
     },
     {
-      "type": "tower",
+      "type": "ballista",
       "x": 60,
       "y": -170
     },
     {
-      "type": "tower",
+      "type": "ballista",
       "x": 60,
       "y": 170
     },
@@ -164,6 +164,21 @@
       "type": "shrine",
       "x": -60,
       "y": 0
+    },
+    {
+      "type": "bulwark",
+      "x": -190,
+      "y": 0
+    },
+    {
+      "type": "palisade",
+      "x": -300,
+      "y": -60
+    },
+    {
+      "type": "palisade",
+      "x": -300,
+      "y": 60
     }
   ]
 }

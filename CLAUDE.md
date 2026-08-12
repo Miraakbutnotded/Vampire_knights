@@ -225,6 +225,33 @@ for), so the horde keeps hitting the castle for as long as you are down, and eac
 longer than the last. **If this ever reads as a free respawn, raise `DOWN_ESCALATION`, not the
 recovery health.**
 
+A structure declares `pierce`, `knockback` and `area` alongside its damage, which is what lets two
+emplacements be different *decisions* rather than the same tower at different numbers. All three
+default to the watchtower's values, so every entry that predates them is untouched.
+
+Two rules keep them honest, and both are easy to get wrong:
+
+- **`fireTower` writes every varying field on every shot.** `TOWER_STATS` is one shared object
+  rewritten in place (zero allocation per frame), so a field left unset carries the last structure
+  that fired into this one — a ballista would lend its pierce to the next watchtower.
+- **They live in `structureStatsAtTier`, not on the def.** Same rule as damage and range: `fireTower`
+  reads the *entity's* tier, so anything a tier can add has to be tiered. A `pierce` delta that
+  stopped at the def would be a purchase that silently does nothing.
+
+The `knockback` field is how a "slow" is expressed without a status-effect system: an attacker shoved
+off a wall spends the walk back not swinging, and the wall takes the difference. It respects
+`knockbackResist` like every other source.
+
+**A wall can be buyable.** `palisade` has `buildCost > 0` and `range: 0`, so `isWall` makes it part
+of the objective — buying one is more buffer to chew through *and* another bounty every siege, but
+also one more thing whose loss scores `wallsLost`. No code was needed for that; it falls out of the
+two fields, which is the point of deriving the distinction rather than declaring it.
+
+**Anything raised mid-run gets its own HP pip.** `setStructurePips` only knows what the map placed,
+so `structure:built` appends one (`Hud.addStructurePip`), keyed by the same `world.aiPhase` index the
+damage and destroy events carry. Without it a bought structure had no health on screen — survivable
+for a tower, wrong for a wall the run is lost without.
+
 ### Building and upgrading (`structures.ts`)
 
 The player walks to a structure or an empty pad and presses **F**; `ctx.buildIntent` is the latch,

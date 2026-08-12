@@ -2326,8 +2326,12 @@ describe('castle defense', () => {
   });
 
   it('normalizes structure defs and fails soft on unknown ids', () => {
-    // gate, shrine, tower — the count tripwire for structures.json.
-    expect(STRUCTURE_LIST).toHaveLength(3);
+    // Every entry in the JSON normalizes, and none is silently dropped.
+    // Derived rather than a literal: adding a structure is a content change
+    // and should not have to bump a number here, but an entry vanishing
+    // during normalization still has to fail the build.
+    expect(STRUCTURE_LIST).toHaveLength(Object.keys(structuresJson).length);
+    expect(STRUCTURE_LIST.map((d) => d.id)).toEqual(Object.keys(structuresJson));
 
     // Compared against the JSON rather than a copy of its current numbers —
     // walls are retuned by balance passes, and normalization is what this is
@@ -2423,6 +2427,95 @@ describe('castle defense', () => {
     expect(ctx.world.isAlive(gateId)).toBe(false);
     ctx.world.flush();
     expect(ctx.world.list(Kind.Structure)).toHaveLength(1);
+  });
+
+  it('lets a structure declare its own pierce, knockback and area', () => {
+    // The three fields that make an emplacement a *choice* rather than a
+    // reskin. Read against the JSON so a tuning pass does not have to edit
+    // this; what is pinned is that they survive normalization at all.
+    const ballista = structureDef('ballista')!;
+    expect(ballista.pierce).toBe(structuresJson.ballista.pierce);
+    expect(ballista.pierce).toBeGreaterThan(1);
+    const bulwark = structureDef('bulwark')!;
+    expect(bulwark.knockback).toBe(structuresJson.bulwark.knockback);
+    expect(bulwark.knockback).toBeGreaterThan(0);
+
+    // The watchtower predates the fields and must be untouched by them.
+    const tower = structureDef('tower')!;
+    expect(tower.pierce).toBe(1);
+    expect(tower.knockback).toBe(0);
+    expect(tower.area).toBe(1);
+  });
+
+  it('carries pierce and knockback up the tiers, so an upgrade is never cosmetic', () => {
+    // The rule structureStatsAtTier exists to enforce: fireTower reads the
+    // entity's tier, so anything a tier can add has to live in these stats. A
+    // pierce delta that stopped here would be a purchase that does nothing.
+    const ballista = structureDef('ballista')!;
+    const t0 = structureStatsAtTier(ballista, 0);
+    const t2 = structureStatsAtTier(ballista, 2);
+    expect(t2.pierce).toBeGreaterThan(t0.pierce);
+
+    const bulwark = structureDef('bulwark')!;
+    expect(structureStatsAtTier(bulwark, 2).knockback).toBeGreaterThan(
+      structureStatsAtTier(bulwark, 0).knockback,
+    );
+
+    // Floors hold even if a delta ever went negative.
+    expect(structureStatsAtTier(ballista, 99).pierce).toBeGreaterThanOrEqual(1);
+    expect(structureStatsAtTier(bulwark, 99).area).toBeGreaterThan(0);
+  });
+
+  it('shoves an attacker off the wall, and only when the horn is there', () => {
+    // The 'slow', delivered through knockback: an attacker pushed back spends
+    // the walk not swinging, and the wall takes the difference.
+    //
+    // Sampled as a running maximum, because knockback decays at
+    // KNOCKBACK_DECAY per second — a single read at the end is ~0 however hard
+    // the shove was, so it would pass or fail on timing rather than on effect.
+    const peakShove = (withHorn: boolean): number => {
+      const harness = makeHarness();
+      const { ctx } = harness;
+      const world = ctx.world;
+      // towerField's shape: an empty wave and a disarmed player, so the horn
+      // is the only thing on the field that can push anything.
+      ctx.wave = { ...waveTable('default'), stages: [], elites: null, bosses: [] };
+      ctx.run.weapons.length = 0;
+      world.hp[ctx.player] = 1e5;
+
+      spawnStructure(ctx, structureDef('gate')!, 300, 0);
+      if (withHorn) spawnStructure(ctx, structureDef('bulwark')!, 300, 40);
+      // Pinned in place (speed 0) so it stays in the horn's range for the
+      // whole window; knockback rides kbx/kby and is unaffected by speed.
+      const zombie = spawnEnemy(ctx, enemyDef('zombie')!, 350, 0);
+      world.speed[zombie] = 0;
+      world.hp[zombie] = 1e6;
+
+      let peak = 0;
+      for (let i = 0; i < 30; i++) {
+        harness.run(0.1);
+        if (!world.isAlive(zombie)) break;
+        peak = Math.max(peak, Math.hypot(world.kbx[zombie]!, world.kby[zombie]!));
+      }
+      return peak;
+    };
+
+    // Knockback lives in kbx/kby, never vx/vy — AI overwrites velocity every
+    // tick, so that is the only place a shove can be observed at all.
+    expect(peakShove(true)).toBeGreaterThan(0);
+    // The control: the same field without the horn shoves nothing, which is
+    // what makes the first assertion about the horn rather than about anything
+    // else on the map.
+    expect(peakShove(false)).toBe(0);
+  });
+  it('makes a bought wall part of the objective, and a bought tower not', () => {
+    // A palisade is buyable AND a wall, which is the trade: more buffer and
+    // another bounty every siege, but one more thing whose loss is scored.
+    expect(isWall(structureDef('palisade')!)).toBe(true);
+    expect(structureDef('palisade')!.buildCost).toBeGreaterThan(0);
+    // The armed kit is hardware, however much it costs.
+    expect(isWall(structureDef('ballista')!)).toBe(false);
+    expect(isWall(structureDef('bulwark')!)).toBe(false);
   });
 
   it('counts walls and hardware separately, so a tower cannot prop up a lost run', () => {

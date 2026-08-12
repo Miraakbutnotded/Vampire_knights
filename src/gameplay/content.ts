@@ -238,6 +238,19 @@ export interface StructureDef {
   projectileSpeed: number;
   projectileLifetime: number;
   projectileSprite: string;
+  /**
+   * Enemies one bolt passes through. 1 is a single target; higher punches
+   * down the marching column, which is what a siege actually presents.
+   */
+  pierce: number;
+  /**
+   * Shove applied on hit. On a siege attacker this reads as a *slow*: an
+   * attacker knocked back from a wall spends the return walk not swinging,
+   * so the wall takes the difference. Respects `knockbackResist`.
+   */
+  knockback: number;
+  /** Projectile size multiplier. Wider bolts clip more of a packed column. */
+  area: number;
 
   /**
    * What each paid tier adds, in order. Additive deltas on the base numbers,
@@ -274,6 +287,9 @@ export interface StructureUpgrade {
   shootInterval: number;
   projectileDamage: number;
   projectileSpeed: number;
+  pierce: number;
+  knockback: number;
+  area: number;
   /** Shown on the prompt, so write it for the player. */
   note: string;
 }
@@ -288,13 +304,25 @@ export interface StructureUpgrade {
 export function structureStatsAtTier(
   def: StructureDef,
   tier: number,
-): { hp: number; range: number; shootInterval: number; projectileDamage: number; projectileSpeed: number } {
+): {
+  hp: number;
+  range: number;
+  shootInterval: number;
+  projectileDamage: number;
+  projectileSpeed: number;
+  pierce: number;
+  knockback: number;
+  area: number;
+} {
   const stats = {
     hp: def.hp,
     range: def.range,
     shootInterval: def.shootInterval,
     projectileDamage: def.projectileDamage,
     projectileSpeed: def.projectileSpeed,
+    pierce: def.pierce,
+    knockback: def.knockback,
+    area: def.area,
   };
   const steps = Math.min(Math.max(0, Math.floor(tier)), def.maxTier);
   for (let i = 0; i < steps; i++) {
@@ -304,12 +332,20 @@ export function structureStatsAtTier(
     stats.shootInterval += up.shootInterval;
     stats.projectileDamage += up.projectileDamage;
     stats.projectileSpeed += up.projectileSpeed;
+    stats.pierce += up.pierce;
+    stats.knockback += up.knockback;
+    stats.area += up.area;
   }
   // A tier that bought its way to an instant-fire tower would divide by zero in
   // the fire timer; the floor is the same one normalizeStructures applies.
   stats.shootInterval = Math.max(0.05, stats.shootInterval);
   stats.range = Math.max(0, stats.range);
   stats.projectileDamage = Math.max(0, stats.projectileDamage);
+  // Same floors normalizeStructures applies: one target minimum, no negative
+  // shove, and a projectile that still has a size.
+  stats.pierce = Math.max(1, Math.round(stats.pierce));
+  stats.knockback = Math.max(0, stats.knockback);
+  stats.area = Math.max(0.1, stats.area);
   return stats;
 }
 
@@ -351,6 +387,9 @@ function normalizeUpgrades(id: string, raw: unknown): StructureUpgrade[] {
       shootInterval: n('shootInterval', 0),
       projectileDamage: n('projectileDamage', 0),
       projectileSpeed: n('projectileSpeed', 0),
+      pierce: n('pierce', 0),
+      knockback: n('knockback', 0),
+      area: n('area', 0),
       note: typeof step['note'] === 'string' ? (step['note'] as string) : '',
     });
   }
@@ -390,6 +429,11 @@ function normalizeStructures(): { list: StructureDef[]; byId: Map<string, Struct
       projectileSpeed: Math.max(1, num('projectileSpeed', 180)),
       projectileLifetime: Math.max(0.1, num('projectileLifetime', 1.2)),
       projectileSprite: str('projectileSprite', 'proj_bolt'),
+      // Defaults reproduce the watchtower exactly, so every existing entry
+      // and every existing tuning number is unchanged by this field existing.
+      pierce: Math.max(1, Math.round(num('pierce', 1))),
+      knockback: Math.max(0, num('knockback', 0)),
+      area: Math.max(0.1, num('area', 1)),
       upgrades: normalizeUpgrades(id, def['upgrades']),
       maxTier: 0,
     };

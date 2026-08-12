@@ -516,6 +516,17 @@ from exactly that, so it can never advertise a siege that doesn't happen.
 }
 ```
 
+Armed structures also declare **`pierce`** (enemies one bolt passes through), **`knockback`** (shove
+on hit — respects `knockbackResist`) and **`area`** (projectile size). All three default to the
+watchtower's values, and all three can be raised by an upgrade tier like any other stat. They are
+what makes one emplacement a different decision from another rather than the same one with bigger
+numbers: `ballista` punches through a marching column, `bulwark` shoves attackers off a wall instead
+of killing them.
+
+A structure with **`buildCost` above zero and no `range`** is a wall you can buy — `palisade` is one.
+That is more buffer and another bounty each siege, but also one more thing whose loss is scored
+against you. There is no flag for it; it falls out of the two fields.
+
 **`upgrades` entries are additive deltas** on the numbers above, exactly like a weapon's `levels` —
 append one and the ceiling rises on its own. Each carries the `cost` of reaching it, and a step with
 no positive cost is dropped with a warning rather than handed out free. `note` is what the player
