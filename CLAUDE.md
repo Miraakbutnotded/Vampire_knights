@@ -7,19 +7,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev        # Vite dev server at http://localhost:5173 (content JSON hot-reloads)
 npm run build      # tsc --noEmit, then vite build to dist/
+npm run preview    # serve the built dist/ at http://localhost:4173
 npm run typecheck  # types only
-npm test           # vitest run — headless simulation tests
+npm test           # vitest run — headless simulation tests; expect ~1 min, not seconds
 npm run test:watch # vitest watch mode
-npx vitest run -t "every weapon"   # single test by name pattern
+npx vitest run src/gameplay/simulation.test.ts   # one file
+npx vitest run -t "every weapon"                 # tests matching a name pattern
 npm run validate:art               # sprite strips vs. the canonical palette and frame rules
 npm run cap:sync                   # build, then copy dist/ + regenerate the SPM manifest for iOS
 npm run verify:ios                 # cap:sync, then actually compile and link the iOS target
 ```
 
-There is no linter configured; `tsc` is the gate. `npm test` is 20 files / 457 tests, all green —
-a red one is a regression, never a known failure to wave through. Most of them are *gates* rather
-than feature tests: they parse the source tree or the stylesheet and fail the build on an
-architectural violation (see Tests).
+There is no linter or formatter configured; `tsc` is the gate, and it runs strict with
+`noUnusedLocals`/`noUnusedParameters` and `verbatimModuleSyntax`, so an unused import or a type
+imported without `import type` fails the build. Relative imports carry their `.ts` extension
+(`from './input.ts'`); the house style is single quotes, semicolons, trailing commas, two-space
+indent and lines under about 100 columns. `npm test` is 20 files / 508 tests, all green — a red one
+is a regression, never a known failure to wave through. A good share of them are *gates* rather than
+feature tests: they parse the source tree or the stylesheet and fail the build on an architectural
+violation (see Tests).
+
+`validate:art` and every script in `scripts/` are Python 3 **stdlib only** — no Pillow, nothing to
+install. `scripts/python.mjs` is only an interpreter launcher (it exists because `python3` on Windows
+resolves to a Store stub), so `python3 scripts/validate-art.py` is the same thing on macOS and Linux.
 
 `cap:sync` and `verify:ios` are **not** the same gate. `cap sync` rewrites
 `ios/App/CapApp-SPM/Package.swift` and copies web assets without ever invoking the Swift toolchain,
@@ -27,6 +37,10 @@ so a plugin can appear in the manifest while the target no longer builds — "SP
 "it compiles". `verify:ios` runs `xcodebuild` for a device Release with signing off, which is the
 only thing that answers the second question. It needs macOS and Xcode, so it is the one gate a
 non-Mac session cannot run; say so plainly rather than inferring the build from a successful sync.
+
+The Xcode project and `Package.swift` are committed; `ios/App/App/public/` and
+`ios/App/App/capacitor.config.json` are what `cap sync` generates from `dist/` and the root
+`capacitor.config.ts`, and both are gitignored — never hand-edit them.
 
 ## What this is
 
@@ -37,6 +51,13 @@ identically when none of them resolve. All game content (enemies, weapons, passi
 abilities, waves, maps, structures, blood, meta) is data-driven JSON in `src/content/`. **The README
 documents every content JSON format in detail — read it before editing content files.** This file
 covers the code architecture instead.
+
+Two more documents orient a session. `ROADMAP.md` says where the project is going and in what order;
+its numbers were measured from the repo on the date it states, so re-measure before trusting them.
+`docs/plans/` holds the dated design and phase plans the current features were built from. They are
+history, not specification — the code has moved past them in places (the castle-defence plan still
+calls losing a structure a difficulty penalty, and it is now the fail state) — so where a plan and
+this file disagree, this file and the code win.
 
 ## Architecture
 
@@ -83,9 +104,9 @@ per frame**, so edge-triggered input (menu keys, pause, F3) is handled only in `
 1. `run.time += dt`, then `difficultyAt()` → writes `ctx.hpScale/damageScale/speedScale` (consumed at spawn time only; existing enemies never rescale)
 2. `world.snapshotPositions()` — first, so the renderer can lerp prev→current by alpha
 3. `enemyHash.build()` **rebuild #1** (pre-movement: crowd separation + contact damage)
-4. `updatePlayer` → `spawner.update` → `updateEnemies`
+4. `updatePlayer` → `updateDowned` → `spawner.update` → `updateEnemies`
 5. `enemyHash.build()` **rebuild #2** (post-movement: all weapon/damage resolution — new damage systems go after this)
-6. `updateAbility` → `updateEnemyProjectiles` → `updateWeapons` → `updatePlayerProjectiles` → `updateHazards` → `updateStructures`
+6. `updateAbility` → `updateEnemyProjectiles` → `updateWeapons` → `updatePlayerProjectiles` → `updateHazards` → `updateStructures` → `updateBuilding` (consumes the latched `buildIntent`)
 7. `pickupHash.build()` → `updatePickups` → `updateBlood` → `updateCorpses` → fx → camera
 8. `world.flush()` — **last, exactly once**
 9. Deferred state changes, in this precedence: a death mid-tick already moved us to `dying` and
@@ -97,8 +118,9 @@ Two placements in that list are arguments, not accidents. `updateAbility` runs *
 before intake, decay and the latched Feast/Frenzy spend are resolved.
 
 Input the sim must not miss is **latched** on `Ctx` by the frame side and consumed by the sim
-(`ctx.bloodIntent`, `ctx.abilityQueued`). A frame can run `update` zero times, so a press written
-straight into a system would be dropped; menus clear the latches so no cast survives a pause.
+(`ctx.bloodIntent`, `ctx.abilityQueued`, `ctx.buildIntent`). A frame can run `update` zero times, so
+a press written straight into a system would be dropped; menus clear the latches so no cast survives
+a pause.
 
 ### ECS contracts (`src/ecs/world.ts`, `components.ts`)
 
@@ -225,34 +247,7 @@ for), so the horde keeps hitting the castle for as long as you are down, and eac
 longer than the last. **If this ever reads as a free respawn, raise `DOWN_ESCALATION`, not the
 recovery health.**
 
-A structure declares `pierce`, `knockback` and `area` alongside its damage, which is what lets two
-emplacements be different *decisions* rather than the same tower at different numbers. All three
-default to the watchtower's values, so every entry that predates them is untouched.
-
-Two rules keep them honest, and both are easy to get wrong:
-
-- **`fireTower` writes every varying field on every shot.** `TOWER_STATS` is one shared object
-  rewritten in place (zero allocation per frame), so a field left unset carries the last structure
-  that fired into this one — a ballista would lend its pierce to the next watchtower.
-- **They live in `structureStatsAtTier`, not on the def.** Same rule as damage and range: `fireTower`
-  reads the *entity's* tier, so anything a tier can add has to be tiered. A `pierce` delta that
-  stopped at the def would be a purchase that silently does nothing.
-
-The `knockback` field is how a "slow" is expressed without a status-effect system: an attacker shoved
-off a wall spends the walk back not swinging, and the wall takes the difference. It respects
-`knockbackResist` like every other source.
-
-**A wall can be buyable.** `palisade` has `buildCost > 0` and `range: 0`, so `isWall` makes it part
-of the objective — buying one is more buffer to chew through *and* another bounty every siege, but
-also one more thing whose loss scores `wallsLost`. No code was needed for that; it falls out of the
-two fields, which is the point of deriving the distinction rather than declaring it.
-
-**Anything raised mid-run gets its own HP pip.** `setStructurePips` only knows what the map placed,
-so `structure:built` appends one (`Hud.addStructurePip`), keyed by the same `world.aiPhase` index the
-damage and destroy events carry. Without it a bought structure had no health on screen — survivable
-for a tower, wrong for a wall the run is lost without.
-
-### Building and upgrading (`structures.ts`)
+### Building, upgrading and emplacement stats (`structures.ts`)
 
 The player walks to a structure or an empty pad and presses **F**; `ctx.buildIntent` is the latch,
 consumed by `updateBuilding` on the next sim tick, exactly like `bloodIntent` and `abilityQueued` and
@@ -297,6 +292,34 @@ lane — inside the joystick’s capture zone**. A thumb put down there to start
 tower, which is the same collision `touch.ts` documents for the blood buttons. `--cluster-w` counts
 it, so the joystick boundary moved in the same edit, and `layout.test.ts` fails the build if a
 control in the cluster is missing from that reserve.
+
+**Emplacement stats.** A structure declares `pierce`, `knockback` and `area` alongside its damage,
+which is what lets two emplacements be different *decisions* rather than the same tower at different
+numbers. All three default to the watchtower's values, so every entry that predates them is
+untouched.
+
+Two rules keep them honest, and both are easy to get wrong:
+
+- **`fireTower` writes every varying field on every shot.** `TOWER_STATS` is one shared object
+  rewritten in place (zero allocation per frame), so a field left unset carries the last structure
+  that fired into this one — a ballista would lend its pierce to the next watchtower.
+- **They live in `structureStatsAtTier`, not on the def.** Same rule as damage and range above:
+  anything a tier can add has to be tiered, or a `pierce` delta that stopped at the def is a purchase
+  that silently does nothing.
+
+The `knockback` field is how a "slow" is expressed without a status-effect system: an attacker shoved
+off a wall spends the walk back not swinging, and the wall takes the difference. It respects
+`knockbackResist` like every other source.
+
+**A wall can be buyable.** `palisade` has `buildCost > 0` and `range: 0`, so `isWall` makes it part
+of the objective — buying one is more buffer to chew through *and* another bounty every siege, but
+also one more thing whose loss scores `wallsLost`. No code was needed for that; it falls out of the
+two fields, which is the point of deriving the distinction rather than declaring it.
+
+**Anything raised mid-run gets its own HP pip.** `setStructurePips` only knows what the map placed,
+so `structure:built` appends one (`Hud.addStructurePip`), keyed by the same `world.aiPhase` index the
+damage and destroy events carry. Without it a bought structure had no health on screen — survivable
+for a tower, wrong for a wall the run is lost without.
 
 ### Corpses (`Kind.Corpse`)
 
@@ -513,6 +536,13 @@ directly.
   check is a floor, not a proof of a good cycle: it says the legs moved, never that they moved
   coherently. Every strip in the repo passes today, the character sheets
   included — a failure is a regression, never a pre-existing exception to wave through.
+  Animation strips are **derived, never generated**: `scripts/animate.py` builds every cycle
+  (walk/float/flap/blob, `collapse` for a death) from the one idle frame by copying pixels to
+  whole-pixel offsets, so a strip cannot jitter or drift off-palette; `sheetify.py` cuts a generated
+  multi-pose sheet into one aligned strip and `repalette.py` snaps art that arrived outside the
+  pipeline. The big generated source images live in `raw/`, which is gitignored — only the converted
+  result is committed. Flags and the reasoning behind each tool are in the README's art pipeline
+  section.
 - **New game event**: add to the `GameEvents` interface in `src/core/events.ts`. That interface is
   the whole contract between the sim and every listener — HUD, audio, haptics, daily tally, feats,
   coach and telemetry all subscribe, none of them are imported by gameplay.
@@ -554,8 +584,17 @@ violates none of them, which is how `default`'s 780s stage sat at a 44% collapse
 legal; collapses are not.
 
 Renderer, Hud, Screens, TileMap and SpriteTable need a browser, so their DOM work is verified with
-`npm run dev`. Everything that can be pulled out of them has been, into gates that read source or
-CSS as text:
+`npm run dev`. Everything that can be pulled out of them has been. The pure seams get ordinary unit
+tests beside the module: `viewportScale` (`render/renderer.test.ts`); the arena picker
+(`render/tilemap.test.ts` — bastion leads and is therefore the default run, the DEFEND tag derives
+from a map's structures, and the bastion's first siege lands inside ninety seconds: content
+tripwires in the same spirit as the balance ones); camera shake ringing out without `follow()`
+(`camera.test.ts`); the hit-flash and pixel-font atlas caches refusing past their caps rather than
+growing; the `Input` injection and axis seams the touch layer drives (`core/input.test.ts`); and
+joystick math, the voice budget, `audio.json` normalization and auto-pause
+(`platform/platform.test.ts`). Persistence logic — meta, migration, daily oaths, feats, coach — is
+tested as plain data in `services/`. The architectural rules are *gates* that read source or CSS as
+text:
 
 | file | what it fails the build on |
 | --- | --- |
@@ -566,5 +605,9 @@ CSS as text:
 | `ui/metrics.test.ts` | any rule but `.xp-track` spending the art unit `--u` |
 | `ui/layout.test.ts` | a cross-element clearance turning back into a literal; a layer composing safe-area insets in the wrong frame |
 | `ui/navigation.test.ts` | the menu cursor and the title screen's flat-index-to-meaning mapping |
+
+One config line is load-bearing for that table: `vite.config.ts` scopes `test.css.include` to
+`style.css`, because vitest otherwise replaces every CSS import — `?raw` included — with an empty
+string, which would hand `metrics.test.ts` an empty stylesheet to find no violations in.
 
 New UI arithmetic belongs in `metrics.test.ts` or `layout.test.ts` rather than in a comment.
