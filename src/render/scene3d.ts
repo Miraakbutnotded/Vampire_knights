@@ -1,6 +1,7 @@
 import {
   BufferGeometry,
   CanvasTexture,
+  Color,
   DirectionalLight,
   DoubleSide,
   DynamicDrawUsage,
@@ -153,9 +154,10 @@ export class Scene3D {
 
     // Lighting touches the models only: sprites, floor and walls use unlit
     // materials, because their colours are the palette and must come out as
-    // authored. A cool moonlit fill with a warm key, like the art's night.
-    this.scene.add(new HemisphereLight('#b9c3ff', '#2a1f33', 2.4));
-    const key = new DirectionalLight('#ffe9cc', 2.2);
+    // authored. Both lights are moonlight, dim and violet, so a model's own
+    // daylit texture is graded down into the palette's night.
+    this.scene.add(new HemisphereLight('#8f86c9', '#1a1024', 0.9));
+    const key = new DirectionalLight('#c9bcff', 1.1);
     key.position.set(-0.6, 1, 0.3);
     this.scene.add(key);
 
@@ -704,6 +706,8 @@ class ShadowBatch {
   constructor(private readonly capacity: number) {
     this.data = instanced(this.geometry, 'iShadow', capacity, 3);
     const material = new ShaderMaterial({
+      // The palette's void black, read as sRGB so it survives the output encode.
+      uniforms: { uColor: { value: new Color('#040109') } },
       vertexShader: /* glsl */ `
         attribute vec3 iShadow;
         varying vec2 vLocal;
@@ -714,10 +718,11 @@ class ShadowBatch {
         }
       `,
       fragmentShader: /* glsl */ `
+        uniform vec3 uColor;
         varying vec2 vLocal;
         void main() {
           if (dot(vLocal, vLocal) > 1.0) discard;
-          gl_FragColor = vec4(0.02, 0.0, 0.05, 0.45);
+          gl_FragColor = vec4(uColor, 0.4);
           #include <colorspace_fragment>
         }
       `,

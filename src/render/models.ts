@@ -1,11 +1,18 @@
-import { Box3, Group, Vector3 } from 'three';
+import { BackSide, Box3, Color, Group, Mesh, ShaderMaterial, Vector3 } from 'three';
 import type { Object3D } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import modelsContent from '../content/models.json';
 import type { SpriteTable } from './sprites.ts';
-import { UPRIGHT_UNITS_PER_PX } from './view3d.ts';
+import { PX, UPRIGHT_UNITS_PER_PX } from './view3d.ts';
 
 const ASSET_ROOT = 'assets/';
+
+/** Outline width around a model, in screen pixels. */
+const OUTLINE_PX = 1.5;
+/** How far the outline sits behind the surface it traces, in world units. */
+const OUTLINE_PUSH = 0.6;
+/** The palette's own outline colour — docs/art/palette.md, "void black / outline". */
+const OUTLINE_COLOR = '#040109';
 
 /**
  * One entry in content/models.json, keyed by the sprite name it stands in for.
@@ -76,5 +83,68 @@ function normalize(scene: Object3D, def: ModelJson): Object3D {
   pivot.add(scene);
   pivot.scale.setScalar(scale);
   pivot.rotation.y = ((def.yaw ?? 0) * Math.PI) / 180;
+  pivot.updateMatrixWorld(true);
+  outline(scene);
   return pivot;
+}
+
+/**
+ * Gives every mesh in a model the one-pixel dark outline every sprite in the
+ * game is drawn with.
+ *
+ * An inverted hull: the mesh again, pushed out along its normals by about one
+ * screen pixel and drawn back faces only, in the palette's near-black. Without
+ * it a model reads as a render pasted into pixel art; with it, as one more
+ * thing standing in the same world. Built once per template, so clones share
+ * the geometry and the material.
+ */
+function outline(root: Object3D): void {
+  const meshes: Mesh[] = [];
+  root.traverse((node) => {
+    if (node instanceof Mesh && node.geometry.getAttribute('normal')) meshes.push(node);
+  });
+  const worldScale = new Vector3();
+  for (const mesh of meshes) {
+    mesh.getWorldScale(worldScale);
+    // One screen pixel is 1/PX world units across the view; the hull is built in
+    // the mesh's own units, so that distance is divided back out of its scale.
+    // A pixel and a half, because at exactly one the rasteriser rounds the
+    // outline away on whichever side the silhouette lands between pixels.
+    const thickness = OUTLINE_PX / PX / Math.max(1e-6, worldScale.x);
+    const hull = new Mesh(
+      mesh.geometry,
+      new ShaderMaterial({
+        uniforms: {
+          uThickness: { value: thickness },
+          uPush: { value: OUTLINE_PUSH },
+          // Through Color so the hex is read as sRGB and handed to the shader
+          // in linear; a raw vec4 would be brightened on its way out.
+          uColor: { value: new Color(OUTLINE_COLOR) },
+        },
+        vertexShader: /* glsl */ `
+          uniform float uThickness;
+          uniform float uPush;
+          void main() {
+            vec4 view = modelViewMatrix * vec4(position + normal * uThickness, 1.0);
+            // Slid away from the camera by a fixed distance, so where the hull
+            // and the surface nearly coincide — inside a crenel, under a ledge —
+            // the surface wins and the outline stays on the silhouette. A fixed
+            // distance rather than polygonOffset, whose slope term shoves the
+            // near-edge-on faces at the silhouette behind the floor.
+            view.z -= uPush;
+            gl_Position = projectionMatrix * view;
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform vec3 uColor;
+          void main() {
+            gl_FragColor = vec4(uColor, 1.0);
+            #include <colorspace_fragment>
+          }
+        `,
+        side: BackSide,
+      }),
+    );
+    mesh.add(hull);
+  }
 }

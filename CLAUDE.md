@@ -426,7 +426,13 @@ How the frame is split:
   slab. Scatter maps have no edge the clamped camera can reach.
 - **Models** (`models.ts`, `src/content/models.json`, files in `public/assets/models/`) replace a
   sprite by name. `height` is in *screen pixels*, like all art sizing. Fail-soft: a model that has
-  not loaded, or failed to, leaves the sprite drawing as its billboard.
+  not loaded, or failed to, leaves the sprite drawing as its billboard. Each gets a 1.5px
+  inverted-hull outline in the palette's outline colour, pushed back a fixed view-space distance
+  (not `polygonOffset`, whose slope term hides the silhouette behind the floor). Generated GLBs
+  go through `scripts/shrink-glb.py` first — they ship 2048px textures.
+- **Colours in custom shaders go through `Color`.** Output is sRGB-encoded, so a literal
+  `vec4(0.035, …)` in a `ShaderMaterial` comes out as `#35…`, not near-black. Pass palette hex as
+  a `new Color('#…')` uniform, which converts to linear on the way in.
 
 Zero-allocation-per-frame is a core constraint: DrawList and Fx pools are fixed-capacity SoA typed
 arrays that silently drop overflow (768 particles, 160 numbers). Don't replace with growable arrays.

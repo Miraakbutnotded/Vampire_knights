@@ -626,6 +626,17 @@ It is fail-soft like the rest of the content: an unknown sprite name is skipped 
 model still loading or missing its file leaves the sprite drawing as the flat billboard it always
 was. The flat view (`?view=2d`) ignores this file entirely.
 
+Every model is drawn with the same one-pixel outline in the palette's outline colour that the
+sprites have, and lit by dim violet moonlight, so a texture authored in daylight is graded into the
+night rather than pasted over it. Neither needs anything from the file.
+
+Generated models arrive with 2048px textures, which a model drawn ~40 pixels tall can never show.
+Shrink them before they go in (needs Pillow — the one art script that is not stdlib-only):
+
+```sh
+node scripts/python.mjs scripts/shrink-glb.py raw.glb public/assets/models/tower.glb --max 256
+```
+
 ## Designing maps
 
 Maps live in `src/content/maps/*.json`. **Any file you add there is picked up automatically** and
