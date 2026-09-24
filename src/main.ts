@@ -6,6 +6,7 @@ import { Game } from './game.ts';
 import { AudioEngine } from './platform/audio.ts';
 import { HapticsDriver } from './platform/haptics.ts';
 import { wireCapacitorLifecycle, wireLifecycle } from './platform/lifecycle.ts';
+import type { ViewMode } from './render/renderer.ts';
 import { SpriteTable } from './render/sprites.ts';
 import { MetaService } from './services/meta.ts';
 import { liftStorage } from './services/migration.ts';
@@ -93,6 +94,16 @@ async function selectStorage(): Promise<StorageAdapter> {
 }
 
 /**
+ * Which picture of the world to draw: the 3D view, unless the page was opened
+ * with `?view=2d`. Chosen here, like the storage adapter, so the engine takes
+ * a decision rather than reading the address bar itself. A device without
+ * WebGL falls back to the flat view on its own, inside the renderer.
+ */
+function chooseView(): ViewMode {
+  return new URLSearchParams(window.location.search).get('view') === '2d' ? '2d' : '3d';
+}
+
+/**
  * Boots the game: load art, pick the save store, build the game, start the loop.
  *
  * Two asynchronous steps, run together because neither needs the other: art,
@@ -121,7 +132,7 @@ async function boot(): Promise<void> {
   // First of the three rollover points, and it must precede the Game: the
   // constructor opens the title screen, which renders today's oaths.
   meta.rollDaily(Date.now());
-  const game = new Game(canvas, { ui: uiRoot, touch: touchRoot, menu: menuRoot }, sprites, meta, telemetry);
+  const game = new Game(canvas, { ui: uiRoot, touch: touchRoot, menu: menuRoot }, sprites, meta, telemetry, chooseView());
 
   if (import.meta.env.DEV) window.vkTelemetry = telemetry;
 

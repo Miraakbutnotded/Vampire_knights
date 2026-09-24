@@ -16,8 +16,8 @@ npm run cap:sync                   # build, then copy dist/ + regenerate the SPM
 npm run verify:ios                 # cap:sync, then actually compile and link the iOS target
 ```
 
-There is no linter configured; `tsc` is the gate. `npm test` is 20 files, all green (~35s) — a
-red one is a regression, never a known failure to wave through. Seven of those files are *gates*
+There is no linter configured; `tsc` is the gate. `npm test` is 22 files, all green (~35s) — a
+red one is a regression, never a known failure to wave through. Eight of those files are *gates*
 rather than feature tests: they parse the source tree or the stylesheet and fail the build on an
 architectural violation (see Tests).
 
@@ -30,8 +30,10 @@ non-Mac session cannot run; say so plainly rather than inferring the build from 
 
 ## What this is
 
-A Vampire Survivors-style arena game: custom TypeScript engine on Canvas2D, no framework. The only
-runtime dependencies are the Capacitor packages that ship it as an iOS app, and every one of them is
+A Vampire Survivors-style arena game: custom TypeScript engine, no framework. The world draws in
+3D through three.js (WebGL) by default, over a Canvas2D layer that still owns the frame; `?view=2d`
+or a device without WebGL gets the original flat renderer. Besides three, the only runtime
+dependencies are the Capacitor packages that ship it as an iOS app, and every one of those is
 reached through a dynamic import behind a fallback, so the web build and the headless tests run
 identically when none of them resolve. All game content (enemies, weapons, passives, characters,
 abilities, waves, maps, structures, blood, meta) is data-driven JSON in `src/content/`. **The README
@@ -392,6 +394,40 @@ diagonally.
 Known gap: characters and enemies are single front-facing sprites flipped by `facing`, so walking
 north-west still shows a front view. Eight-direction art is the outstanding cost of the projection.
 
+### The 3D view (`scene3d.ts`, `view3d.ts`)
+
+The flat projection *is* a 3D view: an orthographic camera turned 45° and tilted down 30° lands
+every ground point on exactly the pixel `isoX`/`isoY` does (sin 30° is the 2:1 squash).
+`view3d.test.ts` pins that, and it is the whole reason the 3D view could land without touching
+gameplay — `onScreen`, `withinEngagement`, the camera clamp and `screenDirToWorld` keep asking
+`iso.ts` and stay true of the picture. **Never change the camera angle or zoom in `view3d.ts`
+alone**: the gameplay rule "you may only hit what you can see" reads the flat projection.
+
+How the frame is split:
+
+- **`Renderer` still owns the frame.** In 3D its buffer becomes a transparent overlay (particles,
+  damage numbers, off-screen markers), and a WebGL canvas sits *under* the display canvas at the
+  same 480×270, placed by the same letterbox maths — one pixel grid, two layers. `begin()` points
+  the 3D camera at the world point under the *rounded* view centre so both layers share pixels.
+- **Callers never branch on the view.** `renderer.queue()` routes to the scene; `TileMap.drawGround`
+  hands the scene flat (unskewed) chunks. What a sprite *is* rides on two `queue()` options the 2D
+  path ignores: `layer` (`world` stands, `flat` lies on the floor keeping its screen shape — decor
+  and corpses, `overlay` stays on the 2D layer) and `shadow`.
+- **All sprites are three instanced draw calls** (`SpriteBatch` ×2 + `ShadowBatch`) over one atlas
+  (`atlas.ts`, keyed by image source). Standing sprites write depth and draw partial alpha as a
+  4×4 ordered dither; floor-lying ones blend and are sorted by the 2D depth key instead. Caps are
+  fixed and overflow is dropped, same as the fx pools.
+- **A standing sprite is a card that leans**: corners above the anchor rise vertically, corners
+  below it lie on the floor toward the camera. The projection is affine, so pixels still land 1:1
+  with the flat view; the lean only keeps feet out of the ground.
+- **Unlit on purpose.** Floor, walls and sprites use unlit materials so the palette comes out as
+  authored; wall sides are shaded by baked vertex colours. Lights exist for GLB models only.
+- **Grid maps get terrain**: solid tiles rise `WALL_HEIGHT` × tile, and the grid's edge drops as a
+  slab. Scatter maps have no edge the clamped camera can reach.
+- **Models** (`models.ts`, `src/content/models.json`, files in `public/assets/models/`) replace a
+  sprite by name. `height` is in *screen pixels*, like all art sizing. Fail-soft: a model that has
+  not loaded, or failed to, leaves the sprite drawing as its billboard.
+
 Zero-allocation-per-frame is a core constraint: DrawList and Fx pools are fixed-capacity SoA typed
 arrays that silently drop overflow (768 particles, 160 numbers). Don't replace with growable arrays.
 In-world text uses the hand-built 3×5 pixel font in `fx.ts` (canvas `fillText` is blurry at 480×270);
@@ -561,8 +597,8 @@ about a run is a safety bound — no leak, no stall, cap respected — and a run
 violates none of them, which is how `default`'s 780s stage sat at a 44% collapse unnoticed. Dips are
 legal; collapses are not.
 
-Renderer, Hud, Screens, TileMap and SpriteTable need a browser, so their DOM work is verified with
-`npm run dev`. Everything that can be pulled out of them has been, into gates that read source or
+Renderer, Scene3D, Hud, Screens, TileMap and SpriteTable need a browser, so their DOM and WebGL work
+is verified with `npm run dev` (compare `?view=2d` against the default 3D view). Everything that can be pulled out of them has been, into gates that read source or
 CSS as text:
 
 | file | what it fails the build on |
@@ -571,6 +607,7 @@ CSS as text:
 | `services/telemetry.test.ts` | telemetry leaving the device, and the record's own bounds |
 | `services/storage.test.ts` | the accidentally-thenable plugin proxy regressing |
 | `render/repaint.test.ts` | a `this.state` assignment outside `setState`, or a state entered around it |
+| `render/view3d.test.ts` | the 3D camera drifting off the flat projection gameplay reads |
 | `ui/metrics.test.ts` | any rule but `.xp-track` spending the art unit `--u` |
 | `ui/layout.test.ts` | a cross-element clearance turning back into a literal; a layer composing safe-area insets in the wrong frame |
 | `ui/navigation.test.ts` | the menu cursor and the title screen's flat-index-to-meaning mapping |
