@@ -604,6 +604,39 @@ The key must name a real game event; anything else is skipped with a warning lis
 are over budget or inside their throttle are **dropped, never queued**, the same policy the particle
 pools use — audio that lags behind the action is worse than audio that thins out.
 
+### `models.json`
+
+3D models that replace a sprite in the 3D view, keyed by the **sprite name** from `sprites.json`.
+The `.glb` files live under `public/assets/models/`.
+
+```jsonc
+"structure_tower": {
+  "src": "models/tower.glb",   // under public/assets/
+  "height": 44,                // how tall it draws, in screen pixels — the unit every sprite uses
+  "yaw": 0                     // turn about the vertical, in degrees, if it was authored facing away
+}
+```
+
+The model is re-centred on its own footprint and scaled so its height comes out at `height` pixels,
+whatever units and pivot the file was exported with — so a model is sized against the 30-pixel sprite
+it replaces, not against its authoring tool. Every entity drawing that sprite (and every tier of a
+structure) becomes the model.
+
+It is fail-soft like the rest of the content: an unknown sprite name is skipped with a warning, and a
+model still loading or missing its file leaves the sprite drawing as the flat billboard it always
+was. The flat view (`?view=2d`) ignores this file entirely.
+
+Every model is drawn with the same one-pixel outline in the palette's outline colour that the
+sprites have, and lit by dim violet moonlight, so a texture authored in daylight is graded into the
+night rather than pasted over it. Neither needs anything from the file.
+
+Generated models arrive with 2048px textures, which a model drawn ~40 pixels tall can never show.
+Shrink them before they go in (needs Pillow — the one art script that is not stdlib-only):
+
+```sh
+node scripts/python.mjs scripts/shrink-glb.py raw.glb public/assets/models/tower.glb --max 256
+```
+
 ## Designing maps
 
 Maps live in `src/content/maps/*.json`. **Any file you add there is picked up automatically** and

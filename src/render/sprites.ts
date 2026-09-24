@@ -97,6 +97,11 @@ export class SpriteTable {
 
   private warned = new Set<string>();
 
+  /** How many sprites there are; ids run from 0 to count - 1. */
+  get count(): number {
+    return this.sprites.length;
+  }
+
   has(name: string): boolean {
     return this.idByName.has(name);
   }

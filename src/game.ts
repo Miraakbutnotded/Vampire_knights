@@ -13,6 +13,7 @@ import { Fx } from './render/fx.ts';
 import { FrameGate } from './render/repaint.ts';
 import { isoDepth, isoX, isoY, worldX, worldY } from './render/iso.ts';
 import { CULL_MARGIN, Renderer, VIEW_H, VIEW_W } from './render/renderer.ts';
+import type { ViewMode } from './render/renderer.ts';
 import { TileMap, mapChoices } from './render/tilemap.ts';
 import type { SpriteTable } from './render/sprites.ts';
 
@@ -167,6 +168,7 @@ export class Game implements LoopHooks {
     // carries none of it, and the seed is generated in startRun where no
     // gameplay system can see it.
     private telemetry: TelemetryService,
+    view: ViewMode = '2d',
   ) {
     this.coarse = navigator.maxTouchPoints > 0;
     // Published before anything is measured or drawn so the stylesheet's touch
@@ -177,7 +179,7 @@ export class Game implements LoopHooks {
 
     this.padSpriteId = sprites.id('structure_pad');
     this.input = new Input();
-    this.renderer = new Renderer(canvas, sprites);
+    this.renderer = new Renderer(canvas, sprites, view);
     this.hud = new Hud(sprites);
 
     // First in the picker is also the default run, so the map files decide
@@ -1007,6 +1009,8 @@ export class Game implements LoopHooks {
         this.renderer.queue(world.spriteId[id]!, world.animState[id]!, world.animTime[id]!, mx, my, {
           scale: 0.5,
           depth: 1e6,
+          // Pinned to the screen edge, not standing anywhere in the world.
+          layer: 'overlay',
         });
       }
     }
@@ -1066,6 +1070,9 @@ export class Game implements LoopHooks {
         // floor; everything else stands on it. An orbiting hazard is the one
         // exception: a tome circling the player is an object in the air.
         ground: kind === Kind.Hazard && !world.has(id, Comp.Orbit),
+        // A body lies on the floor; in 3D it is laid there rather than stood up.
+        layer: kind === Kind.Corpse ? 'flat' : 'world',
+        shadow: kind === Kind.Enemy || kind === Kind.Structure,
       });
     }
   }
@@ -1081,6 +1088,7 @@ export class Game implements LoopHooks {
       flash: world.hitFlash[id]! > 0 ? world.hitFlash[id]! * 5 : 0,
       alpha: playerAlpha(this.ctx),
       depth: y,
+      shadow: true,
     });
   }
 

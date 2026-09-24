@@ -1,6 +1,7 @@
 import { MAX_ENTITIES } from '../ecs/world.ts';
 import { FlashSheetCache } from './flash-sheet.ts';
-import { ISO_SX, ISO_SY, isoDepth, isoX, isoY, worldBounds } from './iso.ts';
+import { ISO_SX, ISO_SY, isoDepth, isoX, isoY, worldBounds, worldX, worldY } from './iso.ts';
+import { Scene3D, SpriteMode } from './scene3d.ts';
 import { frameIndex } from './sprites.ts';
 import type { SpriteTable } from './sprites.ts';
 import type { Camera } from './camera.ts';
@@ -31,6 +32,12 @@ export const VIEW_H = 270;
 export function viewportScale(bufferW: number, bufferH: number): number {
   return Math.min(bufferW / VIEW_W, bufferH / VIEW_H);
 }
+
+/**
+ * Which picture of the world to draw. The simulation is the same either way —
+ * see `view3d.ts` for why the two agree to the pixel on the ground plane.
+ */
+export type ViewMode = '2d' | '3d';
 
 /** Entities this far outside the view are not drawn. Screen pixels. */
 export const CULL_MARGIN = 48;
@@ -242,8 +249,20 @@ class FlashCache {
 export class Renderer {
   /** Offscreen buffer that the world is drawn into, at VIEW_W x VIEW_H. */
   private buffer: HTMLCanvasElement;
-  /** Draw into this for anything in world space. */
+  /**
+   * Draw into this for anything in world space. In the 3D view it is a
+   * transparent overlay above the world: particles, damage numbers and the
+   * off-screen markers still draw here, exactly where they always did.
+   */
   readonly ctx: CanvasRenderingContext2D;
+
+  /**
+   * The 3D world, when the 3D view is on and WebGL came up. Null means the flat
+   * view, and every method below behaves exactly as it did before 3D existed.
+   */
+  readonly scene: Scene3D | null;
+  /** Whether this frame drew a world, so present() knows to blank the 3D canvas if not. */
+  private worldDrawn = false;
 
   private display: HTMLCanvasElement;
   private displayCtx: CanvasRenderingContext2D;
@@ -272,16 +291,21 @@ export class Renderer {
   private camX = 0;
   private camY = 0;
 
-  constructor(canvas: HTMLCanvasElement, private sprites: SpriteTable) {
+  constructor(canvas: HTMLCanvasElement, private sprites: SpriteTable, view: ViewMode = '2d') {
     this.display = canvas;
-    const displayCtx = canvas.getContext('2d', { alpha: false });
+    // Decided before either 2D context exists, because a context's alpha is
+    // fixed at creation: over a 3D world both have to be see-through.
+    this.scene = view === '3d' ? Scene3D.create(canvas, sprites, VIEW_W, VIEW_H) : null;
+    const overlay = this.scene !== null;
+
+    const displayCtx = canvas.getContext('2d', { alpha: overlay });
     if (!displayCtx) throw new Error('2D canvas context unavailable');
     this.displayCtx = displayCtx;
 
     this.buffer = document.createElement('canvas');
     this.buffer.width = VIEW_W;
     this.buffer.height = VIEW_H;
-    const bufferCtx = this.buffer.getContext('2d', { alpha: false });
+    const bufferCtx = this.buffer.getContext('2d', { alpha: overlay });
     if (!bufferCtx) throw new Error('2D canvas context unavailable');
     this.ctx = bufferCtx;
     this.ctx.imageSmoothingEnabled = false;
@@ -298,6 +322,12 @@ export class Renderer {
   dispose(): void {
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibility);
+    this.scene?.dispose();
+  }
+
+  /** True when the world is drawn in 3D. */
+  get is3D(): boolean {
+    return this.scene !== null;
   }
 
   /** True while the display canvas needs painting again. See `stale`. */
@@ -325,6 +355,14 @@ export class Renderer {
     this.offsetY = Math.floor((this.display.height - VIEW_H * this.scale) / 2);
 
     this.displayCtx.imageSmoothingEnabled = false;
+    // The 3D canvas covers exactly the play box, so it is scaled by the same
+    // letterbox maths the buffer is blitted with — one pixel grid, two layers.
+    this.scene?.place(
+      this.offsetX / dpr,
+      this.offsetY / dpr,
+      (VIEW_W * this.scale) / dpr,
+      (VIEW_H * this.scale) / dpr,
+    );
     // Assigning canvas.width above cleared the display canvas.
     this.stale = true;
   }
@@ -334,8 +372,12 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = '#0b0d14';
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    if (this.scene) {
+      ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+    } else {
+      ctx.fillStyle = '#0b0d14';
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
 
     // The camera holds a world position; the buffer is screen space. Projecting
     // here is what keeps the transform a plain translate — the projection must
@@ -346,6 +388,14 @@ export class Renderer {
     this.camX = Math.round(isoX(camera.renderX, camera.renderY) - VIEW_W / 2);
     this.camY = Math.round(isoY(camera.renderX, camera.renderY) - VIEW_H / 2);
     ctx.setTransform(1, 0, 0, 1, -this.camX, -this.camY);
+
+    // The 3D camera looks at the world point under the *rounded* view centre,
+    // not the camera's raw position, so the floor lands on the same whole
+    // pixels the overlay is drawn against.
+    const cx = this.camX + VIEW_W / 2;
+    const cy = this.camY + VIEW_H / 2;
+    this.scene?.beginFrame(worldX(cx, cy), worldY(cx, cy));
+    this.worldDrawn = false;
 
     this.drawList.clear();
   }
@@ -422,8 +472,39 @@ export class Renderer {
       depth?: number;
       /** Lay the sprite flat on the ground plane instead of standing it up. */
       ground?: boolean;
+      /**
+       * What the sprite *is*, for the 3D view; the flat view sorts by `depth`
+       * alone and ignores it.
+       *
+       * - `world` (default) stands in the world.
+       * - `flat` is painted on the floor — a puddle, a body — and lies there,
+       *   keeping its screen shape, so nothing can walk behind it.
+       * - `overlay` is not in the world at all: a marker pinned to the screen
+       *   edge. It stays on the 2D layer, above everything.
+       */
+      layer?: 'world' | 'flat' | 'overlay';
+      /** Cast a round shadow on the floor in the 3D view. */
+      shadow?: boolean;
     },
   ): void {
+    if (this.scene && opts?.layer !== 'overlay') {
+      this.scene.sprite(
+        spriteId,
+        state,
+        animTime,
+        x,
+        y,
+        opts?.facing ?? 1,
+        opts?.scale ?? 1,
+        opts?.rot ?? 0,
+        opts?.flash ?? 0,
+        opts?.alpha ?? 1,
+        opts?.depth ?? isoDepth(x, y),
+        opts?.ground ? SpriteMode.Ground : opts?.layer === 'flat' ? SpriteMode.Flat : SpriteMode.Upright,
+        opts?.shadow === true,
+      );
+      return;
+    }
     // Callers hand in a world position and never think about the projection;
     // it happens here, once, on the way into the queue. Depth stays in world
     // terms (`wx + wy`) so a caller that supplies its own bias — flat decor, a
@@ -447,6 +528,11 @@ export class Renderer {
 
   /** Draws every queued sprite in depth order. Call once, after all queue() calls. */
   flushSprites(): void {
+    if (this.scene) {
+      this.scene.render();
+      this.worldDrawn = true;
+    }
+    // In 3D only the overlay layer is left on the list.
     this.drawList.flush(this.ctx, this.sprites, this.flashSheets, this.flashScratch);
   }
 
@@ -456,8 +542,22 @@ export class Renderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
 
-    // Letterbox bars.
-    if (this.offsetX > 0 || this.offsetY > 0) {
+    if (this.scene) {
+      if (!this.worldDrawn) this.scene.renderEmpty();
+      // See-through over the play box, where the 3D canvas shows; opaque bars
+      // around it, which is all the letterbox ever was.
+      const w = this.display.width;
+      const h = this.display.height;
+      const boxW = Math.round(VIEW_W * this.scale);
+      const boxH = Math.round(VIEW_H * this.scale);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#05060a';
+      ctx.fillRect(0, 0, w, this.offsetY);
+      ctx.fillRect(0, this.offsetY + boxH, w, h - this.offsetY - boxH);
+      ctx.fillRect(0, 0, this.offsetX, h);
+      ctx.fillRect(this.offsetX + boxW, 0, w - this.offsetX - boxW, h);
+    } else if (this.offsetX > 0 || this.offsetY > 0) {
+      // Letterbox bars.
       ctx.fillStyle = '#05060a';
       ctx.fillRect(0, 0, this.display.width, this.display.height);
     }

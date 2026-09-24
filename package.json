@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",
+    "@types/three": "^0.186.0",
     "typescript": "~5.7.3",
     "vite": "^6.0.11",
     "vitest": "^4.1.10"
@@ -25,6 +26,7 @@
     "@capacitor/core": "^8.5.0",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/ios": "^8.5.0",
-    "@capacitor/preferences": "^8.0.1"
+    "@capacitor/preferences": "^8.0.1",
+    "three": "^0.186.0"
   }
 }

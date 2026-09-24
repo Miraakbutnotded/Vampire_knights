@@ -194,7 +194,8 @@ export class TileMap {
   private textures: TileTexture[] = [];
   private cumulativeWeights: number[] = [];
   private totalWeight = 0;
-  private voidColor: string;
+  /** Colour of everything past the edge of the ground. */
+  readonly voidColor: string;
 
   private gridWidth = 0;
   private gridHeight = 0;
@@ -478,6 +479,12 @@ export class TileMap {
 
   /** Draws the ground layer. Call before queuing sprites. */
   drawGround(renderer: Renderer): void {
+    // The 3D view lays the ground as real planes under a real camera, so it
+    // wants flat, unskewed chunks and builds its own meshes from them.
+    if (renderer.scene) {
+      renderer.scene.ground(this, renderer.visibleBounds());
+      return;
+    }
     const ctx = renderer.ctx;
     // The void is painted across the whole buffer first. Under the projection a
     // chunk is a rhombus, so its cached canvas has to be transparent outside
@@ -566,6 +573,57 @@ export class TileMap {
       this.chunkCache.delete(oldest);
     }
     return canvas;
+  }
+
+  /** World size of one cached ground chunk, square. */
+  get chunkSize(): number {
+    return this.tileSize * CHUNK_TILES;
+  }
+
+  /**
+   * One chunk of ground drawn top-down, tile for tile, with no projection.
+   *
+   * The 3D view's counterpart to `chunk()`: there the tiles are skewed into
+   * diamonds because the canvas *is* the screen, here they stay square because
+   * the canvas becomes a texture on a plane and the camera does the slanting.
+   * Not cached — the 3D scene owns the texture it uploads this into.
+   */
+  flatChunk(cx: number, cy: number): HTMLCanvasElement {
+    const size = this.chunkSize;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    for (let ty = 0; ty < CHUNK_TILES; ty++) {
+      for (let tx = 0; tx < CHUNK_TILES; tx++) {
+        const tex = this.tileAt(cx * CHUNK_TILES + tx, cy * CHUNK_TILES + ty);
+        if (tex) ctx.drawImage(tex.source, tx * this.tileSize, ty * this.tileSize, this.tileSize, this.tileSize);
+      }
+    }
+    return canvas;
+  }
+
+  /**
+   * The grid a grid-mode map is built from, for the 3D view to raise walls and
+   * cut the floor's edge out of. Null on a scatter map, which has no edge and
+   * no solid tiles.
+   *
+   * `cells` holds a texture index per tile, -1 for void.
+   */
+  terrain(): {
+    width: number;
+    height: number;
+    cells: Int16Array;
+    textures: readonly { source: CanvasImageSource; solid: boolean }[];
+  } | null {
+    if (this.mode !== 'grid' || this.gridWidth <= 0 || this.gridHeight <= 0) return null;
+    const cells = new Int16Array(this.gridWidth * this.gridHeight).fill(-1);
+    for (let i = 0; i < cells.length; i++) {
+      const raw = this.tiles[i] ?? 0;
+      if (raw > 0 && raw <= this.textures.length) cells[i] = raw - 1;
+    }
+    return { width: this.gridWidth, height: this.gridHeight, cells, textures: this.textures };
   }
 
   private tileAt(tx: number, ty: number): TileTexture | null {
@@ -658,7 +716,7 @@ export class TileMap {
       ) {
         continue;
       }
-      renderer.queue(sprites.id(prop.sprite), 0, 0, prop.x, prop.y);
+      renderer.queue(sprites.id(prop.sprite), 0, 0, prop.x, prop.y, { shadow: true });
     }
 
     if (this.decor.length === 0) return;
@@ -675,6 +733,10 @@ export class TileMap {
         renderer.queue(sprites.id(placed.decor.sprite), 0, 0, placed.x, placed.y, {
           // `flat` decor sits under everything; -1e6 keeps it below any entity y.
           depth: placed.decor.flat ? -1e6 : placed.y,
+          // A puddle or a flower is painted on the floor, not standing on it;
+          // the 3D view lays it flat so nothing can walk behind it.
+          layer: placed.decor.flat ? 'flat' : 'world',
+          shadow: !placed.decor.flat,
         });
       }
     }
