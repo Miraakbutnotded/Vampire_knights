@@ -16,9 +16,9 @@ npm run cap:sync                   # build, then copy dist/ + regenerate the SPM
 npm run verify:ios                 # cap:sync, then actually compile and link the iOS target
 ```
 
-There is no linter configured; `tsc` is the gate. `npm test` is 20 files / 457 tests, all green —
-a red one is a regression, never a known failure to wave through. Most of them are *gates* rather
-than feature tests: they parse the source tree or the stylesheet and fail the build on an
+There is no linter configured; `tsc` is the gate. `npm test` is 20 files, all green (~35s) — a
+red one is a regression, never a known failure to wave through. Seven of those files are *gates*
+rather than feature tests: they parse the source tree or the stylesheet and fail the build on an
 architectural violation (see Tests).
 
 `cap:sync` and `verify:ios` are **not** the same gate. `cap sync` rewrites
@@ -36,7 +36,10 @@ reached through a dynamic import behind a fallback, so the web build and the hea
 identically when none of them resolve. All game content (enemies, weapons, passives, characters,
 abilities, waves, maps, structures, blood, meta) is data-driven JSON in `src/content/`. **The README
 documents every content JSON format in detail — read it before editing content files.** This file
-covers the code architecture instead.
+covers the code architecture instead. `ROADMAP.md` says where the project is heading (a
+tower-defence pivot, and an open 3D decision) and in what order; `docs/plans/` holds the dated
+design docs for each phase already built. The roadmap's numbers were measured at one commit —
+re-measure before trusting them.
 
 ## Architecture
 
@@ -83,9 +86,9 @@ per frame**, so edge-triggered input (menu keys, pause, F3) is handled only in `
 1. `run.time += dt`, then `difficultyAt()` → writes `ctx.hpScale/damageScale/speedScale` (consumed at spawn time only; existing enemies never rescale)
 2. `world.snapshotPositions()` — first, so the renderer can lerp prev→current by alpha
 3. `enemyHash.build()` **rebuild #1** (pre-movement: crowd separation + contact damage)
-4. `updatePlayer` → `spawner.update` → `updateEnemies`
+4. `updatePlayer` → `updateDowned` → `spawner.update` → `updateEnemies`
 5. `enemyHash.build()` **rebuild #2** (post-movement: all weapon/damage resolution — new damage systems go after this)
-6. `updateAbility` → `updateEnemyProjectiles` → `updateWeapons` → `updatePlayerProjectiles` → `updateHazards` → `updateStructures`
+6. `updateAbility` → `updateEnemyProjectiles` → `updateWeapons` → `updatePlayerProjectiles` → `updateHazards` → `updateStructures` → `updateBuilding`
 7. `pickupHash.build()` → `updatePickups` → `updateBlood` → `updateCorpses` → fx → camera
 8. `world.flush()` — **last, exactly once**
 9. Deferred state changes, in this precedence: a death mid-tick already moved us to `dying` and
@@ -271,6 +274,11 @@ for the same reason. The character's own position is the cursor — nothing this
 - **Upgrades are additive deltas carrying their own `cost`**, the same shape as a weapon's `levels`,
   so appending an entry raises the ceiling with no code change. A tier tops health up by exactly what
   it added rather than refilling: upgrading is hardware, never a repair.
+- **Mending outranks upgrading** on a structure below `REPAIR_BELOW` (75%) of its max health: F
+  buys it back to full at `REPAIR_PER_HP` gold per point (`repairStructure`, emits
+  `structure:repaired`). Which one the key does is chosen by when the player walks over, not by a
+  second control. `fortifyOffer()` checks `needsRepair` first for the same reason — change the
+  precedence in one and you must change it in the other.
 - **`buildCost: 0` means the map places it and it is not for sale.** A gate is architecture, not kit.
   `fortifyOffer()` in game.ts is the single answer to "what would F do", feeding the HUD prompt, the
   touch button and the F3 line, so none of them can advertise something the key would refuse.
